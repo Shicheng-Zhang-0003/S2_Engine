@@ -1,4 +1,4 @@
-# S2 Engine — Chemistry & Biological Simulator
+# S2 Engine — Nano Chemistry & Biological Simulator
 
 S2 Engine is a multi-scale, ground-up physical chemistry and biological simulator written in C. It validates biological processes across multiple levels: from subatomic quantum orbitals to molecular dynamics, biopolymer chain condensation, and cellular electrophysiology.
 
