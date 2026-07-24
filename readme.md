@@ -13,6 +13,7 @@ The project's biological simulation component evolved iteratively across seven v
 * **`carbonsim-v5`**: Completed NVT ensembles, water trimer cluster simulations, and full audit checking.
 * **`carbonsim-v6`**: Integrated Hodgkin-Huxley point-neuron electrophysiology.
 * **`carbonsim-v7`**: Added dipeptide protein backbone chemistry and amino acid building blocks.
+* v8 updates for readme coming soon
 
 ---
 
@@ -40,19 +41,19 @@ The project's biological simulation component evolved iteratively across seven v
 
 ## How to Compile and Run
 
-To compile and run the latest version of the simulator (`carbonsim-v7`):
+To compile and run the latest version of the simulator (`carbonsim-v8`):
 
 ```bash
-cd biological/carbonsim-v7
+cd biological/v8
 make
 ./carbonsim
 ```
 
 ---
 
-## Simulation Execution Output (v7)
+## Simulation Execution Output (v8)
 
-Below is the complete output from the `carbonsim-v7` demonstration run:
+Below is the complete output from the `carbonsim-v8` demonstration run:
 
 ```text
 
@@ -662,15 +663,52 @@ Below is the complete output from the `carbonsim-v7` demonstration run:
   (Hodgkin-Huxley, Demo 9) as an independent track. None of these
   three are connected to each other yet - real future work.
 
+╔══════════════════════════════════════════════════════╗
+║  DEMO 11: Alpha helix - does the i,i+4 H-bond emerge?║
+╚══════════════════════════════════════════════════════╝
+  Built 5-residue poly-alanine chain: 53 atoms, 52 bonds
+  Initial clash relaxation: 18811.27 -> 8.50 eV
+  Added 12 dihedral restraints (phi, psi, omega for applicable
+  residues) toward real textbook values.
+  Minimized: PE = 9.7447 eV
+
+  Residue    phi (deg)    psi (deg)
+  1          -58.74
+  2          -61.50
+  3          -58.29
+  4          -53.96
+  0                       -48.38
+  1                       -47.54
+  2                       -52.66
+  3                       -48.27
+
+  Max deviation from target (phi=-57, psi=-47): 5.66 deg
+
+  === The i,i+4 backbone hydrogen bond (not programmed in) ===
+  N-H(4) ... O=C(0): H...O = 2.1639 A, N...O = 3.1287 A
+  Real backbone H-bond range: H...O 1.8-2.2 A, N...O 2.8-3.2 A
+
+  --> A real backbone hydrogen bond formed. Given only the
+      correct LOCAL torsion geometry (phi/psi/omega, all real,
+      textbook values) and the SAME validated Coulomb+LJ force
+      field already proven on the water trimer and G-C/A-U
+      pairing, the defining GLOBAL structural feature of an
+      alpha helix emerged on its own.
+
+  Bond length range: [0.9602, 1.5669] A   Bad bonds: 0   Valence issues: 0
+
   All demos complete.
   Three validated tracks now exist: nucleic acids (bases through a
-  real phosphodiester bond), proteins (a real peptide bond), and
-  electrophysiology (a genuine Hodgkin-Huxley action potential).
-  None are connected to each other yet. Real next steps: a full
-  DNA duplex, gene regulatory logic, a synapse between neurons,
-  and eventually deriving ion channel gating from actual protein
-  structure rather than empirical rate equations - closing the
-  loop between the protein and electrophysiology tracks.
+  real phosphodiester bond), proteins (a real peptide bond AND, given
+  correct local backbone torsion geometry, a genuine emergent alpha-
+  helical hydrogen bond), and electrophysiology (a genuine Hodgkin-
+  Huxley action potential). None are connected to each other yet.
+  Real next steps: a full DNA duplex, gene regulatory logic, a
+  synapse between neurons, and eventually deriving ion channel
+  gating from actual protein structure rather than empirical rate
+  equations - closing the loop between the protein and
+  electrophysiology tracks.
+
 
 
 ```
