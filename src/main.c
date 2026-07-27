@@ -1402,6 +1402,91 @@ static void demo_helix(void) {
     sim_destroy(sim);
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * DEMO 12: KcsA selectivity filter - K+ vs Na+, first pass
+ *
+ * Four backbone carbonyl oxygens (real backbone-carbonyl partial charge,
+ * -0.55 e, same value used in this file's own glycine geometry) placed
+ * with the real 4-fold crystallographic symmetry of the KcsA filter
+ * (pure 90-degree rotations, matching PDB 1K4C's REMARK 350 BIOMT
+ * operators), at the real literature/deposited K+-carbonyl coordination
+ * distance for two filter sites. A single ion sits on-axis. This is a
+ * single-point Coulomb+LJ energy evaluation - no dynamics, no
+ * relaxation - the same first metric Demo 7 reports before running
+ * anything.
+ *
+ * Honest scope: this does NOT use the deposited backbone XYZ
+ * coordinates (not fetched - chain C sits after two antibody Fab
+ * chains in 1K4C, expensive to reach). The radius is the real
+ * literature distance, used here as a constructed INPUT, so this does
+ * not test whether the right distance emerges - it tests whether the
+ * validated Coulomb+LJ engine, given a real, symmetric, correctly-
+ * charged cage, energetically prefers K+ over Na+. Generic O(Z=8) LJ
+ * typing is used, not amino-acid-specific carbonyl typing; the four
+ * oxygens are not bonded to each other (correct, not a simplification
+ * - they belong to four separate protein chains in reality too).
+ * ══════════════════════════════════════════════════════════════════════════ */
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+#define KCSA_CARBONYL_O_CHARGE  -0.55
+
+static double kcsa_filter_energy(int ion_Z, double ion_charge,
+                                  const char *ion_name, double radius_A) {
+    Simulation *sim = sim_create(8, 8);
+
+    for (int i = 0; i < 4; i++) {
+        double angle = i * (M_PI / 2.0);
+        Vec3 pos = vec3(radius_A * cos(angle), radius_A * sin(angle), 0.0);
+        sim_add_atom(sim, 8 /* O */, pos, KCSA_CARBONYL_O_CHARGE);
+    }
+    sim_add_atom(sim, ion_Z, vec3(0.0, 0.0, 0.0), ion_charge);
+
+    forces_calculate(sim);
+
+    printf("  %-3s  E_LJ = %10.6f eV   E_Coulomb = %10.6f eV   "
+           "Total_PE = %10.6f eV\n",
+           ion_name, sim->E_lj_total, sim->E_coulomb_total,
+           sim->potential_energy);
+
+    double total = sim->potential_energy;
+    sim_destroy(sim);
+    return total;
+}
+
+static void demo_kcsa_filter(void) {
+    banner("DEMO 12: KcsA selectivity filter - K+ vs Na+, first pass");
+
+    printf("  Four real-charge carbonyl O's, real 4-fold symmetry, radius =\n"
+           "  literature K+-coordination target (constructed, not fetched\n"
+           "  from deposited coordinates - see source comment for exact scope)\n\n");
+
+    printf("--- Gly77 site, PDB 1K4C LINK record target: 2.72 A ---\n");
+    double k_e  = kcsa_filter_energy(19, 1.0, "K+ ", 2.72);
+    double na_e = kcsa_filter_energy(11, 1.0, "Na+", 2.72);
+    printf("  Delta (Na+ minus K+): %+.6f eV  (%s)\n\n",
+           na_e - k_e, (k_e < na_e) ? "K+ favored, correct direction"
+                                     : "Na+ favored, WRONG direction");
+
+    printf("--- Val76 site, target: 2.83 A ---\n");
+    k_e  = kcsa_filter_energy(19, 1.0, "K+ ", 2.83);
+    na_e = kcsa_filter_energy(11, 1.0, "Na+", 2.83);
+    printf("  Delta (Na+ minus K+): %+.6f eV  (%s)\n\n",
+           na_e - k_e, (k_e < na_e) ? "K+ favored, correct direction"
+                                     : "Na+ favored, WRONG direction");
+
+    printf("  Honest caveat: both sites come out Na+-favored, the wrong\n"
+           "  direction. E_Coulomb is identical for both ions by construction\n"
+           "  (same +1 charge, same fixed distance); the entire result rides\n"
+           "  on E_LJ, where generic K+'s larger LJ radius doesn't fit this\n"
+           "  tight, real coordination distance as comfortably as Na+'s does.\n"
+           "  This says the real filter's selectivity isn't recoverable from\n"
+           "  generic ion LJ parameters at a fixed radius alone - real next\n"
+           "  candidates are amino-acid-specific carbonyl typing, relaxed\n"
+           "  (not fixed) geometry, and polarizability. Not a bug: an honest\n"
+           "  negative result from a deliberately minimal first pass.\n");
+}
+
 /* ════════════════════════════════════════════════════════════════════════════
  * Entry point
  * ════════════════════════════════════════════════════════════════════════════ */
@@ -1425,6 +1510,7 @@ int main(void) {
     demo_neuron();
     demo_dipeptide();
     demo_helix();
+    demo_kcsa_filter();
 
     printf("\n  All demos complete.\n");
     printf("  Three validated tracks now exist: nucleic acids (bases through a\n"
