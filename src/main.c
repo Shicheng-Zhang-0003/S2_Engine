@@ -1421,10 +1421,12 @@ static void demo_helix(void) {
  * literature distance, used here as a constructed INPUT, so this does
  * not test whether the right distance emerges - it tests whether the
  * validated Coulomb+LJ engine, given a real, symmetric, correctly-
- * charged cage, energetically prefers K+ over Na+. Generic O(Z=8) LJ
- * typing is used, not amino-acid-specific carbonyl typing; the four
- * oxygens are not bonded to each other (correct, not a simplification
- * - they belong to four separate protein chains in reality too).
+ * charged cage, energetically prefers K+ over Na+. Amino-acid-specific
+ * carbonyl LJ typing is used (AA_LJ_O_EPS/SIGMA, matching aminoacids.c
+ * exactly - see kcsa_filter_energy below), not generic periodic-table
+ * O; the four oxygens are not bonded to each other (correct, not a
+ * simplification - they belong to four separate protein chains in
+ * reality too).
  * ══════════════════════════════════════════════════════════════════════════ */
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -1435,10 +1437,20 @@ static double kcsa_filter_energy(int ion_Z, double ion_charge,
                                   const char *ion_name, double radius_A) {
     Simulation *sim = sim_create(8, 8);
 
+    /* Amino-acid-specific backbone carbonyl LJ parameters, not generic
+     * periodic-table oxygen. Matches aminoacids.c's own AA_LJ_O_EPS /
+     * AA_LJ_O_SIGMA #defines exactly - 0.2100 kcal/mol via
+     * KCAL_MOL_TO_EV, 1.6612 A R* via the same R*-to-sigma conversion
+     * that file uses. Computed here rather than referenced directly
+     * because those macros are private to aminoacids.c. */
+    const double CARBONYL_O_LJ_EPS   = 0.2100 * KCAL_MOL_TO_EV;
+    const double CARBONYL_O_LJ_SIGMA = 1.6612 * 2.0 / 1.122462048309373;
+
     for (int i = 0; i < 4; i++) {
         double angle = i * (M_PI / 2.0);
         Vec3 pos = vec3(radius_A * cos(angle), radius_A * sin(angle), 0.0);
-        sim_add_atom(sim, 8 /* O */, pos, KCSA_CARBONYL_O_CHARGE);
+        int o = sim_add_atom(sim, 8 /* O */, pos, KCSA_CARBONYL_O_CHARGE);
+        sim_set_atom_lj(sim, o, CARBONYL_O_LJ_EPS, CARBONYL_O_LJ_SIGMA);
     }
     sim_add_atom(sim, ion_Z, vec3(0.0, 0.0, 0.0), ion_charge);
 
@@ -1454,37 +1466,127 @@ static double kcsa_filter_energy(int ion_Z, double ion_charge,
     return total;
 }
 
+/* Same physics as kcsa_filter_energy, no per-call printing - used to scan
+ * many radii and find each ion's own preferred coordination distance,
+ * rather than forcing both ions to the same fixed radius. This is the
+ * "relaxed geometry" test from a couple of messages back, done as a 1-D
+ * radial scan instead of a free multi-body minimization: it needs no new
+ * restraint/fixing infrastructure (there isn't any in this codebase yet),
+ * and it's the textbook-standard way selectivity-by-cage-size is actually
+ * framed - is the cage's natural size a better match for K+ or for Na+. */
+static double kcsa_energy_at_radius(int ion_Z, double ion_charge,
+                                     double radius_A) {
+    Simulation *sim = sim_create(8, 8);
+    const double CARBONYL_O_LJ_EPS   = 0.2100 * KCAL_MOL_TO_EV;
+    const double CARBONYL_O_LJ_SIGMA = 1.6612 * 2.0 / 1.122462048309373;
+
+    for (int i = 0; i < 4; i++) {
+        double angle = i * (M_PI / 2.0);
+        Vec3 pos = vec3(radius_A * cos(angle), radius_A * sin(angle), 0.0);
+        int o = sim_add_atom(sim, 8, pos, KCSA_CARBONYL_O_CHARGE);
+        sim_set_atom_lj(sim, o, CARBONYL_O_LJ_EPS, CARBONYL_O_LJ_SIGMA);
+    }
+    sim_add_atom(sim, ion_Z, vec3(0.0, 0.0, 0.0), ion_charge);
+    forces_calculate(sim);
+    double total = sim->potential_energy;
+    sim_destroy(sim);
+    return total;
+}
+
+static void kcsa_scan_ion(int ion_Z, double ion_charge, const char *ion_name,
+                           double *best_radius, double *best_energy) {
+    double bmin_r = 2.0, bmin_e = 1e30;
+    for (double r = 2.0; r <= 4.2 + 1e-9; r += 0.02) {
+        double e = kcsa_energy_at_radius(ion_Z, ion_charge, r);
+        if (e < bmin_e) { bmin_e = e; bmin_r = r; }
+    }
+    *best_radius = bmin_r;
+    *best_energy = bmin_e;
+    printf("  %-3s  natural radius = %.3f A   E_min = %.6f eV\n",
+           ion_name, bmin_r, bmin_e);
+}
+
 static void demo_kcsa_filter(void) {
-    banner("DEMO 12: KcsA selectivity filter - K+ vs Na+, first pass");
+    banner("DEMO 12: KcsA selectivity filter - K+ vs Na+, second pass");
 
     printf("  Four real-charge carbonyl O's, real 4-fold symmetry, radius =\n"
-           "  literature K+-coordination target (constructed, not fetched\n"
-           "  from deposited coordinates - see source comment for exact scope)\n\n");
+           "  literature K+-coordination target. This pass uses the real\n"
+           "  amino-acid-specific carbonyl LJ typing (AA_LJ_O_EPS/SIGMA from\n"
+           "  aminoacids.c) instead of generic periodic-table oxygen - see\n"
+           "  source comment for exact scope and what changed from pass one.\n\n");
 
     printf("--- Gly77 site, PDB 1K4C LINK record target: 2.72 A ---\n");
-    double k_e  = kcsa_filter_energy(19, 1.0, "K+ ", 2.72);
-    double na_e = kcsa_filter_energy(11, 1.0, "Na+", 2.72);
+    double k_e1  = kcsa_filter_energy(19, 1.0, "K+ ", 2.72);
+    double na_e1 = kcsa_filter_energy(11, 1.0, "Na+", 2.72);
+    double d1 = na_e1 - k_e1;
     printf("  Delta (Na+ minus K+): %+.6f eV  (%s)\n\n",
-           na_e - k_e, (k_e < na_e) ? "K+ favored, correct direction"
-                                     : "Na+ favored, WRONG direction");
+           d1, (k_e1 < na_e1) ? "K+ favored, correct direction"
+                               : "Na+ favored, wrong direction");
 
     printf("--- Val76 site, target: 2.83 A ---\n");
-    k_e  = kcsa_filter_energy(19, 1.0, "K+ ", 2.83);
-    na_e = kcsa_filter_energy(11, 1.0, "Na+", 2.83);
+    double k_e2  = kcsa_filter_energy(19, 1.0, "K+ ", 2.83);
+    double na_e2 = kcsa_filter_energy(11, 1.0, "Na+", 2.83);
+    double d2 = na_e2 - k_e2;
     printf("  Delta (Na+ minus K+): %+.6f eV  (%s)\n\n",
-           na_e - k_e, (k_e < na_e) ? "K+ favored, correct direction"
-                                     : "Na+ favored, WRONG direction");
+           d2, (k_e2 < na_e2) ? "K+ favored, correct direction"
+                               : "Na+ favored, wrong direction");
 
-    printf("  Honest caveat: both sites come out Na+-favored, the wrong\n"
-           "  direction. E_Coulomb is identical for both ions by construction\n"
-           "  (same +1 charge, same fixed distance); the entire result rides\n"
-           "  on E_LJ, where generic K+'s larger LJ radius doesn't fit this\n"
-           "  tight, real coordination distance as comfortably as Na+'s does.\n"
-           "  This says the real filter's selectivity isn't recoverable from\n"
-           "  generic ion LJ parameters at a fixed radius alone - real next\n"
-           "  candidates are amino-acid-specific carbonyl typing, relaxed\n"
-           "  (not fixed) geometry, and polarizability. Not a bug: an honest\n"
-           "  negative result from a deliberately minimal first pass.\n");
+    int both_correct = (k_e1 < na_e1) && (k_e2 < na_e2);
+    int both_wrong    = (k_e1 >= na_e1) && (k_e2 >= na_e2);
+    printf("  Honest read (fixed-radius tests): switching from generic-O to\n"
+           "  amino-acid-specific carbonyl LJ typing is the only change from\n"
+           "  the first pass.\n");
+    if (both_correct) {
+        printf("  Both sites now favor K+ - the right direction. That's\n"
+               "  consistent with the LJ-typing theory: the earlier generic-O\n"
+               "  sigma was too large for this coordination distance, and the\n"
+               "  correct carbonyl-specific typing removes that artifact.\n"
+               "  Still not a claim of quantitatively correct selectivity -\n"
+               "  the magnitude should be checked against real free-energy\n"
+               "  numbers before trusting it beyond direction.\n\n");
+    } else if (both_wrong) {
+        printf("  Still Na+-favored at both sites even with correct LJ typing.\n"
+               "  That rules out generic-O typing as the (sole) cause and\n"
+               "  points more toward the remaining candidates: fixed (not\n"
+               "  relaxed) geometry, and the lack of polarizability.\n\n");
+    } else {
+        printf("  Mixed: the two sites disagree on direction. That's a real\n"
+               "  result, not a data error - worth checking whether it tracks\n"
+               "  a real structural difference between the two sites before\n"
+               "  reading anything further into it.\n\n");
+    }
+
+    printf("--- Letting each ion find its own preferred radius (2.00-4.20 A "
+           "scan, 0.02 A steps) ---\n");
+    double k_r, k_emin, na_r, na_emin;
+    kcsa_scan_ion(19, 1.0, "K+ ", &k_r, &k_emin);
+    kcsa_scan_ion(11, 1.0, "Na+", &na_r, &na_emin);
+    printf("  K+ natural radius %.3f A vs Na+ %.3f A - %s\n",
+           k_r, na_r,
+           (k_r > na_r) ? "K+ prefers the larger cage, as expected for the "
+                          "bigger ion"
+                        : "unexpected: K+ prefers a smaller cage than Na+");
+    printf("  At each ion's OWN best radius: K+ E_min = %.6f eV vs "
+           "Na+ E_min = %.6f eV -> %s\n\n",
+           k_emin, na_emin,
+           (k_emin < na_emin) ? "K+ favored, correct direction"
+                               : "Na+ favored, wrong direction");
+    printf("  Honest read (radius-flexible test): this is the same real\n"
+           "  charges and the same real carbonyl LJ typing as above - the\n"
+           "  only thing that changed is letting each ion pick its own\n"
+           "  distance instead of forcing both to the crystal's real but\n"
+           "  shared 2.72/2.83 A. %s\n",
+           (k_emin < na_emin)
+             ? "K+ winning once geometry is allowed to differ is a real,\n"
+               "  meaningful result: it says the filter's fixed, shared\n"
+               "  geometry - not the ion physics itself - was the source of\n"
+               "  the earlier wrong-direction result. That's a genuinely\n"
+               "  different conclusion than 'the model is wrong.'"
+             : "Na+ still winning even with each ion free to pick its own\n"
+               "  radius is the stronger negative result of the two - it\n"
+               "  says this isn't a geometry-fit problem at all, and\n"
+               "  polarizability moves from 'the last remaining candidate'\n"
+               "  to 'the most likely one.'");
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
