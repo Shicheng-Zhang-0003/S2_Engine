@@ -1,59 +1,228 @@
 # S2 Engine — Nano Chemistry & Biological Simulator
 
-S2 Engine is a multi-scale, ground-up physical chemistry and biological simulator written in C. It validates biological processes across multiple levels: from subatomic quantum orbitals to molecular dynamics, biopolymer chain condensation, and cellular electrophysiology.
+S2 Engine is a multi-scale, ground-up physical chemistry and biological
+simulator written in C. It validates biological processes across multiple
+levels of organization: from subatomic quantum orbitals, through molecular
+dynamics and biopolymer chain condensation, up to cellular electrophysiology
+and ion-channel biophysics.
+
+The organizing principle of the whole project is **emergence from real
+physics**: structure and behavior are never hard-coded. Hydrogen bonds,
+base-pairing selectivity, secondary-structure formation, and the action
+potential waveform are all produced by integrating real force fields and
+real differential equations whose only inputs are measured physical
+constants, literature-sourced parameters, and verified geometry. Where a
+result is qualitative rather than quantitative, or where a demo reports a
+genuine negative result, the output says so explicitly.
 
 ---
 
 ## Project Structure & Evolution
 
-The project's biological simulation component evolved iteratively across seven versions located in `biological/`:
+The biological simulation component evolved iteratively across versions
+located in `biological/`. Each version added a new physical capability on
+top of the validated layers below it:
 
-* **`carbonsim-v1` & `carbonsim-v2`**: Established physical constants, the UFF-based periodic table database, and the Velocity Verlet molecular dynamics integrator.
-* **`carbonsim-v3` & `carbonsim-v4`**: Programmed nucleotide base placement and structure modeling.
-* **`carbonsim-v5`**: Completed NVT ensembles, water trimer cluster simulations, and full audit checking.
-* **`carbonsim-v6`**: Integrated Hodgkin-Huxley point-neuron electrophysiology.
-* **`carbonsim-v7`**: Added dipeptide protein backbone chemistry and amino acid building blocks.
-* v8 updates for readme coming soon
+* **`carbonsim-v1` & `carbonsim-v2`** — Established the physical constants
+  (2019 CODATA), the UFF-based periodic table database (elements H→Kr fully
+  populated), and the symplectic Velocity Verlet molecular dynamics
+  integrator with Berendsen weak-coupling thermostats.
+
+* **`carbonsim-v3` & `carbonsim-v4`** — Programmed nucleotide base placement
+  and structure modeling, including the five nucleobases built from verified
+  RCSB PDB Chemical Component Dictionary ideal coordinates.
+
+* **`carbonsim-v5`** — Completed NVT ensembles, the emergent cyclic water
+  trimer cluster simulation, and full geometry-audit checking.
+
+* **`carbonsim-v6`** — Integrated the Hodgkin-Huxley point-neuron
+  electrophysiology track (squid giant axon), a genuinely independent track
+  from the chemistry/MD code.
+
+* **`carbonsim-v7`** — Added dipeptide protein backbone chemistry and the
+  amino acid building blocks (glycine, alanine), sourced from PDB CCD ideal
+  coordinates with PDB-authoritative leaving-atom condensation chemistry.
+
+* **`carbonsim-v8`** — Brought the molecular-recognition and backbone demos
+  to their current form: Watson-Crick base-pairing energetics (G-C vs A-U),
+  the T-p-A dinucleotide sugar-phosphate backbone, the Hodgkin-Huxley action
+  potential, and the Gly-Ala dipeptide peptide bond. Integrated real
+  AMBER ff99 Lennard-Jones parameters and verified RESP partial charges
+  (Aduri et al. 2007) for the nucleobases, replacing generic per-element
+  defaults.
+
+* **`carbonsim-v9A1`** *(current)* — Added the capabilities needed to go
+  from static backbone links to genuine 3D structure:
+  - **Dihedral (torsion) forces** in the standard AMBER/CHARMM functional
+    form, with gradients computed by central finite difference for
+    correctness-by-construction.
+  - **Steepest-descent energy minimization** with adaptive step size, a
+    per-atom displacement cap, a divergence safety check, and a frozen-atom
+    variant.
+  - **The poly-alanine chain builder** with centralized, defensive index
+    tracking across residue assembly.
+  - **Demo 11 — alpha-helix emergence**: given only correct local backbone
+    torsion geometry, the defining i,i+4 backbone hydrogen bond forms from
+    the same Coulomb+LJ physics validated on the water trimer.
+  - **Demo 12 — KcsA selectivity filter**: a Coulomb+LJ investigation of
+    K⁺ vs Na⁺ coordination, including an honestly-reported negative result
+    and a systematic diagnosis pointing at missing polarizability.
+  - Amino-acid-specific carbonyl Lennard-Jones typing shared consistently
+    between the protein and ion-channel tracks.
 
 ---
 
 ## Core Simulation Capabilities
 
 ### 1. Subatomic Quantum Orbital Structure
-* Slater screening rules are used to compute effective nuclear charge ($Z_{\text{eff}} = Z - S$).
-* Radial probability profiles ($P(r) = r^2|R_{nl}(r)|^2$) are computed analytically using associated Laguerre polynomials ($L_p^q$) solved via a stable three-term recurrence relation.
+
+* Slater screening rules compute the effective nuclear charge
+  ($Z_{\text{eff}} = Z - S$) for every occupied orbital, with the
+  screening tiers keyed on principal quantum number (verified against
+  Slater's own 1930 worked example for iron before use).
+* Orbital energies follow $E_{nl} = -13.6058\,\text{eV}\,(Z_{\text{eff}}/n^*)^2$
+  using Slater's effective principal quantum number $n^*$.
+* Radial probability profiles $P(r) = r^2|R_{nl}(r)|^2$ are computed
+  analytically from hydrogen-like wave functions whose associated
+  Laguerre polynomials $L_p^q$ are evaluated by a stable three-term
+  recurrence.
 
 ### 2. Molecular Dynamics Core
-* **Forces**: Integrates Lennard-Jones potentials (Lorentz-Berthelot combination rules) and Coulomb electrostatics with dielectric screening, alongside harmonic bonds and angles.
-* **Integrator**: Symplectic Velocity Verlet algorithm with Berendsen weak-coupling NVT thermostats.
-* **Maxwell-Boltzmann Initialisation**: Generates random initial velocities using Box-Muller transforms and removes net linear momentum.
 
-### 3. Biopolymer Condensation Chemistry
-* Procedural builders use rigid-body transformations (translations and rotations) to construct complex biomolecules:
-  * **Nucleic Acids**: Models the five nucleobases (Adenine, Thymine, Uracil, Cytosine, Guanine) and joins them via phosphodiester bonds (T-p-A dinucleotide).
-  * **Proteins**: Models amino acids (Glycine, Alanine) and synthesizes them into dipeptides (Gly-Ala) via amide peptide bonds.
+* **Non-bonded forces**: Lennard-Jones potentials (Lorentz-Berthelot
+  combination rules) and Coulomb electrostatics with an optional
+  relative-permittivity (dielectric) divisor. Per-atom LJ parameters
+  are overridable away from the generic UFF element defaults so a
+  jointly-parameterized model (e.g. TIP3P water, AMBER ff99 nucleobase
+  and backbone types) stays internally consistent.
+* **Bonded forces**: harmonic bond stretch and harmonic angle bend,
+  plus **dihedral (torsion) terms** in the standard AMBER/CHARMM form
+  $V = k\,[1 + \cos(n\phi - \delta)]$.
+* **Dihedral gradients by finite difference**: the torsion force is
+  obtained by central numerical differentiation of the energy (24 energy
+  evaluations per dihedral per call) rather than an analytical
+  chain-rule formula. This is a deliberate correctness-over-speed choice
+  — the analytical dihedral force is a notorious source of silent sign
+  bugs, and a numerically differentiated force is correct by
+  construction. The signed dihedral angle itself (atan2-based, so it
+  distinguishes handedness) was verified against four hand-built test
+  cases before use.
+* **Integrator**: symplectic Velocity Verlet with Berendsen
+  weak-coupling NVT thermostats.
+* **Initialisation**: Maxwell-Boltzmann velocities via Box-Muller
+  transforms, with net linear momentum removed. Temperature uses the
+  correct $3N-3$ degrees of freedom (centre-of-mass motion excluded).
 
-### 4. Electrophysiology
-* Simulates the 4-variable Hodgkin-Huxley model of a squid giant axon membrane potential.
-* Solved using Runge-Kutta 4th-order (RK4) integration with Taylor expansions to protect against removable singularities at voltage thresholds (e.g. $V = -40$ mV and $V = -55$ mV).
+### 3. Energy Minimization
+
+* Steepest-descent minimizer with an adaptive step size (grown ×1.2 on
+  a successful downhill step, shrunk ×0.5 and rolled back on an
+  uphill one).
+* A hard per-atom displacement cap (0.05 Å) and a divergence safety
+  check prevent a large step from tunnelling through a steep repulsive
+  wall into the unphysical $r \to 0$ Coulomb-divergence region.
+* A frozen-atom variant holds a caller-specified subset of atoms fixed,
+  used for relaxing part of an assembly without disturbing the rest.
+* Purpose: resolve the severe local steric clashes inherent in a
+  freshly-assembled chain before any velocity-based dynamics, which has
+  no safe way to absorb such an overlap.
+
+### 4. Biopolymer Condensation Chemistry
+
+Procedural builders use rigid-body transformations (rotations and
+translations) plus real condensation chemistry — leaving-group atoms are
+genuinely removed, following the PDB Chemical Component Dictionary's own
+authoritative leaving-atom flags — to construct biomolecules:
+
+* **Nucleic acids**: the five nucleobases (uracil, cytosine, thymine,
+  adenine, guanine) from verified PDB CCD ideal coordinates, with RESP
+  partial charges (Aduri et al. 2007) and real AMBER ff99 Lennard-Jones
+  types; 2-deoxyribose; and a T-p-A dinucleotide joined by a real
+  phosphodiester bridge.
+* **Proteins**: glycine and alanine from PDB CCD ideal coordinates, a
+  Gly-Ala dipeptide linked by a genuine 1.33 Å peptide bond, and a
+  generalized poly-alanine chain builder (up to 16 residues).
+* **Defensive index tracking**: chain assembly records each residue's
+  backbone atom indices in an `AAResidue` record and re-checks every
+  tracked index after every atom removal — a centralized, correct-by-
+  construction replacement for the manual index reasoning that produced
+  real bugs earlier in the project.
+* **Emergent secondary structure**: given only correct local backbone
+  torsion geometry (real textbook $\phi/\psi/\omega$ values applied as
+  dihedral restraints) and the same validated Coulomb+LJ force field,
+  the defining i,i+4 backbone hydrogen bond of an alpha helix forms on
+  its own (Demo 11).
+
+### 5. Electrophysiology
+
+* The 4-variable Hodgkin-Huxley (1952) model of the squid giant axon,
+  solved with Runge-Kutta 4th-order integration (the equations are
+  stiff during the sodium upstroke; Euler would need an impractically
+  small step).
+* Gating rate functions are protected against their removable
+  singularities ($V = -40$ mV and $V = -55$ mV) via small-argument
+  Taylor expansions of the $x/(1-e^{-x})$ form.
+* Every parameter and rate function was cross-checked against 2+
+  independent literature sources, and the resting steady-state gating
+  values were reproduced from the rate functions themselves and matched
+  to a published worked example to four decimal places before any C code
+  was written.
+
+### 6. Ion-Channel Biophysics
+
+* A Coulomb+LJ investigation of the KcsA potassium-channel selectivity
+  filter (Demo 12): four real-charge backbone carbonyl oxygens in the
+  filter's real 4-fold symmetry, tested for K⁺ vs Na⁺ preference at
+  literature coordination distances and across a radius scan.
+* This track currently reports an honest **negative result** (Na⁺ is
+  favored, the wrong direction) and a systematic diagnosis pointing at
+  missing electronic polarizability — see the verification and
+  limitations sections below.
 
 ---
 
 ## How to Compile and Run
 
-To compile and run the latest version of the simulator (`carbonsim-v8`):
+To build and run the current version (`carbonsim-v9A1`):
 
 ```bash
-cd biological/v8
+cd biological/v9A1
 make
 ./carbonsim
 ```
 
+The project ships a makefile with the following targets:
+
+* `make` / `make all` — compile every source in `src/` into object
+  files under `build/`, then link the `carbonsim` binary.
+* `make run` — build if necessary, then execute `./carbonsim`.
+* `make clean` — remove the `build/` directory and the binary.
+
+**Requirements**: a C11 compiler (gcc or clang), `make`, and the
+standard C math library (linked automatically via `-lm`). The default
+build compiles with `-O3 -Wall -Wextra -std=c11 -march=native
+-ffast-math`.
+
+**Debug build**: for a sanitised build with AddressSanitizer and
+UndefinedBehaviorSanitizer enabled (slower, but catches memory and
+undefined-behaviour errors), uncomment the alternate `CFLAGS` line
+near the top of the makefile and rebuild.
+
 ---
 
-## Simulation Execution Output (v8)
+## Simulation Execution Output (v9A1)
 
-Below is the complete output from the `carbonsim-v8` demonstration run:
+Below is the complete, unedited output of the `carbonsim-v9A1`
+demonstration run — all twelve demos, from the quantum orbital tables
+through the Hodgkin-Huxley action potential and the KcsA selectivity
+filter. It is reproduced verbatim from `output.txt`.
+
+Note the output itself here: Demo 7 flags
+that its base-pairing magnitudes are qualitatively but not yet
+quantitatively trustworthy; Demo 11 states explicitly that it is not a
+spontaneous-folding test; and Demo 12 reports a genuine negative result
+with a systematic diagnosis. These caveats are part of the record, not
+footnotes.
 
 ```text
 
@@ -697,6 +866,61 @@ Below is the complete output from the `carbonsim-v8` demonstration run:
 
   Bond length range: [0.9602, 1.5669] A   Bad bonds: 0   Valence issues: 0
 
+╔══════════════════════════════════════════════════════╗
+║  DEMO 12: KcsA selectivity filter - K+ vs Na+, second pass║
+╚══════════════════════════════════════════════════════╝
+  Four real-charge carbonyl O's, real 4-fold symmetry, radius =
+  literature K+-coordination target. This pass uses the real
+  amino-acid-specific carbonyl LJ typing (AA_LJ_O_EPS/SIGMA from
+  aminoacids.c) instead of generic periodic-table oxygen - see
+  source comment for exact scope and what changed from pass one.
+
+--- Gly77 site, PDB 1K4C LINK record target: 2.72 A ---
+  K+   E_LJ =   0.576496 eV   E_Coulomb =  -5.515792 eV   Total_PE =  -4.939296 eV
+  Na+  E_LJ =   0.039704 eV   E_Coulomb =  -5.515792 eV   Total_PE =  -5.476089 eV
+  Delta (Na+ minus K+): -0.536793 eV  (Na+ favored, wrong direction)
+
+--- Val76 site, target: 2.83 A ---
+  K+   E_LJ =   0.315950 eV   E_Coulomb =  -5.301397 eV   Total_PE =  -4.985447 eV
+  Na+  E_LJ =   0.003689 eV   E_Coulomb =  -5.301397 eV   Total_PE =  -5.297709 eV
+  Delta (Na+ minus K+): -0.312261 eV  (Na+ favored, wrong direction)
+
+  Honest read (fixed-radius tests): switching from generic-O to
+  amino-acid-specific carbonyl LJ typing is the only change from
+  the first pass.
+  Still Na+-favored at both sites even with correct LJ typing.
+  That rules out generic-O typing as the (sole) cause and
+  points more toward the remaining candidates: fixed (not
+  relaxed) geometry, and the lack of polarizability.
+
+--- Letting each ion find its own preferred radius (2.00-4.20 A scan, 0.02 A steps) ---
+  K+   natural radius = 2.820 A   E_min = -4.986155 eV
+  Na+  natural radius = 2.440 A   E_min = -5.780787 eV
+  K+ natural radius 2.820 A vs Na+ 2.440 A - K+ prefers the larger cage, as expected for the bigger ion
+  At each ion's OWN best radius: K+ E_min = -4.986155 eV vs Na+ E_min = -5.780787 eV -> Na+ favored, wrong direction
+
+  Honest read (radius-flexible test): this is the same real
+  charges and the same real carbonyl LJ typing as above - the
+  only thing that changed is letting each ion pick its own
+  distance instead of forcing both to the crystal's real but
+  shared 2.72/2.83 A. Na+ still winning even with each ion free to pick its own
+  radius is the stronger negative result of the two - it
+  says this isn't a geometry-fit problem at all, and
+  polarizability moves from 'the last remaining candidate'
+  to 'the most likely one.'
+
+--- Fuller real geometry: Thr75-O + Val76-O together (the real
+  antiprism site S3/K-C3003 actually shows, not a single ring) ---
+  K+   E_LJ =  14.807721 eV   E_Coulomb =  12.402306 eV   Total_PE =  27.210027 eV
+  Na+  E_LJ =  13.902915 eV   E_Coulomb =  12.402306 eV   Total_PE =  26.305221 eV
+  Delta (Na+ minus K+): -0.904806 eV  (Na+ favored, wrong direction)
+  Honest read: both real target distances (Thr75 2.70 A, Val76
+  2.83 A) at once, real 45-degree antiprism offset, same real
+  charges and typing as every test above - the only new variable
+  is twice the coordinating oxygens. Ring z-separation wasn't
+  independently verified this pass, so both rings sit at z=0;
+  that's a simplification, not a claim of crystal-exact geometry.
+
   All demos complete.
   Three validated tracks now exist: nucleic acids (bases through a
   real phosphodiester bond), proteins (a real peptide bond AND, given
@@ -710,5 +934,117 @@ Below is the complete output from the `carbonsim-v8` demonstration run:
   electrophysiology tracks.
 
 
-
 ```
+---
+
+## Verification Discipline & Known Limitations
+
+This project holds itself to two standards, stated here explicitly so
+any result can be judged against them: **every number is sourced, and
+every approximation is flagged.** Where a result is qualitative rather
+than quantitative, or where a demo reports a genuine negative result,
+the output says so in plain language rather than burying it.
+
+### Verification discipline
+
+* **Constants and unit conversions.** Fundamental constants are 2019
+  CODATA values (exact where the redefinition applies). Every MD unit
+  conversion is derived in-line in `constants.h` rather than taken on
+  faith — e.g. the Coulomb prefactor `COULOMB_MD = 14.3996 eV·Å/e²`
+  and the kinetic-energy factor `103.6427 eV` per AMU·(Å/fs)² both
+  show their full derivation.
+* **Primary-source parameter sourcing.** Geometry comes from the RCSB
+  PDB Chemical Component Dictionary ideal coordinates (fetched from
+  named URLs on a dated fetch); nucleobase partial charges are RESP
+  values from Aduri et al. (2007), Table 1; Lennard-Jones parameters
+  are real AMBER ff99 values from a TINKER-format parameter file,
+  mapped atom-by-atom against AMBER's own per-base atom-type lines.
+* **Cross-checking before implementation.** Parameters and formulas
+  were verified against two or more independent sources before any C
+  code was written. The Hodgkin-Huxley resting gating values were
+  recomputed from the rate functions and matched a published worked
+  example to four decimal places (0.0529, 0.5961, 0.3177) first; the
+  signed dihedral formula was checked against four hand-built test
+  cases (+90°, −90°, 0°, 180°); Slater screening was reproduced
+  against Slater's own 1930 worked example for iron; the AMBER
+  R*→σ conversion was confirmed by reproducing TIP3P oxygen's
+  literature σ of 3.1506 Å exactly.
+* **"Trust but verify" geometry checks.** Placed molecular geometry is
+  re-measured independently from the Cartesian positions (bond
+  lengths, ring angles, planarity deviations, total charge) rather
+  than read back from stored equilibrium values — the same check that
+  caught an NH₃ sign error silently making the molecule planar.
+* **Correct degrees of freedom.** Temperature uses `3N − 3` (centre-of-
+  mass motion removed), not `3N` — a bug that underestimates T by 33%
+  for a 3-atom system.
+
+**Confidence tiers.** Not all parameters carry the same weight, and the
+code says which tier each one is in:
+
+1. **Independently verified against primary data** — nucleobase RESP
+   charges and AMBER ff99 Lennard-Jones parameters; the CODATA
+   constants; the Hodgkin-Huxley parameters and rate functions.
+2. **Standard literature / textbook values, not re-derived here** —
+   the 1.33 Å peptide bond length and the Engh-&-Huber-style backbone
+   junction angles; the glycosidic bond length.
+3. **Explicitly approximate, charge-balanced placeholders** — the
+   sugar, phosphate, and amino-acid partial charges, and thymine's
+   methyl-group charges. These are flagged in-source and in the output
+   as *not* independently verified the way tier-1 values are.
+
+### Known limitations & honest scope
+
+* **Ion selectivity (Demo 12) is a negative result.** The Coulomb+LJ
+  model favors Na⁺ over K⁺ at every KcsA filter site and across a
+  radius scan — the wrong direction. Systematic testing rules out
+  generic oxygen typing and geometry-fit as the cause, pointing at
+  missing electronic **polarizability** as the most likely missing
+  physics. This is reported as a finding, not hidden.
+* **Base-pairing energetics (Demo 7) are qualitative.** G–C correctly
+  binds more strongly than A–U and both pairs are correctly
+  attractive, but the absolute magnitudes overshoot gas-phase ab
+  initio references (~−1.2 eV G–C, ~−0.55 eV A–U) by roughly 4×, and
+  no single dielectric constant brings both pairs into simultaneous
+  quantitative agreement. The ordering is validated; the numbers are
+  not yet quantitatively trustworthy.
+* **No explicit solvent.** Everything runs in vacuum with a relative-
+  permittivity divisor (dielectric = 4 for base pairing) standing in
+  for condensed-phase screening. This is the root of the quantitative
+  base-pairing error above and a major limitation for any real
+  biomolecular energetics.
+* **Approximate charges on non-nucleobase components.** Sugar,
+  phosphate, and amino-acid partial charges are charge-balanced
+  approximations, not verified RESP fits (see the confidence tiers).
+* **Scaling and algorithms.** The non-bonded loop is O(N²) with no
+  neighbour list (the code suggests a cell list beyond ~500 atoms);
+  dihedral forces use 24 finite-difference energy evaluations per
+  dihedral per call (correct-by-construction, but expensive); and the
+  minimizer is steepest descent only — no conjugate gradient or
+  L-BFGS.
+* **Harmonic bonds cannot break.** The bond potential is a parabola,
+  so it wrongly predicts infinite energy at full separation. Real bond
+  breaking needs a Morse potential or a reactive force field.
+* **The three tracks are not connected.** Nucleic acids, proteins, and
+  electrophysiology each run independently. Deriving ion-channel
+  gating from protein conformational MD — closing the loop between the
+  protein and electrophysiology tracks — remains future work.
+* **Demo 11 is not spontaneous folding.** Local backbone torsions
+  (φ/ψ/ω) are restrained to textbook values; only the global i,i+4
+  hydrogen bond is allowed to emerge. Demo 12 uses a literature
+  coordination radius as a constructed input rather than deposited
+  backbone coordinates, so it tests energetic preference, not whether
+  the correct geometry emerges.
+
+---
+
+## Current Status
+
+`carbonsim-v9A1` is a validated physics engine and a set of validated
+building blocks, not a production simulator. The fundamental layers —
+quantum orbitals, the molecular-dynamics core, dihedral forces, energy
+minimization, biopolymer condensation chemistry, and the
+Hodgkin-Huxley track — are implemented, cross-checked, and demonstrated
+to produce genuine emergent behavior. The honest next steps are a full
+DNA duplex, gene-regulatory logic, a synapse between neurons, and
+eventually deriving ion-channel gating from actual protein structure.
+
