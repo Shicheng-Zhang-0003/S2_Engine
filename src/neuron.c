@@ -22,9 +22,11 @@
  * 1 - exp(-x) ~ x - x^2/2 for small x, so x/(1-exp(-x)) ~ 1/(1-x/2) ~ 1). */
 static double stable_ratio(double x) {
     if (fabs(x) < 1.0e-6) {
-        /* Taylor expansion near the singularity: limit is 1, with a
-         * small linear correction for the next-order term. */
-        return 1.0 - x / 2.0;
+        /* Taylor expansion near the singularity:
+         * x/(1-e^-x) = 1 + x/2 - x^2/12 + ...  NOTE the sign: the
+         * first-order correction is +x/2. (An earlier version had
+         * -x/2 here; the sign was wrong and has been corrected.) */
+        return 1.0 + x / 2.0;
     }
     return x / (1.0 - exp(-x));
 }

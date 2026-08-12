@@ -7,7 +7,10 @@
  * periodic_table.h
  * Immutable database of element properties used by the simulator.
  * Elements 1–36 (H → Kr) are fully populated.
- * Elements 37–118 are stubbed with mass only — extend as needed.
+ * Elements 37–118 are NOT populated in the table array; pt_element()
+ * returns NULL for them rather than handing back a zero-filled stub
+ * (a zero-mass stub would divide-by-zero in the integrator). Extend
+ * the initializer to populate more elements as needed.
  *
  * Data sources:
  *   Pauling electronegativities : IUPAC 2013

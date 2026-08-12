@@ -6,7 +6,8 @@
 /*
  * periodic_table.c
  *
- * Full element data for Z=1..18 (H→Ar), stubbed beyond.
+ * Full element data for Z=1..36 (H→Kr); entries beyond Kr are
+ * absent (pt_element returns NULL for them).
  * Extend the table by filling in the remaining entries.
  *
  * Madelung orbital filling order (used by pt_electron_config):
@@ -126,7 +127,7 @@ const Element PERIODIC_TABLE[MAX_ELEMENTS + 1] = {
     /* Z=20 Ca Calcium */
     {20,"Ca","Calcium",      40.078,  1.00, 2.31, 1.76, 2.31,  6.113, 0.018,  2,
       {0}, 0.238*KCAL_MOL_TO_EV, 3.399 },
-    /* Z=21..35 stubs with mass only */
+    /* Z=21..36 (Sc → Kr): fully populated entries */
     {21,"Sc","Scandium",     44.956,  1.36, 2.11, 1.70, 2.11,  6.561, 0.188,  3, {0}, 0.019*KCAL_MOL_TO_EV, 3.295},
     {22,"Ti","Titanium",     47.867,  1.54, 2.00, 1.60, 2.00,  6.828, 0.079,  4, {0}, 0.017*KCAL_MOL_TO_EV, 3.175},
     {23,"V","Vanadium",      50.942,  1.63, 1.92, 1.53, 1.92,  6.746, 0.525,  5, {0}, 0.016*KCAL_MOL_TO_EV, 3.144},
@@ -151,6 +152,7 @@ const Element PERIODIC_TABLE[MAX_ELEMENTS + 1] = {
 
 const Element *pt_element(int Z) {
     if (Z < 1 || Z > MAX_ELEMENTS) return NULL;
+    if (PERIODIC_TABLE[Z].Z != Z) return NULL;  /* unpopulated entry */
     return &PERIODIC_TABLE[Z];
 }
 
