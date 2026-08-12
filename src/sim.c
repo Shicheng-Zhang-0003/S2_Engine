@@ -160,6 +160,20 @@ int sim_remove_terminal_atom(Simulation *sim, int atom_idx) {
     }
     sim->num_angles = w;
 
+    /* 2b. Remove any dihedral referencing atom_idx, same logic as
+     *     angles above (a 1-bond atom can only be an END atom of a
+     *     dihedral, never one of the two central atoms - but all
+     *     four fields are checked defensively). */
+    int wd = 0;
+    for (int d = 0; d < sim->num_dihedrals; d++) {
+        Dihedral *dh = &sim->dihedrals[d];
+        if (dh->atom_a == atom_idx || dh->atom_b == atom_idx ||
+            dh->atom_c == atom_idx || dh->atom_d == atom_idx)
+            continue; /* drop this dihedral */
+        sim->dihedrals[wd++] = *dh;
+    }
+    sim->num_dihedrals = wd;
+
     /* 3. Re-index every remaining bond/angle reference > atom_idx down by 1 */
     for (int b = 0; b < sim->num_bonds; b++) {
         if (sim->bonds[b].atom_a > atom_idx) sim->bonds[b].atom_a--;
@@ -170,6 +184,15 @@ int sim_remove_terminal_atom(Simulation *sim, int atom_idx) {
         if (sim->angles[a].atom_b > atom_idx) sim->angles[a].atom_b--;
         if (sim->angles[a].atom_c > atom_idx) sim->angles[a].atom_c--;
     }
+
+        /* 3b. Re-index every remaining dihedral reference > atom_idx
+         *     down by 1, same as bonds and angles above. */
+        for (int d = 0; d < sim->num_dihedrals; d++) {
+            if (sim->dihedrals[d].atom_a > atom_idx) sim->dihedrals[d].atom_a--;
+            if (sim->dihedrals[d].atom_b > atom_idx) sim->dihedrals[d].atom_b--;
+            if (sim->dihedrals[d].atom_c > atom_idx) sim->dihedrals[d].atom_c--;
+            if (sim->dihedrals[d].atom_d > atom_idx) sim->dihedrals[d].atom_d--;
+        }
 
     /* 4. Shift the atoms array down, removing atom_idx entirely */
     for (int i = atom_idx; i < sim->num_atoms - 1; i++)

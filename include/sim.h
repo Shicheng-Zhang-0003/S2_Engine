@@ -54,7 +54,7 @@ void sim_set_atom_lj(Simulation *sim, int atom_idx, double epsilon, double sigma
 
 /*
  * Remove a terminal atom (must have exactly 1 bond) by index, shifting
- * all subsequent atoms down by one and updating every bond, angle, and
+ * all subsequent atoms down by one and updating every bond, angle, dihedral, and
  * bond_partners reference that pointed to a shifted index. Returns 1
  * on success, 0 if atom_idx is out of range or is not terminal (has
  * more than 1 bond - removing a non-terminal atom would leave
