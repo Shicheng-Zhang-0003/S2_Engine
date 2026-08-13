@@ -5,7 +5,7 @@
   ╚═══════════════════════════════════════════════════════╝
 
   Unit system: Length=Å  Time=fs  Energy=eV  Mass=AMU
-  Physical constants: 2019 CODATA  |  LJ: UFF  |  Bonds: AMBER
+  Physical constants: 2019 CODATA  |  LJ: UFF defaults + AMBER ff99 overrides  |  Bonds: placed-geometry r0, generic spectroscopic k (audit F2)
 
 
 ╔══════════════════════════════════════════════════════╗
@@ -141,17 +141,17 @@
   1.5500    11.769011       —             covalent well (depth scale: eV)
   1.6000    13.269491       —             covalent well (depth scale: eV)
 
-  1.2500    —             173.936606      ########################################
-  1.3750    —             55.137373       ########################################
-  1.5000    —             19.250664       ########################################
-  1.6250    —             7.275830        ########################################
-  1.7500    —             2.934858        ########################################
-  1.8750    —             1.248014        ########################################
-  2.0000    —             0.553152        ########################################
-  2.1250    —             0.252634        ########################################
-  2.2500    —             0.117368        ########################################
-  2.3750    —             0.054537        ########################################
-  2.5000    —             0.024685        ########################################
+  1.2500    —             173.941035      ########################################
+  1.3750    —             55.138778       ########################################
+  1.5000    —             19.251154       ########################################
+  1.6250    —             7.276015        ########################################
+  1.7500    —             2.934933        ########################################
+  1.8750    —             1.248046        ########################################
+  2.0000    —             0.553166        ########################################
+  2.1250    —             0.252640        ########################################
+  2.2500    —             0.117371        ########################################
+  2.3750    —             0.054539        ########################################
+  2.5000    —             0.024686        ########################################
   2.6250    —             0.010325        ########################################
   2.7500    —             0.003425        ########################################
   2.8750    —             0.000181        #####################
@@ -271,25 +271,25 @@
   Step      t (fs)      KE (eV)     PE (eV)     T (K)     O0-O1(Å)  O1-O2(Å)  O2-O0(Å) 
   ────  ──────  ───────  ───────  ─────  ──────── ──────── ────────
   1         0.500       0.056968    -0.459774   55.09     2.9485     2.9482     2.9482    
-  201       100.500     0.084177    -0.688086   81.40     2.8109     2.8369     2.7864    
-  401       200.500     0.075307    -0.728758   72.82     2.6869     2.7061     2.6675    
-  601       300.500     0.059728    -0.739996   57.76     2.7373     2.7182     2.8116    
-  801       400.500     0.054779    -0.748762   52.97     2.8389     2.8820     2.7420    
-  1001      500.500     0.062817    -0.763809   60.75     2.7952     2.7113     2.8210    
-  1201      600.500     0.061867    -0.760721   59.83     2.6666     2.7372     2.6673    
-  1401      700.500     0.050732    -0.747322   49.06     2.6966     2.6629     2.7760    
-  1601      800.500     0.050096    -0.747614   48.45     2.7854     2.8435     2.7481    
-  1801      900.500     0.048747    -0.751293   47.14     2.8810     2.7207     2.8032    
-  2001      1000.500    0.071695    -0.772076   69.33     2.6890     2.7672     2.6975    
-  2201      1100.500    0.043256    -0.742655   41.83     2.7284     2.6292     2.7595    
-  2401      1200.500    0.043894    -0.740705   42.45     2.7620     2.9009     2.7492    
-  2601      1300.500    0.042581    -0.745440   41.18     2.8373     2.7310     2.8346    
-  2801      1400.500    0.071840    -0.773158   69.47     2.6836     2.7937     2.7110    
-  3001      1500.500    0.062765    -0.761844   60.70     2.7331     2.6310     2.7375    
-  3201      1600.500    0.046061    -0.746161   44.54     2.7478     2.8172     2.7066    
-  3401      1700.500    0.042254    -0.744920   40.86     2.8321     2.7121     2.8268    
-  3601      1800.500    0.052201    -0.755673   50.48     2.7122     2.8349     2.7453    
-  3801      1900.500    0.039497    -0.739804   38.20     2.7377     2.6348     2.7584    
+  201       100.500     0.084179    -0.688086   81.40     2.8109     2.8369     2.7864    
+  401       200.500     0.075307    -0.728756   72.82     2.6869     2.7061     2.6675    
+  601       300.500     0.059726    -0.739992   57.76     2.7373     2.7182     2.8116    
+  801       400.500     0.054780    -0.748759   52.97     2.8389     2.8820     2.7420    
+  1001      500.500     0.062820    -0.763808   60.75     2.7952     2.7113     2.8210    
+  1201      600.500     0.061873    -0.760724   59.83     2.6666     2.7372     2.6673    
+  1401      700.500     0.050731    -0.747318   49.06     2.6966     2.6629     2.7760    
+  1601      800.500     0.050096    -0.747612   48.45     2.7854     2.8435     2.7482    
+  1801      900.500     0.048743    -0.751286   47.14     2.8810     2.7207     2.8032    
+  2001      1000.500    0.071689    -0.772066   69.33     2.6890     2.7672     2.6975    
+  2201      1100.500    0.043257    -0.742653   41.83     2.7285     2.6293     2.7595    
+  2401      1200.500    0.043896    -0.740705   42.45     2.7621     2.9009     2.7492    
+  2601      1300.500    0.042576    -0.745434   41.17     2.8373     2.7310     2.8346    
+  2801      1400.500    0.071832    -0.773147   69.46     2.6836     2.7937     2.7110    
+  3001      1500.500    0.062757    -0.761834   60.69     2.7331     2.6310     2.7375    
+  3201      1600.500    0.046059    -0.746155   44.54     2.7478     2.8172     2.7066    
+  3401      1700.500    0.042257    -0.744921   40.86     2.8321     2.7121     2.8268    
+  3601      1800.500    0.052206    -0.755675   50.48     2.7122     2.8349     2.7453    
+  3801      1900.500    0.039493    -0.739797   38.19     2.7377     2.6348     2.7584    
 
   Over 4000 steps (2000 fs): O···O range = [2.620, 2.949] Å
   → Ring stayed bound. Hydrogen bonds emerged from Coulomb + LJ alone — never told the simulator these were H-bonds.
@@ -298,14 +298,14 @@
   idx  sym   Position (Å)           Velocity (Å/fs)        q(e)      mass(AMU)
   ─────────────────────────────────────────────────────────────────────────────────────────────────
   0    O     ( 0.6460  0.5321 -1.2947)  (-0.0005  0.0011  0.0011)  -0.8340   15.999
-  1    H     ( 0.9110  0.5438 -0.3408)  ( 0.0022 -0.0075  0.0039)  +0.4170    1.008
-  2    H     ( 0.9915  1.3498 -1.6254)  ( 0.0077  0.0015  0.0072)  +0.4170    1.008
+  1    H     ( 0.9110  0.5439 -0.3408)  ( 0.0022 -0.0075  0.0039)  +0.4170    1.008
+  2    H     ( 0.9914  1.3498 -1.6254)  ( 0.0077  0.0015  0.0072)  +0.4170    1.008
   3    O     ( 0.7447  0.2376  1.4088)  ( 0.0002  0.0001 -0.0032)  -0.8340   15.999
-  4    H     (-0.0342 -0.3085  1.1286)  (-0.0059 -0.0111  0.0096)  +0.4170    1.008
-  5    H     ( 0.9830 -0.1306  2.2523)  ( 0.0051 -0.0104 -0.0061)  +0.4170    1.008
+  4    H     (-0.0342 -0.3085  1.1285)  (-0.0059 -0.0111  0.0096)  +0.4170    1.008
+  5    H     ( 0.9830 -0.1305  2.2524)  ( 0.0051 -0.0104 -0.0061)  +0.4170    1.008
   6    O     (-1.3997 -0.7651 -0.1113)  ( 0.0006  0.0002  0.0019)  -0.8340   15.999
-  7    H     (-0.7973 -0.2617 -0.7038)  (-0.0073  0.0012 -0.0066)  +0.4170    1.008
-  8    H     (-1.9120 -1.2657 -0.7548)  (-0.0067  0.0037 -0.0040)  +0.4170    1.008
+  7    H     (-0.7973 -0.2618 -0.7038)  (-0.0073  0.0012 -0.0066)  +0.4170    1.008
+  8    H     (-1.9120 -1.2657 -0.7549)  (-0.0067  0.0037 -0.0040)  +0.4170    1.008
 
 ╔══════════════════════════════════════════════════════╗
 ║  DEMO 5: CH4 — tetrahedral geometry check          ║
@@ -431,67 +431,67 @@
     G:N1...C:N3 = 2.950 A (target 2.95)
     G:N2...C:O2 = 2.937 A
     G:O6...C:N4 = 2.949 A
-  Energy breakdown at initial placement: E_LJ=0.736525 eV  E_Coulomb=-5.294548 eV  Total_PE=-4.558023 eV
+  Energy breakdown at initial placement: E_LJ=0.736551 eV  E_Coulomb=-5.314303 eV  Total_PE=-4.577751 eV
   Closest intermolecular contact: atom 15 (Z=1) ... atom 20 (Z=8) = 1.967 A
   Largest single LJ repulsion: atom 6 (Z=7, sigma=3.25) ... atom 16 (Z=7, sigma=3.25) = 2.950 A, contributes 0.0415 eV
   Step   t(fs)      PE(eV)     T(K)       primary(A)
-  1      0.100      -4.557883  49.96      2.9501    
-  2      0.200      -4.557662  49.90      2.9501    
-  3      0.300      -4.557364  49.82      2.9502    
-  4      0.400      -4.556992  49.72      2.9502    
-  5      0.500      -4.556550  49.60      2.9503    
-  101    10.100     -4.588060  58.06      2.9166    
-  201    20.100     -4.606499  61.28      2.8780    
-  301    30.100     -4.626524  64.52      2.8972    
-  401    40.100     -4.638781  65.00      2.9410    
-  501    50.100     -4.650533  65.40      2.9889    
-  601    60.100     -4.655531  64.29      3.0321    
-  701    70.100     -4.674484  66.35      3.0718    
+  1      0.100      -4.577615  49.96      2.9501    
+  2      0.200      -4.577398  49.90      2.9501    
+  3      0.300      -4.577103  49.82      2.9502    
+  4      0.400      -4.576734  49.72      2.9502    
+  5      0.500      -4.576295  49.60      2.9503    
+  101    10.100     -4.607427  57.96      2.9166    
+  201    20.100     -4.625261  61.06      2.8779    
+  301    30.100     -4.644098  64.02      2.8970    
+  401    40.100     -4.655877  64.48      2.9408    
+  501    50.100     -4.667302  64.90      2.9886    
+  601    60.100     -4.671051  63.57      3.0314    
+  701    70.100     -4.689730  65.70      3.0702    
 
-  Initial interaction PE:        -4.558023 eV
-  PE at closest WC approach:     -4.611601 eV (primary N1...N3 = 2.878 A)
-  Global PE minimum over run:    -4.695773 eV (may reflect drift to a different,
+  Initial interaction PE:        -4.577751 eV
+  PE at closest WC approach:     -4.630379 eV (primary N1...N3 = 2.878 A)
+  Global PE minimum over run:    -4.710851 eV (may reflect drift to a different,
                                   non-WC configuration such as stacking)
-  Final PE (end of run):         -4.662329 eV
+  Final PE (end of run):         -4.676041 eV
 
   Final heavy-atom contacts:
-    G:N1...C:N3 = 3.105 A
+    G:N1...C:N3 = 3.103 A
     G:N2...C:O2 = 3.126 A
-    G:O6...C:N4 = 2.948 A
+    G:O6...C:N4 = 2.946 A
 
   --- Adenine-Uracil (2 H-bonds: N1..H-N3, N6-H..O4) ---
   Initial heavy-atom contacts after geometric placement:
     A:N1...U:N3 = 2.900 A (target 2.90)
     A:N6...U:O4 = 2.899 A
-  Energy breakdown at initial placement: E_LJ=0.885962 eV  E_Coulomb=-1.940368 eV  Total_PE=-1.054406 eV
+  Energy breakdown at initial placement: E_LJ=0.885992 eV  E_Coulomb=-1.955062 eV  Total_PE=-1.069070 eV
   Closest intermolecular contact: atom 12 (Z=1) ... atom 20 (Z=8) = 1.930 A
   Step   t(fs)      PE(eV)     T(K)       primary(A)
-  1      0.100      -1.054753  50.10      2.9000    
-  2      0.200      -1.055037  50.19      2.9000    
-  3      0.300      -1.055262  50.25      2.8999    
-  4      0.400      -1.055430  50.30      2.8999    
-  5      0.500      -1.055546  50.34      2.8999    
-  101    10.100     -1.093921  60.55      2.8745    
-  201    20.100     -1.084520  56.56      2.8725    
-  301    30.100     -1.090498  56.56      2.9284    
-  401    40.100     -1.087109  54.38      2.9987    
-  501    50.100     -1.090785  58.09      3.0334    
-  601    60.100     -1.136966  69.06      3.0362    
-  701    70.100     -1.130826  61.15      3.0276    
+  1      0.100      -1.069405  50.10      2.9000    
+  2      0.200      -1.069678  50.18      2.9000    
+  3      0.300      -1.069891  50.24      2.8999    
+  4      0.400      -1.070046  50.29      2.8999    
+  5      0.500      -1.070149  50.32      2.8999    
+  101    10.100     -1.107414  60.24      2.8745    
+  201    20.100     -1.098059  56.32      2.8724    
+  301    30.100     -1.102417  55.92      2.9282    
+  401    40.100     -1.098911  53.83      2.9983    
+  501    50.100     -1.114681  57.27      3.0323    
+  601    60.100     -1.159646  68.07      3.0340    
+  701    70.100     -1.138722  59.96      3.0243    
 
-  Initial interaction PE:        -1.054406 eV
-  PE at closest WC approach:     -1.080066 eV (primary N1...N3 = 2.866 A)
-  Global PE minimum over run:    -1.180091 eV
-  Final PE (end of run):         -1.180091 eV
+  Initial interaction PE:        -1.069070 eV
+  PE at closest WC approach:     -1.093643 eV (primary N1...N3 = 2.866 A)
+  Global PE minimum over run:    -1.185790 eV
+  Final PE (end of run):         -1.185790 eV
 
   Final heavy-atom contacts:
-    A:N1...U:N3 = 3.047 A
-    A:N6...U:O4 = 3.079 A
+    A:N1...U:N3 = 3.042 A
+    A:N6...U:O4 = 3.076 A
 
   ══════════════════════════════════════════════════
-  G-C @ closest WC approach: -4.611601 eV (3 H-bonds)
-  A-U @ closest WC approach: -1.080066 eV (2 H-bonds)
-  --> G-C binds MORE strongly than A-U (3.531535 eV difference),
+  G-C @ closest WC approach: -4.630379 eV (3 H-bonds)
+  A-U @ closest WC approach: -1.093643 eV (2 H-bonds)
+  --> G-C binds MORE strongly than A-U (3.536736 eV difference),
       and BOTH pairs are correctly attractive (negative PE) -
       the right qualitative chemistry, from nothing but real
       charges + Coulomb + LJ. Never programmed in.
@@ -609,25 +609,25 @@
 ║  DEMO 11: Alpha helix - does the i,i+4 H-bond emerge?║
 ╚══════════════════════════════════════════════════════╝
   Built 5-residue poly-alanine chain: 53 atoms, 52 bonds
-  Initial clash relaxation: 18811.27 -> 8.50 eV
+  Initial clash relaxation: 18811.75 -> 8.52 eV
   Added 12 dihedral restraints (phi, psi, omega for applicable
   residues) toward real textbook values.
-  Minimized: PE = 9.7447 eV
+  Minimized: PE = 9.5769 eV
 
   Residue    phi (deg)    psi (deg)   
-  1          -58.75      
-  2          -61.51      
-  3          -58.29      
-  4          -53.96      
-  0                       -48.38      
-  1                       -47.55      
-  2                       -52.66      
-  3                       -48.26      
+  1          -60.27      
+  2          -57.76      
+  3          -57.98      
+  4          -53.92      
+  0                       -48.37      
+  1                       -50.55      
+  2                       -48.29      
+  3                       -47.23      
 
-  Max deviation from target (phi=-57, psi=-47): 5.66 deg
+  Max deviation from target (phi=-57, psi=-47): 3.55 deg
 
   === The i,i+4 backbone hydrogen bond (not programmed in) ===
-  N-H(4) ... O=C(0): H...O = 2.1636 A, N...O = 3.1285 A
+  N-H(4) ... O=C(0): H...O = 1.9536 A, N...O = 2.9595 A
   Real backbone H-bond range: H...O 1.8-2.2 A, N...O 2.8-3.2 A
 
   --> A real backbone hydrogen bond formed. Given only the
@@ -637,7 +637,7 @@
       pairing, the defining GLOBAL structural feature of an
       alpha helix emerged on its own.
 
-  Bond length range: [0.9602, 1.5669] A   Bad bonds: 0   Valence issues: 0
+  Bond length range: [0.9610, 1.5667] A   Bad bonds: 0   Valence issues: 0
 
 ╔══════════════════════════════════════════════════════╗
 ║  DEMO 12: KcsA selectivity filter - K+ vs Na+, second pass║
@@ -649,14 +649,14 @@
   source comment for exact scope and what changed from pass one.
 
 --- Gly77 site, PDB 1K4C LINK record target: 2.72 A ---
-  K+   E_LJ =   0.576496 eV   E_Coulomb =  -5.515792 eV   Total_PE =  -4.939296 eV
-  Na+  E_LJ =   0.039704 eV   E_Coulomb =  -5.515792 eV   Total_PE =  -5.476089 eV
-  Delta (Na+ minus K+): -0.536793 eV  (Na+ favored, wrong direction)
+  K+   E_LJ =   0.576511 eV   E_Coulomb =  -5.515810 eV   Total_PE =  -4.939299 eV
+  Na+  E_LJ =   0.039705 eV   E_Coulomb =  -5.515810 eV   Total_PE =  -5.476105 eV
+  Delta (Na+ minus K+): -0.536806 eV  (Na+ favored, wrong direction)
 
 --- Val76 site, target: 2.83 A ---
-  K+   E_LJ =   0.315950 eV   E_Coulomb =  -5.301397 eV   Total_PE =  -4.985447 eV
-  Na+  E_LJ =   0.003689 eV   E_Coulomb =  -5.301397 eV   Total_PE =  -5.297709 eV
-  Delta (Na+ minus K+): -0.312261 eV  (Na+ favored, wrong direction)
+  K+   E_LJ =   0.315958 eV   E_Coulomb =  -5.301414 eV   Total_PE =  -4.985456 eV
+  Na+  E_LJ =   0.003689 eV   E_Coulomb =  -5.301414 eV   Total_PE =  -5.297725 eV
+  Delta (Na+ minus K+): -0.312269 eV  (Na+ favored, wrong direction)
 
   Honest read (fixed-radius tests): switching from generic-O to
   amino-acid-specific carbonyl LJ typing is the only change from
@@ -667,10 +667,10 @@
   relaxed) geometry, and the lack of polarizability.
 
 --- Letting each ion find its own preferred radius (2.00-4.20 A scan, 0.02 A steps) ---
-  K+   natural radius = 2.820 A   E_min = -4.986155 eV
-  Na+  natural radius = 2.440 A   E_min = -5.780787 eV
+  K+   natural radius = 2.820 A   E_min = -4.986164 eV
+  Na+  natural radius = 2.440 A   E_min = -5.780797 eV
   K+ natural radius 2.820 A vs Na+ 2.440 A - K+ prefers the larger cage, as expected for the bigger ion
-  At each ion's OWN best radius: K+ E_min = -4.986155 eV vs Na+ E_min = -5.780787 eV -> Na+ favored, wrong direction
+  At each ion's OWN best radius: K+ E_min = -4.986164 eV vs Na+ E_min = -5.780797 eV -> Na+ favored, wrong direction
 
   Honest read (radius-flexible test): this is the same real
   charges and the same real carbonyl LJ typing as above - the
@@ -684,15 +684,21 @@
 
 --- Fuller real geometry: Thr75-O + Val76-O together (the real
   antiprism site S3/K-C3003 actually shows, not a single ring) ---
-  K+   E_LJ =  14.807721 eV   E_Coulomb =  12.402306 eV   Total_PE =  27.210027 eV
-  Na+  E_LJ =  13.902915 eV   E_Coulomb =  12.402306 eV   Total_PE =  26.305221 eV
-  Delta (Na+ minus K+): -0.904806 eV  (Na+ favored, wrong direction)
+  K+   E_LJ =  14.808098 eV   E_Coulomb =  12.402345 eV   Total_PE =  27.210443 eV
+  Na+  E_LJ =  13.903269 eV   E_Coulomb =  12.402345 eV   Total_PE =  26.305614 eV
+  Delta (Na+ minus K+): -0.904829 eV  (Na+ favored, wrong direction)
   Honest read: both real target distances (Thr75 2.70 A, Val76
   2.83 A) at once, real 45-degree antiprism offset, same real
   charges and typing as every test above - the only new variable
-  is twice the coordinating oxygens. Ring z-separation wasn't
-  independently verified this pass, so both rings sit at z=0;
-  that's a simplification, not a claim of crystal-exact geometry.
+  is twice the coordinating oxygens. CAVEAT - stronger than a
+  geometry note: because the real ring z-separation was not
+  sourced this pass, both rings sit at z=0, which puts oxygens
+  from the two rings ~2.1 A apart, deep inside their mutual LJ
+  repulsion. The large positive energies above are dominated by
+  that artificial O-O overlap, NOT by ion coordination, so the
+  numbers in this block are NOT interpretable as selectivity
+  energetics until a sourced z-separation is added. Treat this
+  block as a placeholder, not a result.
 
   All demos complete.
   Three validated tracks now exist: nucleic acids (bases through a

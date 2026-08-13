@@ -54,7 +54,6 @@ Simulation *sim_create(int atom_capacity, int bond_capacity) {
     sim->use_angles   = 1;
     sim->use_dihedrals = 1;
     sim->dielectric   = 1.0;  /* no screening by default */
-    sim->ff_type = FF_UFF;
 
     /* Box: large vacuum (no PBC by default) */
     sim->box.dimensions = vec3(1000.0, 1000.0, 1000.0);
@@ -286,10 +285,6 @@ int sim_add_bond(Simulation *sim, int ia, int ib, int order) {
     b->r0 = bp.r0;
     b->k  = bp.k;
 
-    /* Current length */
-    b->current_length = vec3_dist(sim->atoms[ia].position,
-                                   sim->atoms[ib].position);
-    b->energy = 0.0;
 
     /* Update atom bond lists */
     Atom *a = &sim->atoms[ia];
@@ -341,7 +336,7 @@ void sim_detect_bonds(Simulation *sim) {
  * Build angle list from bond topology
  * For each atom b, for every pair of bonds (a-b) and (b-c): add angle a-b-c
  * ══════════════════════════════════════════════════════════════════════════ */
-void sim_build_angles(Simulation *sim) {
+void sim_rebuild_angles(Simulation *sim) {
     sim->num_angles = 0;
 
     for (int b_idx = 0; b_idx < sim->num_atoms; b_idx++) {
@@ -375,7 +370,7 @@ void sim_build_angles(Simulation *sim) {
  * (rather than the generic element-keyed table) - for ring systems where
  * the seed positions already encode the correct, context-specific angle.
  * ══════════════════════════════════════════════════════════════════════════ */
-void sim_build_angles_geometric(Simulation *sim, double k_default) {
+void sim_rebuild_angles_geometric(Simulation *sim, double k_default) {
     sim->num_angles = 0;
 
     for (int b_idx = 0; b_idx < sim->num_atoms; b_idx++) {
@@ -437,7 +432,7 @@ int sim_place_h2(Simulation *sim, Vec3 origin) {
     sim_add_atom(sim, 1, vec3(origin.x - 0.3707, origin.y, origin.z), 0.0);
     sim_add_atom(sim, 1, vec3(origin.x + 0.3707, origin.y, origin.z), 0.0);
     sim_add_bond(sim, first, first+1, 1);
-    sim_build_angles(sim);
+    sim_rebuild_angles(sim);
     return first;
 }
 
@@ -491,7 +486,7 @@ int sim_place_h2o(Simulation *sim, Vec3 origin) {
 
     sim_add_bond(sim, first,   first+1, 1);  /* O-H1 */
     sim_add_bond(sim, first,   first+2, 1);  /* O-H2 */
-    sim_build_angles(sim);
+    sim_rebuild_angles(sim);
     return first;
 }
 
@@ -548,7 +543,7 @@ int sim_place_nh3(Simulation *sim, Vec3 origin) {
             +0.34);
         sim_add_bond(sim, first, first+1+k, 1);
     }
-    sim_build_angles(sim);
+    sim_rebuild_angles(sim);
     return first;
 }
 
@@ -580,7 +575,7 @@ int sim_place_ch4(Simulation *sim, Vec3 origin) {
             +0.06);
         sim_add_bond(sim, first, first+1+k, 1);
     }
-    sim_build_angles(sim);
+    sim_rebuild_angles(sim);
     return first;
 }
 
@@ -598,14 +593,14 @@ int sim_place_co2(Simulation *sim, Vec3 origin) {
 
     sim_add_bond(sim, first,   first+1, 2);  /* O=C */
     sim_add_bond(sim, first+1, first+2, 2);  /* C=O */
-    /* Geometric builder, NOT sim_build_angles: the element-keyed angle
+    /* Geometric builder, NOT sim_rebuild_angles: the element-keyed angle
      * table's O-C-O entry is parameterised for BENT carboxylate groups
      * (theta0=123 deg, sp2 carbon) and would incorrectly be applied here
      * too, since the table has no way to distinguish that context from
      * linear CO2 (sp carbon, 180 deg) - both share the same (O,C,O)
      * element-triple key. Deriving theta0 directly from this molecule's
      * own correctly-seeded linear geometry avoids that collision. */
-    sim_build_angles_geometric(sim, 3.5);  /* generic CO2 bend stiffness */
+    sim_rebuild_angles_geometric(sim, 3.5);  /* generic CO2 bend stiffness */
     return first;
 }
 

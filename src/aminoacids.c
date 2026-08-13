@@ -82,7 +82,7 @@ static int place_aa_molecule(Simulation *sim, Vec3 origin,
             sim_set_bond_params(sim, bidx, d, sim->bonds[bidx].k);
         }
     }
-    sim_build_angles_geometric(sim, 3.5); /* generic bending stiffness, same as CO2 */
+    sim_rebuild_angles_geometric(sim, 3.5); /* generic bending stiffness, same as CO2 */
 
     return first;
 }

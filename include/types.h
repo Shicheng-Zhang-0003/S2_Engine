@@ -159,8 +159,6 @@ typedef struct {
     int    order;               /* 1=single, 2=double, 3=triple, 0=aromatic */
     double r0;                  /* equilibrium length, Å                     */
     double k;                   /* force constant, eV/Å²                    */
-    double current_length;      /* Å  (updated each step)                   */
-    double energy;              /* eV (updated each step)                   */
 } Bond;
 
 /*
@@ -197,29 +195,28 @@ typedef struct {
  * Force-field parameters for non-bonded interactions
  * ══════════════════════════════════════════════════════════════════════════ */
 
-typedef enum {
-    FF_NONE   = 0,              /* bare Coulomb only                         */
-    FF_UFF    = 1,              /* Universal Force Field (LJ params)         */
-    FF_OPLS   = 2,              /* OPLS-AA (for organics)                    */
-    FF_CUSTOM = 3
-} ForceFieldType;
 
 /* ══════════════════════════════════════════════════════════════════════════
- * Thermostat and barostat
+ * Thermostat
  * ══════════════════════════════════════════════════════════════════════════ */
 
 typedef enum {
     THERMOSTAT_NONE      = 0,
-    THERMOSTAT_BERENDSEN = 1,   /* simple velocity rescaling                 */
-    THERMOSTAT_NOSE_HOOVER = 2  /* proper NVT ensemble                       */
+    THERMOSTAT_BERENDSEN = 1    /* simple velocity rescaling                 */
+    /* THERMOSTAT_NOSE_HOOVER was removed by audit fix S3: it was declared
+     * but never implemented, so selecting it would have silently run NVE
+     * with no thermostat at all. Nosé-Hoover is real future work; re-add
+     * the enum value together with a real implementation. */
 } ThermostatType;
 
 typedef struct {
     ThermostatType type;
     double target_temperature; /* K                                          */
     double tau;                /* coupling time constant, fs                 */
-    double xi;                 /* Nosé-Hoover friction variable              */
-    double Q;                  /* Nosé-Hoover mass parameter                 */
+    /* xi (Nosé-Hoover friction variable) and Q (Nosé-Hoover mass
+     * parameter) were removed by audit fix S3 together with
+     * THERMOSTAT_NOSE_HOOVER: they were declared but never used by any
+     * implemented thermostat. */
 } Thermostat;
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -258,12 +255,10 @@ typedef struct {
     double   kinetic_energy;    /* eV                                        */
     double   potential_energy;  /* eV                                        */
     double   total_energy;      /* eV                                        */
-    double   virial;            /* eV (for pressure calculation)             */
     double   E_lj_total;        /* eV - LJ component of potential_energy     */
     double   E_coulomb_total;   /* eV - Coulomb component                    */
 
     /* Force field */
-    ForceFieldType ff_type;
     double         cutoff;      /* non-bonded cutoff, Å                      */
     int            use_coulomb;
     int            use_lj;
