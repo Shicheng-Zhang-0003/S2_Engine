@@ -204,7 +204,6 @@ static void demo_water_md(void) {
     /* Initial forces and energy */
     forces_calculate(sim);
     sim->kinetic_energy = integrator_kinetic_energy(sim);
-    sim->potential_energy = sim->potential_energy;
     sim->total_energy = sim->kinetic_energy + sim->potential_energy;
 
     printf("  Initial geometry:\n");
@@ -839,6 +838,15 @@ static void demo_basepairing(void) {
                    lj_idx, sim->atoms[lj_idx].Z, sim->atoms[lj_idx].lj_sigma,
                    vec3_dist(sim->atoms[li].position, sim->atoms[lj_idx].position), max_lj);
         }
+
+        /* FIX06: the diagnostic loop above queries pair energies via
+         * forces_nonbonded_pair(), which also accumulates force onto the
+         * atoms as a side effect. Zero all forces here so that residue
+         * cannot leak into the relaxation below (run_pair_relaxation
+         * recomputes forces anyway, but this keeps the diagnostic block
+         * self-contained and safe against future re-ordering). */
+        for (int zi = 0; zi < sim->num_atoms; zi++)
+            sim->atoms[zi].force = vec3_zero();
 
         PairResult res = run_pair_relaxation(sim, g+6, c+0);
         printf("\n  Initial interaction PE:        %.6f eV\n", res.initial_interE);
@@ -1633,11 +1641,17 @@ static void demo_kcsa_filter(void) {
            (k_e3 < na_e3) ? "K+ favored, correct direction"
                           : "Na+ favored, wrong direction");
     printf("  Honest read: both real target distances (Thr75 2.70 A, Val76\n"
-           "  2.83 A) at once, real 45-degree antiprism offset, same real\n"
-           "  charges and typing as every test above - the only new variable\n"
-           "  is twice the coordinating oxygens. Ring z-separation wasn't\n"
-           "  independently verified this pass, so both rings sit at z=0;\n"
-           "  that's a simplification, not a claim of crystal-exact geometry.\n");
+    "  2.83 A) at once, real 45-degree antiprism offset, same real\n"
+    "  charges and typing as every test above - the only new variable\n"
+    "  is twice the coordinating oxygens. CAVEAT - stronger than a\n"
+    "  geometry note: because the real ring z-separation was not\n"
+    "  sourced this pass, both rings sit at z=0, which puts oxygens\n"
+    "  from the two rings ~2.1 A apart, deep inside their mutual LJ\n"
+    "  repulsion. The large positive energies above are dominated by\n"
+    "  that artificial O-O overlap, NOT by ion coordination, so the\n"
+    "  numbers in this block are NOT interpretable as selectivity\n"
+    "  energetics until a sourced z-separation is added. Treat this\n"
+    "  block as a placeholder, not a result.\n");
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -1650,7 +1664,7 @@ int main(void) {
     printf("  ║       From subatomic to molecular dynamics            ║\n");
     printf("  ╚═══════════════════════════════════════════════════════╝\n");
     printf("\n  Unit system: Length=Å  Time=fs  Energy=eV  Mass=AMU\n");
-    printf("  Physical constants: 2019 CODATA  |  LJ: UFF  |  Bonds: AMBER\n\n");
+    printf("  Physical constants: 2019 CODATA  |  LJ: UFF defaults + AMBER ff99 overrides  |  Bonds: AMBER\n\n");
 
     demo_quantum();
     demo_bond_curve();
