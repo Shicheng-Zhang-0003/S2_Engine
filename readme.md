@@ -1,5 +1,9 @@
 # S2 Engine — Nano Chemistry & Biological Simulator
 
+## Note: The new naming strategy across the board will be vxR123, not vxA123. This current release will be designated as v9R2. New releases after this point in all other projects will shift A to R, Alpha will be removed since it's just too extraneous a word.
+
+## In addition, S2 will not follow the R1 R2 R3 developmental scheme of Lancius and Mathlib. Instead, the v9 to v10 period for S2 will be marked by however many RC releases are necessary to achieve a OpenWorm similar display for visualising bonds occuring.
+
 *Documentation synced to the current tree state (`src/main.c` post-fix09,
 including the strengthened Demo 12 caveat and updated banner line),
 2026-08-13.*
