@@ -1,6 +1,6 @@
 CC      = gcc
 CFLAGS  = -O3 -g -Wall -Wextra -std=c11 -Iinclude
-CFLAGS += -Wno-missing-braces -march=native -ffast-math
+CFLAGS += -Wno-missing-braces -march=native
 
 # Uncomment for debug build with address sanitiser:
 # CFLAGS = -g -O0 -Wall -std=c11 -Iinclude -fsanitize=address,undefined -lm

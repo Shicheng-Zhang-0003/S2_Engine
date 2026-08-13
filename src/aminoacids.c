@@ -307,11 +307,17 @@ int sim_place_dipeptide_GlyAla(Simulation *sim, Vec3 origin, int *out_ala_N) {
     int first_to_remove  = (gly_HXT > gly_OXT) ? gly_HXT : gly_OXT;
     int second_to_remove = (gly_HXT > gly_OXT) ? gly_OXT : gly_HXT;
 
-    sim_remove_terminal_atom(sim, first_to_remove);
+    if (!sim_remove_terminal_atom(sim, first_to_remove)) {
+        fprintf(stderr, "FIX07: dipeptide: leaving-atom removal failed (atom %d)\n", first_to_remove);
+        return SIM_ERR_BADATOM;
+    }
     if (ala_N  > first_to_remove) ala_N--;
     if (ala_H2 > first_to_remove) ala_H2--;
 
-    sim_remove_terminal_atom(sim, second_to_remove);
+    if (!sim_remove_terminal_atom(sim, second_to_remove)) {
+        fprintf(stderr, "FIX07: dipeptide: leaving-atom removal failed (atom %d)\n", second_to_remove);
+        return SIM_ERR_BADATOM;
+    }
     if (ala_N  > second_to_remove) ala_N--;
     if (ala_H2 > second_to_remove) ala_H2--;
 
@@ -320,7 +326,10 @@ int sim_place_dipeptide_GlyAla(Simulation *sim, Vec3 origin, int *out_ala_N) {
      * does not affect ala_N since alanine's own atom order places N
      * (offset 0) before H2 (offset 7 originally), so ala_H2 > ala_N
      * always - but re-verify defensively rather than assume. */
-    sim_remove_terminal_atom(sim, ala_H2);
+    if (!sim_remove_terminal_atom(sim, ala_H2)) {
+        fprintf(stderr, "FIX07: dipeptide: alanine H2 removal failed (atom %d)\n", ala_H2);
+        return SIM_ERR_BADATOM;
+    }
     if (ala_N > ala_H2) ala_N--; /* defensive; should never trigger given the atom order */
 
     /* Add the real peptide bond */
@@ -450,7 +459,10 @@ int sim_place_polyalanine(Simulation *sim, Vec3 origin, int n_residues,
 
         for (int r = 0; r < 3; r++) {
             int rm = targets[r];
-            sim_remove_terminal_atom(sim, rm);
+            if (!sim_remove_terminal_atom(sim, rm)) {
+                fprintf(stderr, "FIX07: polyalanine: leaving-atom removal failed (atom %d)\n", rm);
+                return SIM_ERR_BADPARAM;
+            }
             aa_adjust_residues_after_removal(res, n_residues, rm);
         }
 

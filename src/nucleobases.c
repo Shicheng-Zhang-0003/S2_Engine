@@ -886,15 +886,20 @@ static int place_deoxyribose_open(Simulation *sim, Vec3 origin,
     };
     static const int Zs[17] = {6,8,6,6,6,6,8,8, 1,1,1,1,1,1,1,1,1};
 
-    /* Charges: same relative pattern as the free sugar, renormalized
-     * to sum to zero over 17 atoms instead of 19 (still an
-     * approximation, not independently verified - see
-     * sim_place_deoxyribose's charge comment for full context). */
+        /* Charges: same relative pattern as the free sugar, but the open
+     * form omits O1 (-0.3811 e) and HO1 (+0.2189 e). Dropping that
+     * fragment leaves the remaining 17 atoms positively charged: the
+     * array as originally written summed to +0.1624 e despite the
+     * old comment claiming it was "renormalized to sum to zero".
+     * An even correction of -0.0096 e per atom has been applied
+     * below to restore exact neutrality (fix04; still an approximation,
+     * not independently verified - see sim_place_deoxyribose's charge
+     * comment for full context). */
     static const double charges[17] = {
-        0.0689 + 0.0011, -0.3311, -0.0011, 0.1589, 0.1189, 0.0689,
-        -0.3611, -0.3611,
-        0.0389, 0.0389, 0.0689, 0.0689, 0.0689,
-        0.2189, 0.0389, 0.0389, 0.2189
+        0.0612, -0.3407, -0.0107, 0.1493, 0.1093, 0.0593,
+        -0.3707, -0.3707,
+        0.0293, 0.0293, 0.0593, 0.0593, 0.0593,
+        0.2093, 0.0293, 0.0293, 0.2093
     };
 
     static const int bonds[16][3] = {
@@ -1026,7 +1031,7 @@ void nb_transform_rigid(Simulation *sim, int first_atom, int n_atoms,
  * glycosidic N and H atoms - documented per-base in each base's own
  * constructor comment (e.g. thymine: N=0,H=8; adenine: N=0,H=10).
  * ══════════════════════════════════════════════════════════════════════════ */
-static void attach_base_glycosidic(Simulation *sim,
+static int attach_base_glycosidic(Simulation *sim,
                                     int sugar_C1_idx, Vec3 glycosidic_dir,
                                     int base_first, int n_base_atoms,
                                     int base_N_offset, int base_H_offset) {
@@ -1070,11 +1075,15 @@ static void attach_base_glycosidic(Simulation *sim,
      * so no manual adjustment is needed here - we just need the
      * CURRENT index, which is still H_idx since nothing before it in
      * the array has been removed yet. */
-    sim_remove_terminal_atom(sim, H_idx);
+    if (!sim_remove_terminal_atom(sim, H_idx)) {
+        fprintf(stderr, "FIX07: attach_base_glycosidic: glycosidic H removal failed (atom %d)\n", H_idx);
+        return 0;
+    }
 
     /* Add the real glycosidic bond. N_idx is still valid (H_idx > N_idx
      * always in this file's base layouts, so removing H doesn't shift N). */
     sim_add_bond(sim, sugar_C1_idx, N_idx, 1);
+    return 1;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -1097,7 +1106,10 @@ int sim_place_dinucleotide_TA(Simulation *sim, Vec3 origin, int *out_sugarB_C1) 
     int sugarA = place_deoxyribose_open(sim, origin, &dirA);
     int thymine = sim_place_thymine(sim, vec3_add(origin, vec3(6,6,6)));
     /* Thymine layout (see sim_place_thymine): N1=+0, HN1=+8 */
-    attach_base_glycosidic(sim, sugarA+0, dirA, thymine, 15, 0, 8);
+    if (!attach_base_glycosidic(sim, sugarA+0, dirA, thymine, 15, 0, 8)) {
+        fprintf(stderr, "FIX07: dinucleotide: thymidine glycosidic attachment failed\n");
+        return SIM_ERR_BADATOM;
+    }
 
     /* Place sugar B offset so its eventual O5' will be near sugar A's
      * O3' (rough initial placement; not yet distance-optimized for
@@ -1107,7 +1119,10 @@ int sim_place_dinucleotide_TA(Simulation *sim, Vec3 origin, int *out_sugarB_C1) 
     int sugarB = place_deoxyribose_open(sim, sugarB_origin, &dirB);
     int adenine = sim_place_adenine(sim, vec3_add(sugarB_origin, vec3(6,6,6)));
     /* Adenine layout (see sim_place_adenine): N9=+0, HN9=+10 */
-    attach_base_glycosidic(sim, sugarB+0, dirB, adenine, 15, 0, 10);
+    if (!attach_base_glycosidic(sim, sugarB+0, dirB, adenine, 15, 0, 10)) {
+        fprintf(stderr, "FIX07: dinucleotide: deoxyadenosine glycosidic attachment failed\n");
+        return SIM_ERR_BADATOM;
+    }
 
     /* ── Phosphodiester bridge: sugarA's O3' to sugarB's O5' ──────────── */
     /* Sugar (open form) layout: O3' is at offset +6, O5' is at offset
@@ -1178,12 +1193,18 @@ int sim_place_dinucleotide_TA(Simulation *sim, Vec3 origin, int *out_sugarB_C1) 
     int second_to_remove = (HO5_B > HO3_A) ? HO3_A : HO5_B;
     int sugarB_C1 = sugarB + 0; /* tracked through the same shifts below */
 
-    sim_remove_terminal_atom(sim, first_to_remove);
+    if (!sim_remove_terminal_atom(sim, first_to_remove)) {
+        fprintf(stderr, "FIX07: dinucleotide: leaving-atom removal failed (atom %d)\n", first_to_remove);
+        return SIM_ERR_BADATOM;
+    }
     if (O3_A > first_to_remove) O3_A--;
     if (O5_B > first_to_remove) O5_B--;
     if (sugarB_C1 > first_to_remove) sugarB_C1--;
 
-    sim_remove_terminal_atom(sim, second_to_remove);
+    if (!sim_remove_terminal_atom(sim, second_to_remove)) {
+        fprintf(stderr, "FIX07: dinucleotide: leaving-atom removal failed (atom %d)\n", second_to_remove);
+        return SIM_ERR_BADATOM;
+    }
     if (O3_A > second_to_remove) O3_A--;
     if (O5_B > second_to_remove) O5_B--;
     if (sugarB_C1 > second_to_remove) sugarB_C1--;
