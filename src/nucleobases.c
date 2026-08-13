@@ -169,7 +169,7 @@ static int place_molecule(Simulation *sim, Vec3 origin,
     }
 
     /* Generic aromatic-ring bending stiffness, not independently fitted */
-    sim_build_angles_geometric(sim, 1.0);
+    sim_rebuild_angles_geometric(sim, 1.0);
 
     return first;
 }

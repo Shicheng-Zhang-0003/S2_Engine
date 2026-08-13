@@ -6,22 +6,51 @@
 #include "../include/periodic_table.h"
 
 /*
- * forces.c
- *
- * Every number here corresponds to a real physical measurement.
- * Bond parameters from AMBER ff14SB / CHARMM36 (converted to eV/Å²).
- * Angle parameters from the same sources.
- *
- * AMBER uses kcal/mol/Å² and kcal/mol/rad²; we multiply by KCAL_MOL_TO_EV.
- * All lengths in Å, energies in eV, forces in eV/Å.
- */
+* forces.c
+*
+* UNITS: lengths in Å, energies in eV, forces in eV/Å. Where a tabulated
+* source gives kcal/mol/Å² or kcal/mol/rad², conversion is by
+* multiplication with KCAL_MOL_TO_EV.
+*
+* PROVENANCE (audit fix F2 - this block replaces an earlier header that
+* claimed the bond parameters came from AMBER ff14SB / CHARMM36, which
+* spot-checking does NOT support):
+*
+* BOND_TABLE k values are generic spectroscopic-order stiffness
+* constants, not force-field-fitted parameters. Spot checks
+* (eV/Å² -> kcal/mol/Å², dividing by KCAL_MOL_TO_EV):
+*   H-H 36.00 -> 830 kcal/mol/Å²  the real spectroscopic H2 force
+*          constant (~575 N/m). AMBER has no H-H bond term at all.
+*   C-C 23.80 -> 549 kcal/mol/Å²  ff14SB CT-CT is 310, CHARMM36 ~222.
+*          Matches neither.
+*   H-O 34.50 -> 796 kcal/mol/Å²  TIP3P/AMBER HW-OW is 553,
+*          spectroscopic O-H ~1100. Matches neither.
+* Practical impact is limited: every molecule constructor overrides r0
+* with the exact placed-geometry distance (zero initial strain), so
+* these k's govern bond stiffness and vibration frequency only, never
+* equilibrium structure. The claim is corrected anyway, because this
+* codebase's standard is "every number sourced, every approximation
+* flagged".
+*
+* ANGLE_TABLE rows are AMBER-sourced where the row's own comment cites
+* the specific constant (e.g. TIP3P HW-OW-HW 55, ff14SB H-N3-H 43.1),
+* converted with the 2x energy-convention factor documented in the
+* table below; untabulated angle types fall back to the flagged
+* generic tetrahedral value in forces_angle_params().
+*/
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Bond parameter database
  * Ordered: Za <= Zb.  order = 1 (single), 2 (double), 3 (triple).
  * k values in eV/Å²; r0 in Å.
  *
- * Conversion: AMBER k_bond [kcal/mol/Å²] × KCAL_MOL_TO_EV = eV/Å²
+ * PROVENANCE (audit fix F2): k values are generic spectroscopic-order
+ * stiffness constants, NOT AMBER/CHARMM-fitted - the spot-check table
+ * lives in the file header comment above. r0 entries here are reference
+ * lengths only: every molecule constructor overrides r0 with the exact
+ * placed-geometry distance (zero initial strain), so only k affects
+ * dynamics (bond stiffness and vibration frequency, never equilibrium
+ * structure).
  * ══════════════════════════════════════════════════════════════════════════ */
 static const BondParam BOND_TABLE[] = {
 /*   Za  Zb  ord   r0(Å)    k(eV/Å²)   element pair        */
@@ -113,6 +142,7 @@ int forces_bond_params(int Za, int Zb, int order, BondParam *out) {
         for (int i = 0; i < BOND_TABLE_LEN; i++) {
             const BondParam *p = &BOND_TABLE[i];
             if (p->Za == Za && p->Zb == Zb && p->order == 1) {
+                fprintf(stderr, "forces: WARNING (audit fix F3): no BOND_TABLE entry for Z%d-Z%d order %d - falling back to single-bond parameters instead of the requested bond order\n", Za, Zb, order);
                 *out = *p;
                 return 1;
             }
@@ -123,6 +153,7 @@ int forces_bond_params(int Za, int Zb, int order, BondParam *out) {
     const Element *ea = pt_element(Za);
     const Element *eb = pt_element(Zb);
     if (ea && eb) {
+        fprintf(stderr, "forces: WARNING (audit fix F3): no BOND_TABLE entry for %s(Z%d)-%s(Z%d) order %d - geometric fallback: r0 from covalent-radii sum, generic k = 20 eV/A^2\n", ea->symbol, Za, eb->symbol, Zb, order);
         out->Za = Za; out->Zb = Zb; out->order = order;
         out->r0 = ea->covalent_radius + eb->covalent_radius;
         out->k  = 20.0;  /* generic, eV/Å² */
@@ -155,103 +186,122 @@ int forces_angle_params(int Za, int Zb, int Zc, AngleParam *out) {
      * angle type inconsistent, too-soft physics relative to every
      * tabulated entry - using a representative generic AMBER value
      * (40 kcal/mol/rad^2, the CT-CT-CT constant) here instead. */
+    fprintf(stderr, "forces: WARNING (audit fix F3): no ANGLE_TABLE entry for angle Z%d-Z%d-Z%d - generic tetrahedral fallback (109.47 deg, k = 3.469 eV/rad^2)\n", Za, Zb, Zc);
     out->Za = Za; out->Zb = Zb; out->Zc = Zc;
     out->theta0 = DEG2RAD(109.47);
     out->k      = 2.0 * 40.0 * KCAL_MOL_TO_EV;  /* = 3.469 eV/rad^2 */
     return 0;
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * Lennard-Jones + Coulomb pair force
+/* ======================================================================
+ * Lennard-Jones + Coulomb pair force, with optional smooth switching
+ * (audit F5).
  *
  * Physics:
- *   V_LJ  = 4ε [(σ/r)^12 − (σ/r)^6]
- *   V_C   = COULOMB_MD × q_i × q_j / r
+ *   V_LJ  = 4 eps [(sig/r)^12 - (sig/r)^6]
+ *   V_C   = COULOMB_MD * qi * qj / (r * dielectric)
+ *   F_i = f_total * r_ij,  where r_ij points FROM i TOWARD j.
  *
- *   F_i = (dV_LJ/dr + dV_C/dr) × r̂_ij
- *        where r̂_ij = (r_j − r_i) / r  [unit vector FROM i TOWARD j]
+ * Force sign convention (unchanged from the original): for LJ, f_lj is
+ * negative at small r (repulsive, pushes i away from j) and positive
+ * beyond the LJ minimum (attractive). For Coulomb, f_c is positive for
+ * opposite charges (attractive, pulls i toward j) and negative for like
+ * charges (repulsive).
  *
- * Derivation of scalar prefactors:
- *   dV_LJ/dr = 24ε/r × [(σ/r)^6 − 2(σ/r)^12]
- *   Force F_i = f_scalar × r_ij,  f_scalar = dV/dr / r
- *
- *   For LJ:  f_lj  = 24ε/r² × [(σ/r)^6 − 2(σ/r)^12]
- *   For C:   f_c   = -COULOMB_MD × qi × qj / r³
- *            (negative because dV_C/dr = −k q q / r²,
- *             and F_i = (dV/dr / r) × r_ij)
- * ══════════════════════════════════════════════════════════════════════════ */
-PairEnergy forces_nonbonded_pair(Atom *atoms, int ia, int ib,
-                                  const SimBox *box,
-                                  int use_lj, int use_coulomb,
-                                  double dielectric) {
+ * SWITCHING (audit F5): when do_switch is set, both the LJ and Coulomb
+ * potential and force are multiplied by a smooth switching function S(r)
+ * that is 1 for r <= r_switch, falls smoothly to 0 at r_cutoff, and has
+ * a continuous first derivative. This removes the energy AND force
+ * discontinuity of a hard cutoff. When do_switch is 0, S=1 and dS/dr=0
+ * and the original hard-cutoff behaviour is recovered exactly.
+ * ====================================================================== */
+
+/* CHARMM-style switching function. Returns S(r) and, via *dSdr, dS/dr.
+ *   S(r) = 1                                             for r <= r_switch
+ *   S(r) = (roff^2-r^2)^2 (roff^2+2r^2-3ron^2)/(roff^2-ron^2)^3
+ *                                                        for ron < r < roff
+ *   S(r) = 0                                             for r >= r_cutoff
+ * S and dS/dr are continuous everywhere, so both the switched potential
+ * and force go smoothly to zero at r_cutoff. */
+static double lj_switch_fn(double r, double r_switch, double r_cutoff,
+                           double *dSdr) {
+    if (r <= r_switch) { if (dSdr) *dSdr = 0.0; return 1.0; }
+    if (r >= r_cutoff) { if (dSdr) *dSdr = 0.0; return 0.0; }
+    double ron2  = r_switch * r_switch;
+    double roff2 = r_cutoff * r_cutoff;
+    double r2    = r * r;
+    double d     = roff2 - ron2;
+    double denom = d * d * d;
+    double a     = roff2 - r2;
+    double S     = (a * a) * (roff2 + 2.0 * r2 - 3.0 * ron2) / denom;
+    if (dSdr) {
+        /* dS/dr = -12 r (roff^2 - r^2)(r^2 - ron^2) / (roff^2 - ron^2)^3 */
+        *dSdr = -12.0 * r * a * (r2 - ron2) / denom;
+    }
+    return S;
+}
+
+/* Core non-bonded pair interaction with optional switching. When
+ * do_switch is 0 this is identical to the original hard-cutoff path.
+ * When do_switch is set, the switched force coefficient for each term is
+ * f*S + V*(dS/dr)/r, which reduces to f when S=1 and dS/dr=0. */
+static PairEnergy pair_nonbonded_core(Atom *atoms, int ia, int ib,
+                                      const SimBox *box,
+                                      int use_lj, int use_coulomb,
+                                      double dielectric,
+                                      int do_switch,
+                                      double r_switch, double r_cutoff) {
     PairEnergy result = {0.0, 0.0};
     Atom *ai = &atoms[ia];
     Atom *bi = &atoms[ib];
-
     Vec3 r_ij = vec3_sub(bi->position, ai->position);
-
-    /* Minimum-image PBC */
-    if (box && (box->periodic[0] || box->periodic[1] || box->periodic[2])) {
+    if (box && (box->periodic[0] || box->periodic[1] || box->periodic[2]))
         r_ij = vec3_pbc(r_ij, box->dimensions);
-    }
-
     double r2 = vec3_norm2(r_ij);
-    if (r2 < 1.0e-10) return result;  /* avoid self-interaction at r≈0 */
-    double r  = sqrt(r2);
+    if (r2 < 1.0e-10) return result;
+    double r = sqrt(r2);
+    double f_total = 0.0;
 
-    double f_total = 0.0;  /* scalar force coefficient: F_i = f_total × r_ij */
+    double S = 1.0, dSdr = 0.0;
+    if (do_switch) S = lj_switch_fn(r, r_switch, r_cutoff, &dSdr);
 
-    /* ── Lennard-Jones ───────────────────────────────────────────────────── */
     if (use_lj) {
         double eps   = lj_eps_combine(ai->lj_epsilon, bi->lj_epsilon);
         double sigma = lj_sigma_combine(ai->lj_sigma, bi->lj_sigma);
         double sr2  = (sigma * sigma) / r2;
         double sr6  = sr2 * sr2 * sr2;
         double sr12 = sr6 * sr6;
-
-        /* V_LJ = 4ε(sr12 - sr6)  [eV] */
-        result.lj_energy = 4.0 * eps * (sr12 - sr6);
-
-        /* f_lj = 24ε/r² × (sr6 - 2*sr12).  F_i = f_lj × r_ij (r_ij points
-         * FROM i TO j). Sign convention, verified by direct substitution:
-         * at small r (r<<σ): sr12 >> sr6, so the bracket is NEGATIVE,
-         * making f_lj NEGATIVE → F_i points OPPOSITE to r_ij (away from
-         * j) → REPULSION, correctly. At large r near the LJ minimum and
-         * beyond (r>2^(1/6)σ): sr6 > 2*sr12, bracket POSITIVE, f_lj
-         * POSITIVE → F_i ALONG r_ij (toward j) → ATTRACTION, correctly. */
-        double f_lj = (24.0 * eps / r2) * (sr6 - 2.0 * sr12);
-        f_total += f_lj;
+        double V_lj = 4.0 * eps * (sr12 - sr6);
+        double f_lj = (24.0 * eps / r2) * (sr6 - 2.0 * sr12); /* (1/r) dV_lj/dr */
+        result.lj_energy = V_lj * S;
+        f_total += f_lj * S + V_lj * dSdr / r;
     }
-
-    /* ── Coulomb ─────────────────────────────────────────────────────────── */
     if (use_coulomb) {
         double qi = ai->partial_charge;
         double qj = bi->partial_charge;
         if (fabs(qi) > 1.0e-9 && fabs(qj) > 1.0e-9) {
-            /* V_C = COULOMB_MD × qi × qj / (r × dielectric)  [eV] */
-            result.coulomb_energy = COULOMB_MD * qi * qj / (r * dielectric);
-
-            /* f_c = -COULOMB_MD × qi × qj / (r³ × dielectric).
-             * F_i = f_c × r_ij. Sign convention, verified by direct
-             * substitution: for OPPOSITE charges (qi*qj<0), f_c is
-             * POSITIVE → F_i points ALONG r_ij (toward j) → ATTRACTION,
-             * correctly. For LIKE charges (qi*qj>0), f_c is NEGATIVE →
-             * F_i points OPPOSITE to r_ij (away from j) → REPULSION,
-             * correctly. (Note this is the opposite sign pairing from
-             * the LJ force above - that asymmetry is expected, since
-             * Coulomb's sign comes from the charge product while LJ's
-             * comes from the distance-dependent bracket term.) */
-            double f_c = -COULOMB_MD * qi * qj / (r2 * r * dielectric);
-            f_total += f_c;
+            double V_c = COULOMB_MD * qi * qj / (r * dielectric);
+            double f_c = -COULOMB_MD * qi * qj / (r2 * r * dielectric); /* (1/r) dV_c/dr */
+            result.coulomb_energy = V_c * S;
+            f_total += f_c * S + V_c * dSdr / r;
         }
     }
 
-    /* Accumulate force onto both atoms (Newton's 3rd law) */
     Vec3 F_i = vec3_scale(r_ij, f_total);
     vec3_iadd(&ai->force, F_i);
     vec3_isub(&bi->force, F_i);
-
     return result;
+}
+
+/* Public, unswitched entry point (used by the base-pairing diagnostics,
+ * which inspect specific close pairs and must not be affected by the
+ * cutoff switch). Identical to the pre-F5 behaviour. */
+PairEnergy forces_nonbonded_pair(Atom *atoms, int ia, int ib,
+                                 const SimBox *box,
+                                 int use_lj, int use_coulomb,
+                                 double dielectric) {
+    return pair_nonbonded_core(atoms, ia, ib, box, use_lj, use_coulomb,
+                               dielectric, 0, 0.0, 0.0);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -441,6 +491,29 @@ void forces_calculate(Simulation *sim) {
     double E_angle   = 0.0;
     double E_dihedral = 0.0;
 
+    /* ── 1-4 scaling: deliberately NOT applied (audit F1 resolution) ────────
+     * Investigated and rejected; kept in-source so the reasoning survives.
+     * AMBER scales 1-4 non-bonded pairs (LJ /SCNB with SCNB=2, Coulomb /SCEE
+     * with SCEE=1.2) because its torsion parameters were co-fitted WITH that
+     * scaling already in place. This force field has no fitted torsion
+     * potentials - its dihedrals are harmonic restraints toward fixed
+     * textbook angles and carry no 1-4 interaction physics. Scaling the 1-4
+     * non-bonded terms here would remove real physics with nothing to
+     * compensate, and when tested it destabilised the validated alpha-helix
+     * i,i+4 backbone hydrogen bond (Demo 11 failed to form it). 1-4 pairs
+     * are therefore deliberately kept at full strength. Re-introduce 1-4
+     * scaling ONLY alongside properly fitted torsion parameters, and
+     * re-validate Demo 11 when doing so. */
+
+    /* Audit F5: LJ/Coulomb switching parameters. The switching function
+     * smoothly tapers the non-bonded potential and force to zero between
+     * r_switch and r_cutoff, removing the hard-cutoff discontinuity.
+     * Disabled for very small cutoffs. For the current gas-phase demos
+     * every pair is well inside r_switch, so switching never activates
+     * and all results are unchanged. */
+    double r_cutoff = sim->cutoff;
+    double r_switch = 0.8 * r_cutoff;
+    int do_switch = (r_cutoff > 2.0) ? 1 : 0;
     /* 2. Non-bonded pairs (O(N²) — replace with cell list for large N) */
     for (int i = 0; i < N - 1; i++) {
         for (int j = i + 1; j < N; j++) {
@@ -471,12 +544,13 @@ void forces_calculate(Simulation *sim) {
 
             if (vec3_norm(r_ij) > sim->cutoff) continue;
 
-            PairEnergy pe = forces_nonbonded_pair(
+            PairEnergy pe = pair_nonbonded_core(
                 sim->atoms, i, j,
                 &sim->box,
                 sim->use_lj,
                 sim->use_coulomb,
-                sim->dielectric);
+                sim->dielectric,
+                do_switch, r_switch, r_cutoff);
 
             E_lj      += pe.lj_energy;
             E_coulomb += pe.coulomb_energy;

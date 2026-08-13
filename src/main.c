@@ -350,7 +350,7 @@ static void demo_water_cluster(void) {
         sim_add_bond(sim, O_idx[i], Hd_idx[i], 1);
         sim_add_bond(sim, O_idx[i], Hf_idx[i], 1);
     }
-    sim_build_angles(sim);
+    sim_rebuild_angles(sim);
 
     /*
      * Run at 50 K rather than 300 K. This is an honest choice, not a fudge:
@@ -1664,7 +1664,7 @@ int main(void) {
     printf("  ║       From subatomic to molecular dynamics            ║\n");
     printf("  ╚═══════════════════════════════════════════════════════╝\n");
     printf("\n  Unit system: Length=Å  Time=fs  Energy=eV  Mass=AMU\n");
-    printf("  Physical constants: 2019 CODATA  |  LJ: UFF defaults + AMBER ff99 overrides  |  Bonds: AMBER\n\n");
+    printf("  Physical constants: 2019 CODATA  |  LJ: UFF defaults + AMBER ff99 overrides  |  Bonds: placed-geometry r0, generic spectroscopic k (audit F2)\n\n");
 
     demo_quantum();
     demo_bond_curve();

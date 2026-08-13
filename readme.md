@@ -1083,6 +1083,13 @@ primary Rappé 1992 table — confirm before trusting them quantitatively.
 
 ### Known limitations & honest scope
 
+* **1-4 non-bonded scaling deliberately not applied (audit F1).** AMBER's
+  1-4 scaling (LJ/2, Coulomb/1.2) presupposes AMBER's co-fitted torsion
+  parameters; this force field's dihedrals are restraints, not fitted
+  torsions, so scaling 1-4 pairs removes physics with nothing to
+  compensate. It was tested and broke the validated helix i,i+4 H-bond
+  (Demo 11). 1-4 pairs stay at full strength; revisit only with fitted
+  torsions.
 * **Ion selectivity (Demo 12) is a negative result.** The Coulomb+LJ
   model favors Na⁺ over K⁺ at every KcsA filter site and across a
   radius scan — the wrong direction. The second pass ruled out generic

@@ -12,7 +12,7 @@
  *   1. sim_create()          → allocate empty simulation
  *   2. sim_add_atom()        → place atoms at positions with charges
  *   3. sim_add_bond()        → define covalent bonds (or sim_detect_bonds)
- *   4. sim_build_angles()    → derive angle list from bond topology
+ *   4. sim_rebuild_angles()    → derive angle list from bond topology
  *   5. forces_calculate()    → initial forces
  *   6. integrator_step() ×N  → run the dynamics
  *   7. sim_destroy()         → free memory
@@ -120,10 +120,10 @@ void sim_detect_bonds(Simulation *sim);
  * For every pair of bonds sharing an atom b, adds angle (a, b, c).
  * Call after all bonds are defined.
  */
-void sim_build_angles(Simulation *sim);
+void sim_rebuild_angles(Simulation *sim);
 
 /*
- * Like sim_build_angles, but derives each angle's equilibrium theta0
+ * Like sim_rebuild_angles, but derives each angle's equilibrium theta0
  * directly from the atoms' CURRENT Cartesian positions rather than the
  * generic element-keyed lookup table. Use this for ring systems (e.g.
  * aromatic nucleobases) where the seed geometry already encodes the
@@ -134,7 +134,7 @@ void sim_build_angles(Simulation *sim);
  * reasonable generic aromatic-ring bending stiffness, not independently
  * fitted per angle.
  */
-void sim_build_angles_geometric(Simulation *sim, double k_default);
+void sim_rebuild_angles_geometric(Simulation *sim, double k_default);
 
 /* ── Periodic boundary conditions ────────────────────────────────────────── */
 
