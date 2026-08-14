@@ -440,16 +440,7 @@ note: the archived `output.after-fix09.txt` in this tree predates the
 Demo 12 caveat strengthening and the banner-line update now in
 `src/main.c`; the block below matches the current source.)
 
-**Debug build**: the makefile carries a commented alternate `CFLAGS`
-line enabling AddressSanitizer and UndefinedBehaviorSanitizer. Honest
-caveat, as of this documentation sync: the link rule currently
-hardcodes `-O3` and does not pass `$(CFLAGS)`, and sanitizers require
-the flag at link time as well as compile time — so uncommenting that
-line alone is not sufficient until the link rule uses `$(CFLAGS)` (and
-the stray `-lm` inside that commented CFLAGS line belongs on the link
-rule, not the compile line). The `.fix08_scratch/asan_*` outputs in
-this tree came from a correctly-sanitised build (ASan stderr is empty:
-zero memory errors); the makefile itself still needs that alignment.
+**Debug build**: the makefile carries a commented alternate `CFLAGS` line enabling AddressSanitizer and UndefinedBehaviorSanitizer. As of audit fix B1, the link rule passes `$(CFLAGS)`, so uncommenting that line produces a working sanitised build through make. Verified this release: the ASan build ran the full 12-demo suite with empty stderr (zero memory errors), and its output is byte-for-byte identical to the normal build (both SHA-256 `875a2c0cf30ccf4fc6ebff8b0b64547063c7a80c5250d1b32c72af3048bc6935`).
 
 ---
 
@@ -1330,7 +1321,7 @@ exercised by any demo.
 
 ## Current Status
 
-`carbonsim-v9A1` is a validated physics engine and a set of validated
+`carbonsim-v9R3` is a validated physics engine and a set of validated
 building blocks, not a production simulator. The fundamental layers —
 quantum orbitals, the molecular-dynamics core, dihedral forces, energy
 minimization, biopolymer condensation chemistry, and the
