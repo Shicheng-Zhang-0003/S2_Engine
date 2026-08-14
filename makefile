@@ -3,7 +3,7 @@ CFLAGS  = -O3 -g -Wall -Wextra -std=c11 -Iinclude
 CFLAGS += -Wno-missing-braces -march=native
 
 # Uncomment for debug build with address sanitiser:
-# CFLAGS = -g -O0 -Wall -std=c11 -Iinclude -fsanitize=address,undefined -lm
+# CFLAGS = -g -O0 -Wall -std=c11 -Iinclude -fsanitize=address,undefined
 
 SRC_DIR = src
 OBJ_DIR = build
@@ -20,7 +20,7 @@ $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
 
 $(BIN): $(OBJS)
-	$(CC) -O3 -o $@ $^ -lm
+	$(CC) $(CFLAGS) -o $@ $^ -lm
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c -o $@ $<

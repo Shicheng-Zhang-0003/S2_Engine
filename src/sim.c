@@ -53,6 +53,7 @@ Simulation *sim_create(int atom_capacity, int bond_capacity) {
     sim->use_bonds    = 1;
     sim->use_angles   = 1;
     sim->use_dihedrals = 1;
+    sim->use_switching = 0;   /* gas-phase default: no cutoff smoothing */
     sim->dielectric   = 1.0;  /* no screening by default */
 
     /* Box: large vacuum (no PBC by default) */

@@ -115,12 +115,12 @@ const Element PERIODIC_TABLE[MAX_ELEMENTS + 1] = {
       {0}, 0.185*KCAL_MOL_TO_EV, 3.868 },
 
     /* Z=19 K  Potassium — electronegativity 0.82, IE 4.341 eV, EA 0.501 eV
-       checked against standard tabulated values (IE/EA match to 3 sig figs
-       via kJ/mol conversion) and are real, not placeholders. LJ eps/sigma
-       are UFF-sourced but NOT independently re-verified against the
-       primary Rappe et al. 1992 UFF table in this pass — confirm before
-       trusting them quantitatively. The old "mass only stub" note above
-       was stale and has been removed as of this check. */
+checked against standard tabulated values (IE/EA match to 3 sig figs
+via kJ/mol conversion) and are real, not placeholders. LJ eps/sigma
+verified against Rappé et al. 1992 UFF (K: x1 = 3.812 A, x2 = 0.035
+kcal/mol) - these match the standard UFF table for potassium (audit T1
+verification), resolving the masterplan Step 0 flag. The old "mass only
+stub" note above was stale and has been removed as of this check. */
     {19,"K","Potassium",     39.098,  0.82, 2.75, 2.03, 2.75,  4.341, 0.501,  1,
       {0}, 0.035*KCAL_MOL_TO_EV, 3.812 },
 

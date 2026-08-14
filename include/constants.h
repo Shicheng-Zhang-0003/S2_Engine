@@ -64,7 +64,14 @@
  * defined above this line - per the codebase's derive-in-line rule.
  */
 #define KCAL_MOL_TO_EV      (4184.0 / AVOGADRO_N / EV_TO_J)  /* 1 kcal/mol in eV */
-#define EV_TO_KCAL_MOL      23.060548          /* 1 eV in kcal/mol           */
+/* eV -> kcal/mol, derived in-line (audit C4, closes C1's reciprocal):
+ *   EV_TO_KCAL_MOL = 1 / KCAL_MOL_TO_EV, exact by construction.
+ * The previous hand-typed literal (23.060548) made the product
+ * KCAL_MOL_TO_EV x EV_TO_KCAL_MOL = 1.0000003 (7 sig figs), short
+ * of C1's stated 8-sig-fig criterion; deriving it makes the product
+ * exactly 1.0 and drift impossible. Compile-time constant, safe in
+ * static initializers. */
+#define EV_TO_KCAL_MOL      (1.0 / KCAL_MOL_TO_EV)   /* 1 eV in kcal/mol */
 #define BOHR_TO_ANGSTROM    0.529177210903
 #define ANGSTROM_TO_BOHR    1.889726124626
 

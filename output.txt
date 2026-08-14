@@ -431,67 +431,67 @@
     G:N1...C:N3 = 2.950 A (target 2.95)
     G:N2...C:O2 = 2.937 A
     G:O6...C:N4 = 2.949 A
-  Energy breakdown at initial placement: E_LJ=0.736551 eV  E_Coulomb=-5.314303 eV  Total_PE=-4.577751 eV
+  Energy breakdown at initial placement: E_LJ=0.736544 eV  E_Coulomb=-5.294565 eV  Total_PE=-4.558021 eV
   Closest intermolecular contact: atom 15 (Z=1) ... atom 20 (Z=8) = 1.967 A
   Largest single LJ repulsion: atom 6 (Z=7, sigma=3.25) ... atom 16 (Z=7, sigma=3.25) = 2.950 A, contributes 0.0415 eV
   Step   t(fs)      PE(eV)     T(K)       primary(A)
-  1      0.100      -4.577615  49.96      2.9501    
-  2      0.200      -4.577398  49.90      2.9501    
-  3      0.300      -4.577103  49.82      2.9502    
-  4      0.400      -4.576734  49.72      2.9502    
-  5      0.500      -4.576295  49.60      2.9503    
-  101    10.100     -4.607427  57.96      2.9166    
-  201    20.100     -4.625261  61.06      2.8779    
-  301    30.100     -4.644098  64.02      2.8970    
-  401    40.100     -4.655877  64.48      2.9408    
-  501    50.100     -4.667302  64.90      2.9886    
-  601    60.100     -4.671051  63.57      3.0314    
-  701    70.100     -4.689730  65.70      3.0702    
+  1      0.100      -4.557881  49.96      2.9501    
+  2      0.200      -4.557660  49.90      2.9501    
+  3      0.300      -4.557362  49.82      2.9502    
+  4      0.400      -4.556990  49.72      2.9502    
+  5      0.500      -4.556548  49.60      2.9503    
+  101    10.100     -4.588062  58.06      2.9166    
+  201    20.100     -4.606500  61.28      2.8780    
+  301    30.100     -4.626525  64.52      2.8972    
+  401    40.100     -4.638784  65.00      2.9410    
+  501    50.100     -4.650537  65.40      2.9889    
+  601    60.100     -4.655535  64.29      3.0321    
+  701    70.100     -4.674488  66.36      3.0718    
 
-  Initial interaction PE:        -4.577751 eV
-  PE at closest WC approach:     -4.630379 eV (primary N1...N3 = 2.878 A)
-  Global PE minimum over run:    -4.710851 eV (may reflect drift to a different,
+  Initial interaction PE:        -4.558021 eV
+  PE at closest WC approach:     -4.611601 eV (primary N1...N3 = 2.878 A)
+  Global PE minimum over run:    -4.695777 eV (may reflect drift to a different,
                                   non-WC configuration such as stacking)
-  Final PE (end of run):         -4.676041 eV
+  Final PE (end of run):         -4.662334 eV
 
   Final heavy-atom contacts:
-    G:N1...C:N3 = 3.103 A
+    G:N1...C:N3 = 3.105 A
     G:N2...C:O2 = 3.126 A
-    G:O6...C:N4 = 2.946 A
+    G:O6...C:N4 = 2.948 A
 
   --- Adenine-Uracil (2 H-bonds: N1..H-N3, N6-H..O4) ---
   Initial heavy-atom contacts after geometric placement:
     A:N1...U:N3 = 2.900 A (target 2.90)
     A:N6...U:O4 = 2.899 A
-  Energy breakdown at initial placement: E_LJ=0.885992 eV  E_Coulomb=-1.955062 eV  Total_PE=-1.069070 eV
+  Energy breakdown at initial placement: E_LJ=0.885984 eV  E_Coulomb=-1.940374 eV  Total_PE=-1.054390 eV
   Closest intermolecular contact: atom 12 (Z=1) ... atom 20 (Z=8) = 1.930 A
   Step   t(fs)      PE(eV)     T(K)       primary(A)
-  1      0.100      -1.069405  50.10      2.9000    
-  2      0.200      -1.069678  50.18      2.9000    
-  3      0.300      -1.069891  50.24      2.8999    
-  4      0.400      -1.070046  50.29      2.8999    
-  5      0.500      -1.070149  50.32      2.8999    
-  101    10.100     -1.107414  60.24      2.8745    
-  201    20.100     -1.098059  56.32      2.8724    
-  301    30.100     -1.102417  55.92      2.9282    
-  401    40.100     -1.098911  53.83      2.9983    
-  501    50.100     -1.114681  57.27      3.0323    
-  601    60.100     -1.159646  68.07      3.0340    
-  701    70.100     -1.138722  59.96      3.0243    
+  1      0.100      -1.054736  50.10      2.9000    
+  2      0.200      -1.055021  50.19      2.9000    
+  3      0.300      -1.055246  50.25      2.8999    
+  4      0.400      -1.055414  50.30      2.8999    
+  5      0.500      -1.055530  50.34      2.8999    
+  101    10.100     -1.093908  60.55      2.8745    
+  201    20.100     -1.084507  56.56      2.8725    
+  301    30.100     -1.090486  56.56      2.9284    
+  401    40.100     -1.087098  54.38      2.9988    
+  501    50.100     -1.090774  58.09      3.0334    
+  601    60.100     -1.136958  69.06      3.0362    
+  701    70.100     -1.130816  61.15      3.0276    
 
-  Initial interaction PE:        -1.069070 eV
-  PE at closest WC approach:     -1.093643 eV (primary N1...N3 = 2.866 A)
-  Global PE minimum over run:    -1.185790 eV
-  Final PE (end of run):         -1.185790 eV
+  Initial interaction PE:        -1.054390 eV
+  PE at closest WC approach:     -1.080053 eV (primary N1...N3 = 2.866 A)
+  Global PE minimum over run:    -1.180083 eV
+  Final PE (end of run):         -1.180083 eV
 
   Final heavy-atom contacts:
-    A:N1...U:N3 = 3.042 A
-    A:N6...U:O4 = 3.076 A
+    A:N1...U:N3 = 3.047 A
+    A:N6...U:O4 = 3.079 A
 
   ══════════════════════════════════════════════════
-  G-C @ closest WC approach: -4.630379 eV (3 H-bonds)
-  A-U @ closest WC approach: -1.093643 eV (2 H-bonds)
-  --> G-C binds MORE strongly than A-U (3.536736 eV difference),
+  G-C @ closest WC approach: -4.611601 eV (3 H-bonds)
+  A-U @ closest WC approach: -1.080053 eV (2 H-bonds)
+  --> G-C binds MORE strongly than A-U (3.531549 eV difference),
       and BOTH pairs are correctly attractive (negative PE) -
       the right qualitative chemistry, from nothing but real
       charges + Coulomb + LJ. Never programmed in.
@@ -609,25 +609,25 @@
 ║  DEMO 11: Alpha helix - does the i,i+4 H-bond emerge?║
 ╚══════════════════════════════════════════════════════╝
   Built 5-residue poly-alanine chain: 53 atoms, 52 bonds
-  Initial clash relaxation: 18811.75 -> 8.52 eV
+  Initial clash relaxation: 18811.75 -> 8.50 eV
   Added 12 dihedral restraints (phi, psi, omega for applicable
   residues) toward real textbook values.
-  Minimized: PE = 9.5769 eV
+  Minimized: PE = 9.7447 eV
 
   Residue    phi (deg)    psi (deg)   
-  1          -60.27      
-  2          -57.76      
-  3          -57.98      
-  4          -53.92      
-  0                       -48.37      
-  1                       -50.55      
-  2                       -48.29      
-  3                       -47.23      
+  1          -58.75      
+  2          -61.51      
+  3          -58.29      
+  4          -53.96      
+  0                       -48.38      
+  1                       -47.55      
+  2                       -52.66      
+  3                       -48.26      
 
-  Max deviation from target (phi=-57, psi=-47): 3.55 deg
+  Max deviation from target (phi=-57, psi=-47): 5.66 deg
 
   === The i,i+4 backbone hydrogen bond (not programmed in) ===
-  N-H(4) ... O=C(0): H...O = 1.9536 A, N...O = 2.9595 A
+  N-H(4) ... O=C(0): H...O = 2.1637 A, N...O = 3.1286 A
   Real backbone H-bond range: H...O 1.8-2.2 A, N...O 2.8-3.2 A
 
   --> A real backbone hydrogen bond formed. Given only the
@@ -637,7 +637,7 @@
       pairing, the defining GLOBAL structural feature of an
       alpha helix emerged on its own.
 
-  Bond length range: [0.9610, 1.5667] A   Bad bonds: 0   Valence issues: 0
+  Bond length range: [0.9602, 1.5669] A   Bad bonds: 0   Valence issues: 0
 
 ╔══════════════════════════════════════════════════════╗
 ║  DEMO 12: KcsA selectivity filter - K+ vs Na+, second pass║

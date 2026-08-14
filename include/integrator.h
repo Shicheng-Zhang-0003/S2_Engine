@@ -64,10 +64,15 @@ void integrator_step(Simulation *sim);
 double integrator_kinetic_energy(const Simulation *sim);
 
 /*
- * Temperature from equipartition: KE = (3N/2) k_B T
- * T [K] = 2 KE [eV] / (3 N × k_B_eV)
- * k_B in eV/K = 8.617333262e-5
- */
+* Temperature from equipartition theorem: KE = ((3N - 3)/2) k_B T
+* T [K] = 2 KE [eV] / ((3N - 3) x k_B_eV)
+* k_B (eV/K) = 8.617333262e-5
+*
+* DOF = 3N - 3: the -3 removes the 3 centre-of-mass translational
+* degrees of freedom, already constrained to zero by
+* integrator_remove_com_velocity(). Matches the implementation of
+* integrator_temperature() in integrator.c.
+*/
 double integrator_temperature(const Simulation *sim);
 
 /* ── Berendsen thermostat ────────────────────────────────────────────────── */

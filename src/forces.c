@@ -505,15 +505,21 @@ void forces_calculate(Simulation *sim) {
      * scaling ONLY alongside properly fitted torsion parameters, and
      * re-validate Demo 11 when doing so. */
 
-    /* Audit F5: LJ/Coulomb switching parameters. The switching function
-     * smoothly tapers the non-bonded potential and force to zero between
-     * r_switch and r_cutoff, removing the hard-cutoff discontinuity.
-     * Disabled for very small cutoffs. For the current gas-phase demos
-     * every pair is well inside r_switch, so switching never activates
-     * and all results are unchanged. */
+    /* Audit F5 follow-through: LJ/Coulomb cutoff switching is OPT-IN
+     * via sim->use_switching (default OFF). The switching function
+     * smoothly tapers the non-bonded potential and force to zero
+     * between r_switch and r_cutoff, removing a REAL condensed-phase
+     * cutoff's discontinuity. Every current demo is gas-phase/vacuum,
+     * where the plain unswitched potential is the correct treatment.
+     * Keying only on cutoff>2.0 was a bug: with the default cutoff=12,
+     * r_switch=9.6 and the switch wrongly attenuated every pair in the
+     * 9.6-12 A band in the gas-phase demos (Demos 7 and 11),
+     * contradicting the old 'never activates for gas phase' claim and
+     * perturbing validated results. Enable use_switching only when a
+     * condensed-phase system with a real cutoff is added. */
     double r_cutoff = sim->cutoff;
     double r_switch = 0.8 * r_cutoff;
-    int do_switch = (r_cutoff > 2.0) ? 1 : 0;
+    int do_switch = (sim->use_switching && r_cutoff > 2.0) ? 1 : 0;
     /* 2. Non-bonded pairs (O(N²) — replace with cell list for large N) */
     for (int i = 0; i < N - 1; i++) {
         for (int j = i + 1; j < N; j++) {

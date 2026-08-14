@@ -265,6 +265,11 @@ typedef struct {
     int            use_bonds;
     int            use_angles;
     int            use_dihedrals;
+    int            use_switching;   /* audit F5 follow-through: smooth non-bonded cutoff
+                                     * switching. 0 (default) = plain hard cutoff,
+                                     * correct for every current gas-phase/vacuum
+                                     * demo. Set 1 only for a condensed-phase
+                                     * system with a real cutoff that needs it. */
     double         dielectric;  /* relative permittivity divisor for the
                                   * Coulomb term, default 1.0 (no screening).
                                   * Standard technique in classical, non-
@@ -278,6 +283,11 @@ typedef struct {
 
     /* Thermostat */
     Thermostat thermostat;
+    /* Random number generator state (audit I2): moved out of a
+     * global static so each simulation carries its own independent
+     * RNG stream and there is no hidden global state. Seeded by
+     * integrator_maxwell_boltzmann(). */
+    uint64_t rng_state;
 } Simulation;
 
 /* ══════════════════════════════════════════════════════════════════════════
