@@ -1317,7 +1317,7 @@ static void demo_helix(void) {
     double delta_phi   = (phi0 - 180.0)   * 3.14159265358979323846 / 180.0;
     double delta_psi   = (psi0 - 180.0)   * 3.14159265358979323846 / 180.0;
     double delta_omega = (omega0 - 180.0) * 3.14159265358979323846 / 180.0;
-    double k_restraint = 80.0 * 0.043364; /* 80 kcal/mol - deliberately
+    double k_restraint = 80.0 * KCAL_MOL_TO_EV; /* 80 kcal/mol - deliberately
                                               strong to reliably find the
                                               target basin; this is a
                                               steering restraint for this

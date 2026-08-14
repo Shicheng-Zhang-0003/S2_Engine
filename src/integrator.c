@@ -169,33 +169,32 @@ void integrator_berendsen(Simulation *sim) {
  *
  * σ_v [Å/fs]: k_B T [eV] / m [AMU] × (1/AMU_AFS2_TO_EV)
  * ══════════════════════════════════════════════════════════════════════════ */
-static unsigned long rng_state;
 
-static double rand_uniform(void) {
+static double rand_uniform(uint64_t *state) {
     /* LCG with Knuth constants — good enough for velocity initialisation */
-    rng_state = rng_state * 6364136223846793005ULL + 1442695040888963407ULL;
-    return (double)(rng_state >> 33) / (double)(1ULL << 31);
+    *state = *state * 6364136223846793005ULL + 1442695040888963407ULL;
+    return (double)(*state >> 33) / (double)(1ULL << 31);
 }
 
-static double rand_normal(void) {
+static double rand_normal(uint64_t *state) {
     double u1, u2;
-    do { u1 = rand_uniform(); } while (u1 < 1.0e-10);
-    u2 = rand_uniform();
+    do { u1 = rand_uniform(state); } while (u1 < 1.0e-10);
+    u2 = rand_uniform(state);
     return sqrt(-2.0 * log(u1)) * cos(2.0 * 3.14159265358979323846 * u2);
 }
 
 void integrator_maxwell_boltzmann(Simulation *sim, double T_init,
                                    unsigned long seed) {
-    rng_state = (seed == 0) ? 12345678901234567ULL : (unsigned long long)seed;
+    sim->rng_state = (seed == 0) ? 12345678901234567ULL : (uint64_t)seed;
 
     for (int i = 0; i < sim->num_atoms; i++) {
         Atom *a = &sim->atoms[i];
         /* σ_v [Å/fs] = sqrt(k_B T [eV] / (m [AMU] × AMU_AFS2_TO_EV)) */
         double sigma_v = sqrt(KB_EV * T_init / (a->mass * AMU_AFS2_TO_EV));
 
-        a->velocity.x = rand_normal() * sigma_v;
-        a->velocity.y = rand_normal() * sigma_v;
-        a->velocity.z = rand_normal() * sigma_v;
+        a->velocity.x = rand_normal(&sim->rng_state) * sigma_v;
+        a->velocity.y = rand_normal(&sim->rng_state) * sigma_v;
+        a->velocity.z = rand_normal(&sim->rng_state) * sigma_v;
     }
 
     /* Remove centre-of-mass drift */
