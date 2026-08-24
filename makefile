@@ -1,6 +1,10 @@
 CC      = gcc
 CFLAGS  = -O3 -g -Wall -Wextra -std=c11 -Iinclude
-CFLAGS += -Wno-missing-braces -march=native
+# PERIODIC_TABLE ground_config initializer flood, which s03-s05
+# eliminated at the source (fully explicit {{{0}}, 0, 0}). Keeping
+# it would only hide a future regression of the same class.
+# -Wno-missing-braces removed by s06: dead suppression. The initializer flood it masked was eliminated at the source by s03-s05 (fully explicit initializers); keeping it would only hide a future regression.
+CFLAGS += -march=native
 
 # Uncomment for debug build with address sanitiser:
 # CFLAGS = -g -O0 -Wall -std=c11 -Iinclude -fsanitize=address,undefined

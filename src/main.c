@@ -1441,6 +1441,16 @@ static void demo_helix(void) {
 #endif
 #define KCSA_CARBONYL_O_CHARGE  -0.55
 
+/* Sourced Thr75/Val76 selectivity-filter ring z-separation (s10/s10b).
+ * PDB 1K4C chain C: Thr75-O z=-38.627, Val76-O z=-35.543 -> 3.084 A.
+ * VALIDATED (s10b): all four REMARK 350 BIOMT operators preserve z exactly
+ * (each BIOMT3 row is [0,0,1,0]), so all four symmetry-mate Thr75-O share
+ * z=-38.627 and all four Val76-O share z=-35.543 - the 4-fold pore axis IS
+ * the z-axis. Independently confirmed by the 7 deposited K+ ions, which all
+ * sit at (x,y)=(155.33,155.33) with varying z, tracing the pore axis, and by
+ * the real Thr75-O -> antiprism-site K+ distance computing to 2.70 A exactly. */
+#define KCSA_RING_Z_SEP 3.084
+
 static double kcsa_filter_energy(int ion_Z, double ion_charge,
                                   const char *ion_name, double radius_A) {
     Simulation *sim = sim_create(8, 8);
@@ -1502,31 +1512,59 @@ static double kcsa_energy_at_radius(int ion_Z, double ion_charge,
 }
 
 static double kcsa_antiprism_energy(int ion_Z, double ion_charge,
-                                     const char *ion_name,
-                                     double radius_inner, double radius_outer) {
+        const char *ion_name,
+        double d_inner, double d_outer, double *out_min_oo) {
     Simulation *sim = sim_create(9, 9);
     const double CARBONYL_O_LJ_EPS   = 0.2100 * KCAL_MOL_TO_EV;
     const double CARBONYL_O_LJ_SIGMA = 1.6612 * 2.0 / 1.122462048309373;
-
-    /* Ring 1: Thr75-O, real target 2.70 A, at 0/90/180/270 degrees. */
+    /*
+     * Construction (s11): ion on-axis at z=0, midway between the two rings.
+     * Ring 1 (Thr75-O) at z = -KCSA_RING_Z_SEP/2, ring 2 (Val76-O) at
+     * z = +KCSA_RING_Z_SEP/2, offset 45 degrees (the real square-antiprism
+     * rotational offset). d_inner / d_outer are the ion-oxygen COORDINATION
+     * distances (the literature targets, 2.70 / 2.83 A); each ring's oxygen
+     * radial position is derived so the 3D ion-oxygen distance equals that
+     * target:  r = sqrt(d^2 - (z_sep/2)^2). This is the physically faithful
+     * antiprism - independently confirmed against the deposited coordinates
+     * themselves, where the real Thr75-O to antiprism-site K+ distance
+     * computes to 2.70 A exactly. Before the z-separation was sourced, both
+     * rings sat at z=0 and the two rings' oxygens overlapped (~2.1 A apart,
+     * deep in mutual LJ repulsion), swamping the ion-coordination signal.
+     */
+    double half_sep = KCSA_RING_Z_SEP / 2.0;
+    if (d_inner <= half_sep || d_outer <= half_sep) {
+        fprintf(stderr, "kcsa_antiprism: coordination distance <= half z-separation\n");
+        sim_destroy(sim);
+        return 0.0;
+    }
+    double r_inner = sqrt(d_inner * d_inner - half_sep * half_sep);
+    double r_outer = sqrt(d_outer * d_outer - half_sep * half_sep);
+    int ring1[4], ring2[4];
     for (int i = 0; i < 4; i++) {
         double angle = i * (M_PI / 2.0);
-        Vec3 pos = vec3(radius_inner * cos(angle), radius_inner * sin(angle), 0.0);
+        Vec3 pos = vec3(r_inner * cos(angle), r_inner * sin(angle), -half_sep);
         int o = sim_add_atom(sim, 8, pos, KCSA_CARBONYL_O_CHARGE);
         sim_set_atom_lj(sim, o, CARBONYL_O_LJ_EPS, CARBONYL_O_LJ_SIGMA);
+        ring1[i] = o;
     }
-    /* Ring 2: Val76-O, real target 2.83 A, offset 45 degrees - the real
-     * antiprism rotational offset, both rings at z=0 since the real
-     * z-separation between the two rings wasn't independently verified
-     * this pass (honest simplification, not a fabricated number). */
     for (int i = 0; i < 4; i++) {
         double angle = i * (M_PI / 2.0) + (M_PI / 4.0);
-        Vec3 pos = vec3(radius_outer * cos(angle), radius_outer * sin(angle), 0.0);
+        Vec3 pos = vec3(r_outer * cos(angle), r_outer * sin(angle), +half_sep);
         int o = sim_add_atom(sim, 8, pos, KCSA_CARBONYL_O_CHARGE);
         sim_set_atom_lj(sim, o, CARBONYL_O_LJ_EPS, CARBONYL_O_LJ_SIGMA);
+        ring2[i] = o;
+    }
+    if (out_min_oo) {
+        double min_oo = 1.0e9;
+        for (int i = 0; i < 4; i++)
+            for (int j = 0; j < 4; j++) {
+                double d = vec3_dist(sim->atoms[ring1[i]].position,
+                                     sim->atoms[ring2[j]].position);
+                if (d < min_oo) min_oo = d;
+            }
+        *out_min_oo = min_oo;
     }
     sim_add_atom(sim, ion_Z, vec3(0.0, 0.0, 0.0), ion_charge);
-
     forces_calculate(sim);
     printf("  %-3s  E_LJ = %10.6f eV   E_Coulomb = %10.6f eV   "
            "Total_PE = %10.6f eV\n",
@@ -1634,24 +1672,28 @@ static void demo_kcsa_filter(void) {
 
     printf("\n--- Fuller real geometry: Thr75-O + Val76-O together (the real\n"
            "  antiprism site S3/K-C3003 actually shows, not a single ring) ---\n");
-    double k_e3  = kcsa_antiprism_energy(19, 1.0, "K+ ", 2.70, 2.83);
-    double na_e3 = kcsa_antiprism_energy(11, 1.0, "Na+", 2.70, 2.83);
+    double min_oo = 0.0;
+double k_e3  = kcsa_antiprism_energy(19, 1.0, "K+ ", 2.70, 2.83, &min_oo);
+    double na_e3 = kcsa_antiprism_energy(11, 1.0, "Na+", 2.70, 2.83, NULL);
+printf("  closest inter-ring O-O = %.3f A (sourced z-separation 3.084 A now\n"
+"  applied; the ~2.1 A overlap artifact from both rings at z=0 is gone)\n", min_oo);
     printf("  Delta (Na+ minus K+): %+.6f eV  (%s)\n",
            na_e3 - k_e3,
            (k_e3 < na_e3) ? "K+ favored, correct direction"
                           : "Na+ favored, wrong direction");
-    printf("  Honest read: both real target distances (Thr75 2.70 A, Val76\n"
-    "  2.83 A) at once, real 45-degree antiprism offset, same real\n"
-    "  charges and typing as every test above - the only new variable\n"
-    "  is twice the coordinating oxygens. CAVEAT - stronger than a\n"
-    "  geometry note: because the real ring z-separation was not\n"
-    "  sourced this pass, both rings sit at z=0, which puts oxygens\n"
-    "  from the two rings ~2.1 A apart, deep inside their mutual LJ\n"
-    "  repulsion. The large positive energies above are dominated by\n"
-    "  that artificial O-O overlap, NOT by ion coordination, so the\n"
-    "  numbers in this block are NOT interpretable as selectivity\n"
-    "  energetics until a sourced z-separation is added. Treat this\n"
-    "  block as a placeholder, not a result.\n");
+    printf("  Honest read: both real coordination distances (Thr75 2.70 A, Val76\n"
+"  2.83 A) at once, real 45-degree antiprism offset, same real charges\n"
+"  and typing as every test above - and now the REAL sourced ring\n"
+"  z-separation (3.084 A from PDB 1K4C, symmetry-validated: all four\n"
+"  BIOMT operators preserve z, and the deposited K+ ions trace the pore\n"
+"  axis along z). With the artificial O-O overlap removed, this block is\n"
+"  a real result, not a placeholder, and the Delta is the selectivity\n"
+"  signal. Scope note on the absolute values: Total_PE is net positive\n"
+"  because the eight bare -0.55e oxygens repel each other more than they\n"
+"  attract the single +1 ion (the isolated cage is net negative; no\n"
+"  protein backbone balances it). That O-O term is identical for Na+ and\n"
+"  K+ and cancels in the Delta - so read the Delta, not the absolute\n"
+"  Total_PE, as the selectivity result.\n");
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
