@@ -1,12 +1,10 @@
 # S2 Engine — Nano Chemistry & Biological Simulator
 
-## Note: The new naming strategy across the board will be vxR123, not vxA123. This current release will be designated as v9R3. New releases after this point in all other projects will shift A to R, Alpha will be removed since it's just too extraneous a word.
+## Note: The new naming strategy across the board will be vxR123, not vxA123. This scheme began with the v9R3 designation; the release current as of this sync is v9R4. New releases after this point in all other projects will shift A to R, Alpha will be removed since it's just too extraneous a word.
 
 ## In addition, S2 will not follow the R1 R2 R3 developmental scheme of Lancius and Mathlib. Instead, the v9 to v10 period for S2 will be marked by however many RC releases are necessary to achieve a OpenWorm similar display for visualising bonds occuring.
 
-*Documentation synced to the current tree state (`src/main.c` post-fix09,
-including the strengthened Demo 12 caveat and updated banner line),
-2026-08-13.*
+*Documentation synced to the current tree state post-v9R4 (hygiene closure: quantum.c normalization fix, periodic_table.c explicit initializers, makefile suppression removal; readme designation and references updated), 2026-08-23. The embedded output block is unchanged and byte-identical to the record (SHA-256 875a2c0cf30ccf4fc6ebff8b0b64547063c7a80c5250d1b32c72af3048bc6935).*
 
 S2 Engine is a multi-scale, grounded-up physical chemistry and biological
 simulator written in C. It validates biological processes across multiple
@@ -201,7 +199,7 @@ supports:
 
 ---
 
-## v9R3 — The Audit & Correctness Release (current)
+## v9R3 — The Audit & Correctness Release
 
 `carbonsim-v9R3` is not a new-physics release. It is a systematic,
 sector-by-sector correctness audit of the whole engine, held to the
@@ -408,10 +406,10 @@ authoritative leaving-atom flags — to construct biomolecules:
 
 ## How to Compile and Run
 
-To build and run the current version (`carbonsim-v9R3`):
+To build and run the current version (`carbonsim-v9R4`):
 
 ```bash
-cd biological/v9R3
+cd biological/v9R4
 make
 ./carbonsim
 ```
@@ -444,9 +442,9 @@ Demo 12 caveat strengthening and the banner-line update now in
 
 ---
 
-## Simulation Execution Output (v9A1)
+## Simulation Execution Output (v9R4)
 
-Below is the complete, unedited output of the `carbonsim-v9A1`
+Below is the complete, unedited output of the `carbonsim-v9R4`
 demonstration run — all twelve demos, from the quantum orbital tables
 through the Hodgkin-Huxley action potential and the KcsA selectivity
 filter. It is reproduced verbatim from `output.txt`.
@@ -1321,7 +1319,7 @@ exercised by any demo.
 
 ## Current Status
 
-`carbonsim-v9R3` is a validated physics engine and a set of validated
+`carbonsim-v9R4` is a validated physics engine and a set of validated
 building blocks, not a production simulator. The fundamental layers —
 quantum orbitals, the molecular-dynamics core, dihedral forces, energy
 minimization, biopolymer condensation chemistry, and the

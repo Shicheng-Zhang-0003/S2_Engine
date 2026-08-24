@@ -258,7 +258,7 @@ static double factorial(int k) {
  * Hydrogen-like radial wave function R_nl(r)
  *
  *  ρ  = 2 Z_eff r / (n a₀)           (dimensionless)
- *  N  = -sqrt[(2Z_eff/na₀)³ × (n-l-1)! / (2n [(n+l)!]³)]
+ *  N  = -sqrt[(2Z_eff/na₀)³ × (n-l-1)! / (2n (n+l)!)]
  *  R_nl(r) = N × e^(-ρ/2) × ρ^l × L_{n-l-1}^{2l+1}(ρ)
  *
  * Return units: Å^(-3/2)
@@ -272,7 +272,7 @@ double quantum_radial_wavefunction(int n, int l, double Z_eff, double r_ang) {
 
     /* Normalisation constant squared */
     double num    = factorial(n - l - 1);
-    double den    = 2.0 * n * pow(factorial(n + l), 3.0);
+    double den    = 2.0 * n * factorial(n + l); /* s02 fix: (n+l)! to first power - cubing under-normalized R_nl for all n>1; behavior-neutral today because every consumer is shape-normalized or an argmax (full reasoning in s02 script header) */
     double N2     = pow(scale, 3.0) * num / den;
     double N      = -sqrt(N2);                 /* sign convention Griffiths */
 
