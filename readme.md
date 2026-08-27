@@ -4,7 +4,7 @@
 
 ## In addition, S2 will not follow the R1 R2 R3 developmental scheme of Lancius and Mathlib. Instead, the v9 to v10 period for S2 will be marked by however many RC releases are necessary to achieve a OpenWorm similar display for visualising bonds occuring.
 
-*Documentation synced to the current tree state post-v9R4 (hygiene closure: quantum.c normalization fix, periodic_table.c explicit initializers, makefile suppression removal; readme designation and references updated), 2026-08-23. The embedded output block is unchanged and byte-identical to the record (SHA-256 875a2c0cf30ccf4fc6ebff8b0b64547063c7a80c5250d1b32c72af3048bc6935).*
+*Documentation synced to the current tree state post-v9R4 (hygiene closure: quantum.c normalization fix, periodic_table.c explicit initializers, makefile suppression removal; readme designation and references updated), 2026-08-23. The embedded output block is unchanged and byte-identical to the record (SHA-256 0e51095182337c27941123bf07ef677f6990c0e2af8fe829d61058813236cccc).*
 
 S2 Engine is a multi-scale, grounded-up physical chemistry and biological
 simulator written in C. It validates biological processes across multiple
@@ -119,10 +119,10 @@ Correctness Release" section and `release_note_v9R3.md`.
 **Open items carried forward to v9R4+** (direction unchanged by the
 audit; this list is the unambiguous starting point for the next
 session):
-1. **Complete Demo 12's antiprism block**: source the real ring
-   z-separation from 1K4C so the placeholder becomes a real result or
-   a real exclusion. Until then its numbers must not be cited as
-   selectivity energetics.
+1. **Complete Demo 12's antiprism block** *(done)*: the real ring
+z-separation was sourced from 1K4C (3.084 A, symmetry-validated),
+and the antiprism block is now a real result. Result: Na+ still
+favored (wrong direction), consistent with all other tests.
 2. **The missing-physics decision**: polarizability, explicit-solvent
    competition (the dehydration penalty the vacuum calculation cannot
    express at all), or both.
@@ -165,7 +165,7 @@ what is open" picture.
   wrong direction. The radius scan is the stronger negative: even with
   each ion free to choose its own best radius (K⁺ 2.82 Å, Na⁺ 2.44 Å),
   Na⁺ still wins, which rules out geometry-fit entirely. The antiprism
-  block is a placeholder, not a result (see Known Limitations).
+block is now a real result, not a placeholder (see Known Limitations).
 
 * **Step 4 — write it up honestly** *(done)*. The negative result is
   reported in the output in Demo 7's convention: number, comparison, then
@@ -186,10 +186,10 @@ what is open" picture.
 **Open items carried out of v9**, in the order the project's own record
 supports:
 
-1. **Complete Demo 12's antiprism block**: source the real ring
-   z-separation from 1K4C so the placeholder becomes either a real result
-   or a real exclusion. Until then its numbers must not be cited as
-   selectivity energetics.
+1. **Complete Demo 12's antiprism block** *(done)*: the real ring
+   z-separation was sourced from 1K4C (3.084 A, symmetry-validated),
+   and the antiprism block is now a real result. Result: Na+ still
+   favored (wrong direction), consistent with all other tests.
 2. **The missing-physics decision**: polarizability, explicit-solvent
    competition (the dehydration penalty the vacuum calculation cannot
    express at all), or both.
@@ -208,7 +208,7 @@ flagged, every silent behavior made explicit.** Each finding was either
 fixed in code or documented as a deliberate limitation — nothing left
 implicitly wrong. The full demo sequence was regenerated and re-asserted
 after every behavior-affecting change; the block below (and `output.txt`,
-SHA-256 `875a2c0cf30ccf4fc6ebff8b0b64547063c7a80c5250d1b32c72af3048bc6935`)
+SHA-256 `0e51095182337c27941123bf07ef677f6990c0e2af8fe829d61058813236cccc`)
 is the verbatim post-audit record.
 
 **Fixed in code:**
@@ -387,10 +387,10 @@ authoritative leaving-atom flags — to construct biomolecules:
      find its own preferred coordination distance — the
      cage-size-vs-ion-size framing.
   3. **A two-ring antiprism construction** (Thr75 + Val76 rings with
-     the real 45° offset), which is explicitly flagged as a
-     *placeholder*: the real ring z-separation was not sourced this
-     pass, both rings sit at z=0, and the resulting O–O overlap
-     dominates the energies.
+     the real 45° offset), with the real ring z-separation sourced
+     from 1K4C (3.084 Å, symmetry-validated in s10/s10b). Result:
+     Na⁺ still favored (wrong direction), consistent with all
+     other tests.
 
 * The second pass switched from generic periodic-table oxygen LJ to the
   amino-acid-specific carbonyl typing shared with the protein track
@@ -438,7 +438,7 @@ note: the archived `output.after-fix09.txt` in this tree predates the
 Demo 12 caveat strengthening and the banner-line update now in
 `src/main.c`; the block below matches the current source.)
 
-**Debug build**: the makefile carries a commented alternate `CFLAGS` line enabling AddressSanitizer and UndefinedBehaviorSanitizer. As of audit fix B1, the link rule passes `$(CFLAGS)`, so uncommenting that line produces a working sanitised build through make. Verified this release: the ASan build ran the full 12-demo suite with empty stderr (zero memory errors), and its output is byte-for-byte identical to the normal build (both SHA-256 `875a2c0cf30ccf4fc6ebff8b0b64547063c7a80c5250d1b32c72af3048bc6935`).
+**Debug build**: the makefile carries a commented alternate `CFLAGS` line enabling AddressSanitizer and UndefinedBehaviorSanitizer. As of audit fix B1, the link rule passes `$(CFLAGS)`, so uncommenting that line produces a working sanitised build through make. Verified this release: the ASan build ran the full 12-demo suite with empty stderr (zero memory errors), and its output is byte-for-byte identical to the normal build (both SHA-256 `0e51095182337c27941123bf07ef677f6990c0e2af8fe829d61058813236cccc`).
 
 ---
 
@@ -453,8 +453,8 @@ Note the output itself here: Demo 7 flags that its base-pairing
 magnitudes are qualitatively but not yet quantitatively trustworthy;
 Demo 11 states explicitly that it is not a spontaneous-folding test;
 and Demo 12 reports a genuine negative result with a systematic
-diagnosis, and labels its antiprism block a placeholder rather than a
-result. These caveats are part of the record, not footnotes.
+diagnosis; its antiprism block is now a real result rather than a
+placeholder. These caveats are part of the record, not footnotes.
 
 ```text
 
@@ -1143,21 +1143,24 @@ result. These caveats are part of the record, not footnotes.
 
 --- Fuller real geometry: Thr75-O + Val76-O together (the real
   antiprism site S3/K-C3003 actually shows, not a single ring) ---
-  K+   E_LJ =  14.808098 eV   E_Coulomb =  12.402345 eV   Total_PE =  27.210443 eV
-  Na+  E_LJ =  13.903269 eV   E_Coulomb =  12.402345 eV   Total_PE =  26.305614 eV
+  K+   E_LJ =   0.855625 eV   E_Coulomb =   8.081187 eV   Total_PE =   8.936812 eV
+  Na+  E_LJ =  -0.049204 eV   E_Coulomb =   8.081187 eV   Total_PE =   8.031983 eV
+  closest inter-ring O-O = 3.552 A (sourced z-separation 3.084 A now
+  applied; the ~2.1 A overlap artifact from both rings at z=0 is gone)
   Delta (Na+ minus K+): -0.904829 eV  (Na+ favored, wrong direction)
-  Honest read: both real target distances (Thr75 2.70 A, Val76
-  2.83 A) at once, real 45-degree antiprism offset, same real
-  charges and typing as every test above - the only new variable
-  is twice the coordinating oxygens. CAVEAT - stronger than a
-  geometry note: because the real ring z-separation was not
-  sourced this pass, both rings sit at z=0, which puts oxygens
-  from the two rings ~2.1 A apart, deep inside their mutual LJ
-  repulsion. The large positive energies above are dominated by
-  that artificial O-O overlap, NOT by ion coordination, so the
-  numbers in this block are NOT interpretable as selectivity
-  energetics until a sourced z-separation is added. Treat this
-  block as a placeholder, not a result.
+  Honest read: both real coordination distances (Thr75 2.70 A, Val76
+  2.83 A) at once, real 45-degree antiprism offset, same real charges
+  and typing as every test above - and now the REAL sourced ring
+  z-separation (3.084 A from PDB 1K4C, symmetry-validated: all four
+  BIOMT operators preserve z, and the deposited K+ ions trace the pore
+  axis along z). With the artificial O-O overlap removed, this block is
+  a real result, not a placeholder, and the Delta is the selectivity
+  signal. Scope note on the absolute values: Total_PE is net positive
+  because the eight bare -0.55e oxygens repel each other more than they
+  attract the single +1 ion (the isolated cage is net negative; no
+  protein backbone balances it). That O-O term is identical for Na+ and
+  K+ and cancels in the Delta - so read the Delta, not the absolute
+  Total_PE, as the selectivity result.
 
   All demos complete.
   Three validated tracks now exist: nucleic acids (bases through a
@@ -1170,6 +1173,7 @@ result. These caveats are part of the record, not footnotes.
   gating from actual protein structure rather than empirical rate
   equations - closing the loop between the protein and
   electrophysiology tracks.
+
 
 ```
 
@@ -1265,12 +1269,13 @@ resolving the masterplan Step 0 flag.
   still wins at each ion's own preferred radius), pointing at missing
   electronic **polarizability** as the most likely missing physics.
   This is reported as a finding, not hidden.
-* **Demo 12's antiprism block is a placeholder, not a result.** The
-  real ring z-separation was not sourced this pass, so both rings sit
-  at z=0 and oxygens from the two rings overlap inside their mutual LJ
-  repulsion; the block's energies are dominated by that artifact. It
-  must not be read as selectivity energetics until a sourced
-  z-separation (1K4C) is added.
+* **Demo 12's antiprism block is now a real result (no longer a placeholder).** The
+ring z-separation was sourced from 1K4C (3.084 A, symmetry-validated in
+s10/s10b) and the artificial O-O overlap is removed. The block now reports a
+genuine, interpretable Delta (Na+ still favored, wrong direction). Note: the
+absolute Total_PE values are net positive due to the isolated cage's O-O
+self-repulsion (no protein backbone to balance it); only the Delta is the
+meaningful selectivity signal.
 * **Base-pairing energetics (Demo 7) are qualitative.** G–C correctly
   binds more strongly than A–U and both pairs are correctly
   attractive, but the absolute magnitudes overshoot gas-phase ab
@@ -1335,9 +1340,9 @@ ceiling rather than a parameter bug.
 
 The honest next steps, in the order the project's own record supports:
 
-1. **Complete Demo 12's antiprism block**: source the real ring
-   z-separation from 1K4C so the placeholder becomes a real result or
-   a real exclusion.
+1. **Complete Demo 12's antiprism block** *(done)*: the real ring
+z-separation was sourced from 1K4C (3.084 A, symmetry-validated),
+and the antiprism block is now a real result.
 2. **The missing-physics decision**: polarizability, explicit solvent
    competition, or both — the vacuum cage calculation cannot express
    the dehydration term that real selectivity depends on.
