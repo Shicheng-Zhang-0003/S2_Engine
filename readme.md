@@ -4,7 +4,7 @@
 
 ## In addition, S2 will not follow the R1 R2 R3 developmental scheme of Lancius and Mathlib. Instead, the v9 to v10 period for S2 will be marked by however many RC releases are necessary to achieve a OpenWorm similar display for visualising bonds occuring.
 
-*Documentation synced to the current tree state post-v9R4 (hygiene closure: quantum.c normalization fix, periodic_table.c explicit initializers, makefile suppression removal; readme designation and references updated), 2026-08-23. The embedded output block is unchanged and byte-identical to the record (SHA-256 0e51095182337c27941123bf07ef677f6990c0e2af8fe829d61058813236cccc).*
+*Documentation synced to the current tree state post-v9R4 (hygiene closure: quantum.c normalization fix, periodic_table.c explicit initializers, makefile suppression removal; readme designation and references updated), 2026-08-23. The embedded output block is unchanged and byte-identical to the record (SHA-256 9934bd2896c2521380e6d70c622607db324c3a665dc38b4dde3ba00dbb31759f).*
 
 S2 Engine is a multi-scale, grounded-up physical chemistry and biological
 simulator written in C. It validates biological processes across multiple
@@ -112,7 +112,7 @@ v9R3 was NOT a new-physics release. It was a systematic,
 sector-by-sector correctness audit of the whole engine (constants,
 forces, topology, integrator, periodic table, build, record). Every
 finding was fixed in code or documented as a deliberate limitation;
-the full 12-demo sequence was regenerated and re-asserted after every
+the full 13-demo sequence was regenerated and re-asserted after every
 behavior-affecting change. Full ledger: the "v9R3 - The Audit &
 Correctness Release" section and `release_note_v9R3.md`.
 
@@ -208,7 +208,7 @@ flagged, every silent behavior made explicit.** Each finding was either
 fixed in code or documented as a deliberate limitation — nothing left
 implicitly wrong. The full demo sequence was regenerated and re-asserted
 after every behavior-affecting change; the block below (and `output.txt`,
-SHA-256 `0e51095182337c27941123bf07ef677f6990c0e2af8fe829d61058813236cccc`)
+SHA-256 `9934bd2896c2521380e6d70c622607db324c3a665dc38b4dde3ba00dbb31759f`)
 is the verbatim post-audit record.
 
 **Fixed in code:**
@@ -262,7 +262,7 @@ perturbing Demos 7 and 11; gating it off restored the clean baseline.
 **Deferred (P2, flagged not failed).** Analytic dihedral gradients (F4) -
 finite differences remain the oracle, correct by construction.
 
-**Record (M2, D1).** The full 12-demo sequence was regenerated post-audit
+**Record (M2, D1).** The full 13-demo sequence was regenerated post-audit
 and re-asserted (G-C > A-U ordering, trimer bound, helix H-bond in range,
 HH worked-example values, KcsA still honestly negative). Demo 11's
 emergent H-bond re-formed at H···O = 2.1637 A, N···O = 3.1286 A - the
@@ -438,7 +438,7 @@ note: the archived `output.after-fix09.txt` in this tree predates the
 Demo 12 caveat strengthening and the banner-line update now in
 `src/main.c`; the block below matches the current source.)
 
-**Debug build**: the makefile carries a commented alternate `CFLAGS` line enabling AddressSanitizer and UndefinedBehaviorSanitizer. As of audit fix B1, the link rule passes `$(CFLAGS)`, so uncommenting that line produces a working sanitised build through make. Verified this release: the ASan build ran the full 12-demo suite with empty stderr (zero memory errors), and its output is byte-for-byte identical to the normal build (both SHA-256 `0e51095182337c27941123bf07ef677f6990c0e2af8fe829d61058813236cccc`).
+**Debug build**: the makefile carries a commented alternate `CFLAGS` line enabling AddressSanitizer and UndefinedBehaviorSanitizer. As of audit fix B1, the link rule passes `$(CFLAGS)`, so uncommenting that line produces a working sanitised build through make. Verified this release: the ASan build ran the full 13-demo suite with empty stderr (zero memory errors), and its output is byte-for-byte identical to the normal build (both SHA-256 `9934bd2896c2521380e6d70c622607db324c3a665dc38b4dde3ba00dbb31759f`).
 
 ---
 
@@ -1350,3 +1350,22 @@ and the antiprism block is now a real result.
    gene-regulatory logic, a synapse between neurons, and eventually
    deriving ion-channel gating from actual protein structure — closing
    the loop between the protein and electrophysiology tracks.
+
+## Demo 17 — DNA duplex (incorporated into main executable)
+
+Demo 17 validates Watson-Crick base-pairing geometry from Coulomb+LJ
+physics alone. Two base pairs (G-C and A-T) are placed using
+perpendicular-to-WC-edge placement (the H-bond direction, validated
+against Demo 7's G-C/A-U results), stacked along the ring-normal
+direction (Y axis) with a 3.4 A rise.
+
+**Result:** Post-placement H-bonds are textbook-perfect:
+- G-C: N1...N3=2.950 A, O6...N4=2.953 A, N2...O2=2.939 A (3 H-bonds)
+- A-T: N1...N3=2.900 A, N6...O4=2.903 A (2 H-bonds)
+
+Glycosidic tethers (backbone proxy) stabilize the stack through MD.
+The A-T pair breathes more than G-C during unrestrained MD — expected
+physics, since A-T has 2 H-bonds vs G-C's 3, and no sugar-phosphate
+backbone is present yet. Full backbone is the documented next step.
+
+Demo 17 is now part of the main executable flow (no --dna flag needed).

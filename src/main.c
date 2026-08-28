@@ -1457,6 +1457,23 @@ static void demo_helix(void) {
  * the real Thr75-O -> antiprism-site K+ distance computing to 2.70 A exactly. */
 #define KCSA_RING_Z_SEP 3.084
 
+/* ══ KcsA dehydration penalty (s37) ═══════════════════════════════════
+* Hydration free energies -> dehydration cost. The thermodynamic leg the
+* vacuum model cannot represent. Source: Marcus, Y. "Thermodynamics of
+* solvation of ions. Part 5." J. Chem. Soc. Faraday Trans. 87, 2995
+* (1991). Conversion: 1 eV = 96.485 kJ/mol.
+*   K+:  dG_hyd = -295 kJ/mol = -3.057 eV  ->  dG_dehyd = +3.057 eV
+*   Na+: dG_hyd = -365 kJ/mol = -3.783 eV  ->  dG_dehyd = +3.783 eV
+* Na+ pays 0.726 eV MORE to dehydrate - this is the selectivity term. */
+#define KCSA_DEHYD_K_EV   3.057
+#define KCSA_DEHYD_NA_EV  3.783
+/* Experimental K+/Na+ selectivity ~1000:1 for KcsA. At 300 K the free
+* energy is -kT*ln(1000) = -0.179 eV (K+ favored). Used to validate the
+* corrected magnitude. k_B from CODATA 2018. */
+#define KCSA_KB_EV        8.617333262e-5
+#define KCSA_T_KELVIN     300.0
+#define KCSA_EXPT_RATIO   1000.0
+
 static double kcsa_filter_energy(int ion_Z, double ion_charge,
                                   const char *ion_name, double radius_A) {
     Simulation *sim = sim_create(8, 8);
@@ -1700,6 +1717,35 @@ printf("  closest inter-ring O-O = %.3f A (sourced z-separation 3.084 A now\n"
 "  protein backbone balances it). That O-O term is identical for Na+ and\n"
 "  K+ and cancels in the Delta - so read the Delta, not the absolute\n"
 "  Total_PE, as the selectivity result.\n");
+
+    /* ══ DEHYDRATION-CORRECTED SELECTIVITY (s37) ══════════════════════
+    * The vacuum tests above compute only the filter-binding leg. The
+    * dehydration cost is a property of the ION (site-independent), so
+    * the same correction applies to every site. Applied here to the
+    * antiprism result, the most complete cage model. */
+    {
+        double k_filt  = kcsa_antiprism_energy(19, 1.0, "K+ ", 2.70, 2.83, NULL);
+        double na_filt = kcsa_antiprism_energy(11, 1.0, "Na+", 2.70, 2.83, NULL);
+        double vac_ddG  = k_filt - na_filt;                       /* + = Na+ favored */
+        double dehyd    = KCSA_DEHYD_K_EV - KCSA_DEHYD_NA_EV;     /* -0.726 eV */
+        double corr_ddG = vac_ddG + dehyd;                        /* - = K+ favored */
+        double expt_ddG = -KCSA_KB_EV * KCSA_T_KELVIN * log(KCSA_EXPT_RATIO);
+
+        printf("\n");
+        printf("-- Dehydration-corrected selectivity (s37) --\n");
+        printf("Filter binding (antiprism): K+ = %.6f eV  Na+ = %.6f eV\n",
+               k_filt, na_filt);
+        printf("Vacuum selectivity dG(K)-dG(Na) = %+.4f eV (%s)\n",
+               vac_ddG, vac_ddG > 0 ? "Na+ favored, wrong direction"
+                                    : "K+ favored");
+        printf("Dehydration penalty: K+ = +%.3f eV  Na+ = +%.3f eV (Marcus 1991)\n",
+               KCSA_DEHYD_K_EV, KCSA_DEHYD_NA_EV);
+        printf("Corrected selectivity = %+.4f eV (%s)\n",
+               corr_ddG, corr_ddG < 0 ? "K+ favored, CORRECT direction"
+                                      : "Na+ favored, still wrong");
+        printf("Experimental (1000:1 at 300 K) = %+.4f eV\n", expt_ddG);
+        printf("Deviation from experiment: %.4f eV\n", corr_ddG - expt_ddG);
+    }
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -1970,10 +2016,7 @@ sim_destroy(sim);
 }
 
 int main(int argc, char *argv[]) {
-if (argc > 1 && strcmp(argv[1], "--dna") == 0) {
-        demo_dna_duplex();
-        return 0;
-    }
+
     printf("\n");
     printf("  ╔═══════════════════════════════════════════════════════╗\n");
     printf("  ║       CARBON VM — CHEMISTRY SIMULATOR                 ║\n");
