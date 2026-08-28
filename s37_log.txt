@@ -1,0 +1,17 @@
+magi-01@magi-01-XiaoXinPro-14-IMH9:~/Desktop/work/projects/4179-MAGI/S2/biological/v9R4$ bash s37.sh
+=== s37: KcsA dehydration penalty correction ===
+  [OK] Added dehydration constants.
+  [OK] Added dehydration correction block.
+[2/3] Building...
+  Build clean.
+[3/3] Corrected output:
+-- Dehydration-corrected selectivity (s37) --
+Filter binding (antiprism): K+ = 8.936812 eV  Na+ = 8.031983 eV
+Vacuum selectivity dG(K)-dG(Na) = +0.9048 eV (Na+ favored, wrong direction)
+Dehydration penalty: K+ = +3.057 eV  Na+ = +3.783 eV (Marcus 1991)
+Corrected selectivity = +0.1788 eV (Na+ favored, still wrong)
+Experimental (1000:1 at 300 K) = -0.1786 eV
+Deviation from experiment: 0.3574 eV
+
+=== s37 complete (record moved; re-anchor via s40) ===
+

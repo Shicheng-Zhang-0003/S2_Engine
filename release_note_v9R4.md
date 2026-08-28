@@ -80,7 +80,7 @@ forward untouched:
 
 ## Record (SHAs)
 - Normal build output (`output.txt`):
-  `875a2c0cf30ccf4fc6ebff8b0b64547063c7a80c5250d1b32c72af3048bc6935`
+  `9934bd2896c2521380e6d70c622607db324c3a665dc38b4dde3ba00dbb31759f`
 - ASan build output (`output.asan.txt`): same SHA — byte-for-byte
   identical to the normal build. ASan stderr: empty (no memory
   errors). The readme's embedded output block is unchanged and
