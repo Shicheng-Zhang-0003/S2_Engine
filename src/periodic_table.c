@@ -171,13 +171,12 @@ const Element *pt_by_symbol(const char *symbol) {
  * Note: Chromium (Z=24) and Copper (Z=29) and a few others are exceptions
  * to the strict Madelung rule; we handle those here explicitly.
  */
-void pt_electron_config(int Z, ElectronConfig *cfg) {
+void pt_electron_config_n(int Z, int n_electrons, ElectronConfig *cfg) {
     memset(cfg, 0, sizeof(*cfg));
-    cfg->total_electrons = Z;
+    if (n_electrons < 0) n_electrons = 0;
+    cfg->total_electrons = n_electrons;
 
-    /* Handle the well-known Madelung exceptions for 3d transition metals */
-    /* We store any exception as a delta to apply after Madelung filling.  */
-    int electrons_left = Z;
+    int electrons_left = n_electrons;
 
     for (int i = 0; i < MADELUNG_LEN && electrons_left > 0; i++) {
         int n = MADELUNG_N[i];
@@ -188,12 +187,13 @@ void pt_electron_config(int Z, ElectronConfig *cfg) {
         electrons_left -= fill;
     }
 
-    /* Madelung exceptions: swap 4s→3d for half-filled and full-d stability */
-    if (Z == 24) { /* Cr: [Ar] 3d5 4s1 instead of 3d4 4s2 */
+    /* Madelung exceptions: neutral-atom half/full-d stability only.
+     * Apply solely when the electron count equals the neutral Z. */
+    if (n_electrons == Z && Z == 24) { /* Cr: [Ar] 3d5 4s1 instead of 3d4 4s2 */
         cfg->config[3][0] -= 1;  /* remove one 4s */
         cfg->config[2][2] += 1;  /* add one 3d    */
     }
-    if (Z == 29) { /* Cu: [Ar] 3d10 4s1 instead of 3d9 4s2 */
+    if (n_electrons == Z && Z == 29) { /* Cu: [Ar] 3d10 4s1 instead of 3d9 4s2 */
         cfg->config[3][0] -= 1;
         cfg->config[2][2] += 1;
     }
@@ -207,6 +207,10 @@ void pt_electron_config(int Z, ElectronConfig *cfg) {
     }
     for (int sub = 0; sub < 4; sub++)
         cfg->valence_electrons += cfg->config[max_shell][sub];
+}
+
+void pt_electron_config(int Z, ElectronConfig *cfg) {
+    pt_electron_config_n(Z, Z, cfg);
 }
 
 /*

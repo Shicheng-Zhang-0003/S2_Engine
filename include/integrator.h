@@ -24,7 +24,8 @@
  *   temperature : K
  *
  * Acceleration: a [Å/fs²] = F [eV/Å] / m [AMU] × MD_FORCE_CONV
- * where MD_FORCE_CONV = 9.64853322e-3 (see constants.h).
+ * where MD_FORCE_CONV is derived in-line in constants.h from
+ * EV_TO_J/ANGSTROM_TO_M/AMU (≈9.64853322e-3).
  */
 
 /* ── Half-step A: kick velocities, drift positions ───────────────────────── */
@@ -66,22 +67,23 @@ void integrator_step(Simulation *sim);
 double integrator_kinetic_energy(const Simulation *sim);
 
 /*
-* Temperature from equipartition theorem: KE = (dof/2) k_B T
-* T [K] = 2 KE [eV] / (dof x k_B_eV)
-* k_B (eV/K) = 8.617333262e-5
-*
-* dof = 3N - 3 - constrained: the -3 removes the 3 centre-of-mass
-* translational degrees of freedom, already constrained to zero by
-* integrator_remove_com_velocity(). `constrained` counts FURTHER
-* removed degrees of freedom the caller knows about:
-*   - 3 per frozen/immobilised atom (see integrator_minimize_frozen
-*     and the harmonic-restraint infrastructure in sim.h - a restraint
-*     with k >> kT/<x^2> pins its atom like a frozen one);
-*   - 2 more for a strictly linear molecule (rotation about its own
-*     axis carries no energy: 3N-5, not 3N-3).
-* sim->num_constrained_dof carries that count (0 by default, i.e. the
-* long-standing 3N-3 behaviour). Getting this wrong does not crash -
-* it silently biases every reported temperature, so count honestly.
+ * Temperature from equipartition theorem: KE = (dof/2) k_B T
+ * T [K] = 2 KE [eV] / (dof x k_B_eV)
+ * k_B (eV/K) = BOLTZMANN_K/EV_TO_J (derived in-line; ≈8.617333262e-5)
+ *
+ * dof = 3N - 3 - constrained: the -3 removes the 3 centre-of-mass
+ * translational degrees of freedom, already constrained to zero by
+ * integrator_remove_com_velocity(). `constrained` counts FURTHER
+ * removed degrees of freedom the caller knows about:
+ *   - 3 per frozen/immobilised atom (see integrator_minimize_frozen);
+ *   - 2 more for a strictly linear molecule (rotation about its own
+ *     axis carries no energy: 3N-5, not 3N-3).
+ * Harmonic positional restraints do NOT remove degrees of freedom (the
+ * atom still moves in 3D about its anchor); leave constrained=0 for
+ * restrained systems. sim->num_constrained_dof carries that count
+ * (0 by default, i.e. the long-standing 3N-3 behaviour). Getting this
+ * wrong does not crash - it silently biases every reported temperature,
+ * so count honestly.
 */
 double integrator_temperature(const Simulation *sim);
 

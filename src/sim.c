@@ -93,7 +93,8 @@ void sim_destroy(Simulation *sim) {
 /* ══════════════════════════════════════════════════════════════════════════
  * Atom management
  * ══════════════════════════════════════════════════════════════════════════ */
-int sim_add_atom(Simulation *sim, int Z, Vec3 pos, double partial_charge) {
+int sim_add_ion(Simulation *sim, int Z, int formal_charge,
+                Vec3 pos, double partial_charge) {
     if (sim->num_atoms >= sim->capacity_atoms) return SIM_ERR_OVERFLOW;
 
     const Element *el = pt_element(Z);
@@ -111,7 +112,7 @@ int sim_add_atom(Simulation *sim, int Z, Vec3 pos, double partial_charge) {
     a->force          = vec3_zero();
     a->mass           = el->mass;
     a->partial_charge = partial_charge;
-    a->formal_charge  = 0;
+    a->formal_charge  = formal_charge;
 
     /* Default LJ parameters to the generic UFF element values.
      * Molecule constructors (e.g. sim_place_h2o) may override these
@@ -119,13 +120,17 @@ int sim_add_atom(Simulation *sim, int Z, Vec3 pos, double partial_charge) {
     a->lj_epsilon = el->lj_epsilon;
     a->lj_sigma   = el->lj_sigma;
 
-    /* Electron configuration */
-    pt_electron_config(Z, &a->electron_config);
+    /* Electron configuration for the actual electron count */
+    pt_electron_config_n(Z, Z - formal_charge, &a->electron_config);
 
     /* Populate orbital table */
     quantum_fill_orbitals(a);
 
     return idx;
+}
+
+int sim_add_atom(Simulation *sim, int Z, Vec3 pos, double partial_charge) {
+    return sim_add_ion(sim, Z, 0, pos, partial_charge);
 }
 
 int sim_add_atom_sym(Simulation *sim, const char *symbol,
@@ -514,6 +519,13 @@ int sim_place_h2o(Simulation *sim, Vec3 origin) {
      *     Only the oxygen carries a LJ centre in the original model;
      *     the CHARMM-modified TIP3P variant adds small LJ terms to H,
      *     but that is a distinct, separately-named force field.
+     *
+     * Model-scope note: real TIP3P is RIGID (SHAKE-constrained O-H).
+     * Here O-H bonds/angles are flexible harmonic, so H can approach
+     * other atoms with only Coulomb + bond-spring resistance (zero H
+     * LJ leaves no short-range repulsion). Adequate for the small
+     * cluster demos here with divergence-guarded minimization; use
+     * rigid constraints before any quantitative water free energy.
      *
      * Generic UFF defaults (sigma_O=3.500 Å) were fit for general
      * organic chemistry, not for this specific, jointly-parameterized

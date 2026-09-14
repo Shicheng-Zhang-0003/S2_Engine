@@ -13,6 +13,12 @@
  *   All energies returned in eV.
  *
  * Non-bonded cutoff scheme: hard cutoff at sim->cutoff Å.
+ * Coulomb 1/r is long-ranged: a hard cutoff truncates its tail and
+ * creates a discontinuity (energies are cutoff- and size-dependent).
+ * Acceptable here only because all current demos are small gas-phase
+ * clusters whose pair distances largely fall inside 12 A; do not cite
+ * magnitudes as converged electrostatics. Use Ewald/PME or
+ * reaction-field before any condensed-phase quantitative claim.
  * For small gas-phase molecules set cutoff = 100 Å (effectively infinite).
  */
 
@@ -53,6 +59,9 @@ int forces_bond_params(int Za, int Zb, int order, BondParam *out);
 int forces_angle_params(int Za, int Zb, int Zc, AngleParam *out);
 
 /* ── Lennard-Jones combining rules (Lorentz-Berthelot) ───────────────────── */
+/* AMBER combines R_min-half arithmetically and eps geometrically; with
+ * sigma = 2 Rstar over 2^(1/6) this is exactly sigma-arithmetic plus
+ * eps-geometric below. Requires correct (halved-otherwise) sigma. */
 static inline double lj_eps_combine(double ei, double ej) {
     return sqrt(ei * ej);
 }

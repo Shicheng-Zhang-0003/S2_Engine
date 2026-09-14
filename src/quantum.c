@@ -147,7 +147,20 @@ double quantum_zeff(int Z, int n, int l, const ElectronConfig *cfg) {
     }
 
     double Zeff = (double)Z - S;
-    return (Zeff < 1.0) ? 1.0 : Zeff; /* physical minimum */
+    if (Zeff < 1.0) {
+        /* Clamp honesty: S exceeding Z-1 is unphysical for the supplied
+         * configuration (e.g. over-screened anion census); floor at 1.0
+         * and warn once rather than silently returning a bare proton. */
+        static int warned = 0;
+        if (!warned) {
+            warned = 1;
+            fprintf(stderr,
+                    "quantum: WARNING: Slater S=%.2f for Z=%d exceeds Z-1; "
+                    "Z_eff floored at 1.0\n", S, Z);
+        }
+        return 1.0;
+    }
+    return Zeff;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -157,7 +170,7 @@ double quantum_zeff(int Z, int n, int l, const ElectronConfig *cfg) {
 double quantum_orbital_energy(int Z, int n, int l, const ElectronConfig *cfg) {
     double Zeff = quantum_zeff(Z, n, l, cfg);
     double nstar = quantum_nstar(n);
-    return -13.6058 * (Zeff / nstar) * (Zeff / nstar);
+    return -13.605693122994 * (Zeff / nstar) * (Zeff / nstar);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -204,15 +217,15 @@ void quantum_fill_orbitals(Atom *atom) {
             orb->qn.n    = n;
             orb->qn.l    = l;
             orb->qn.ml   = m - l;      /* ml = -l … +l */
-            /* Representative spin for this ml slot: a singly-occupied
-             * slot holds one spin-up electron (+0.5); a doubly-occupied
-             * slot holds an up/down pair whose NET spin is zero, so 0.0
-             * is the physically meaningful single-value representative
-             * (this table stores one entry per ml slot, not one per
-             * electron - splitting paired slots into two entries would
-             * double-count orbitals against MAX_ORBITALS for no consumer
-             * benefit, since no energy/force path reads ms). */
-            orb->qn.ms   = (filled[m] == 2) ? 0.0 : 0.5;
+            /* Representative spin: one entry per ml slot. A singly-occupied
+             * slot holds one electron (+0.5). A doubly-occupied slot holds
+             * +0.5/-0.5; no single value equals both, so store +0.5 as the
+             * representative electron spin (a valid single-electron m_s)
+             * and rely on occupation==2 for the pair count. Storing 0.0
+             * would violate the m_s = ±1/2 definition (types.h); net zero
+             * is a property of the pair, not of either electron. No
+             * energy/force path reads ms. */
+            orb->qn.ms   = 0.5;
             orb->orbital_energy = energy;
             orb->occupation = filled[m];
         }
@@ -278,10 +291,14 @@ double quantum_radial_wavefunction(int n, int l, double Z_eff, double r_ang) {
     double scale  = 2.0 * Z_eff / ((double)n * a0_ang);
     double rho    = scale * r_ang;
 
-    /* Normalisation constant squared */
+    /* Normalisation: N^2 = scale^3 * (n-l-1)! / (2n (n+l)!), where
+     * scale = 2*Z_eff/(n*a0) has units 1/length so N carries
+     * length^-3/2 as required for R_nl (so that ∫r^2|R|^2dr = 1).
+     * A scale^1 form under-normalizes by exactly scale^2
+     * (H 1s integral 0.07 instead of 1.0); verified numerically. */
     double num    = factorial(n - l - 1);
-    double den    = 2.0 * n * factorial(n + l); /* s02 fix: (n+l)! to first power - cubing under-normalized R_nl for all n>1; behavior-neutral today because every consumer is shape-normalized or an argmax (full reasoning in s02 script header) */
-    double N2     = pow(scale, 3.0) * num / den;
+    double den    = 2.0 * n * factorial(n + l); /* (n+l)! to first power (s02 fix) */
+    double N2     = scale * scale * scale * num / den;
     double N      = -sqrt(N2);                 /* sign convention Griffiths */
 
     double lag    = quantum_laguerre(n - l - 1, 2*l + 1, rho);

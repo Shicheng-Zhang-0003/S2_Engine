@@ -17,7 +17,8 @@
  *
  * LJ parameters: AMBER ff99 (amber99.prm, fetched 2026-06-19 from
  * https://github.com/pren/tinker). Correct R*->sigma conversion:
- * sigma = R* / 2^(1/6). See nucleobases.c header for full provenance.
+ * sigma = 2 Rstar over 2^(1/6) (AMBER Rstar = Rmin-half). See nucleobases.c header
+ * for full provenance.
  *
  * Geometry: RCSB PDB CCD ideal coordinates, fetched 2026-06-19.
  * See aminoacids.h for full geometry provenance.
@@ -33,7 +34,7 @@
  * nitrogen, carbonyl oxygen, etc.), not nucleobase-specific - the same
  * categories legitimately apply to protein backbone atoms.
  * ══════════════════════════════════════════════════════════════════════════ */
-#define AA_RSTAR_TO_SIGMA(rstar) ((rstar) / 1.122462048309373)
+#define AA_RSTAR_TO_SIGMA(rstar) ((rstar) * 2.0 / 1.122462048309373)
 
 #define AA_LJ_N_SIGMA     AA_RSTAR_TO_SIGMA(1.8240)   /* amide N */
 #define AA_LJ_N_EPS       (0.1700 * KCAL_MOL_TO_EV)

@@ -9,13 +9,15 @@
  *
  * Strategy: hydrogen-like orbital model with Slater effective nuclear charge.
  * This is the standard approximation used in Hartree-Fock starting guesses
- * and gives chemically accurate orbital energies for main-group elements.
+ * and gives qualitatively useful, roughly 10-30% orbital energies for
+ * main-group elements (a diagnostic starting guess, not a substitute for
+ * HF/DFT with exchange/correlation; do not cite beyond that accuracy).
  *
  * For a multi-electron atom with Z protons, each electron experiences an
  * effective nuclear charge Z_eff = Z - S, where S is the Slater screening
  * constant calculated from all other electrons by their proximity.
  *
- * Orbital energy: E_nl = -13.6058 eV × (Z_eff / n*)²
+ * Orbital energy: E_nl = -13.605693122994 eV × (Z_eff / n*)²
  * where n* is the effective principal quantum number (Slater 1930).
  */
 
@@ -47,10 +49,10 @@ double quantum_orbital_energy(int Z, int n, int l, const ElectronConfig *cfg);
  * Fills atom->orbitals[] and sets atom->num_orbitals.
  * Each orbital gets its energy set via quantum_orbital_energy().
  * Orbital ml values are assigned in order: -l, -(l-1), …, +l.
- * One table entry is stored per ml slot (not per electron): a
- * singly-occupied slot carries ms=+0.5; a doubly-occupied slot carries
- * ms=0.0, the net spin of its up/down pair (the physically meaningful
- * single-value representative; no energy/force path reads ms).
+ * One table entry is stored per ml slot (not per electron): ms is always
+ * a valid single-electron spin (+0.5 representative); a doubly-occupied
+ * slot (occupation==2) holds a +0.5/-0.5 pair whose net is zero - the
+ * pair count lives in occupation, not in ms. No energy/force path reads ms.
  */
 void quantum_fill_orbitals(Atom *atom);
 

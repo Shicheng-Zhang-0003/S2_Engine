@@ -34,6 +34,13 @@ const Element *pt_by_symbol(const char *symbol);
 /* Populate a ground-state ElectronConfig for atomic number Z. */
 void pt_electron_config(int Z, ElectronConfig *cfg);
 
+/* Populate an ElectronConfig for nuclear charge Z holding n_electrons
+ * electrons (ions/anions: n_electrons = Z - formal_charge; e.g. K+ is
+ * Z=19, n=18 -> [Ar]; O- is Z=8, n=9 -> 2p5). Neutral wrapper above
+ * calls this with n_electrons = Z. Madelung exceptions (Cr/Cu) apply
+ * only when n_electrons == Z. */
+void pt_electron_config_n(int Z, int n_electrons, ElectronConfig *cfg);
+
 /* Pretty-print electron configuration string, e.g. "1s2 2s2 2p2" */
 void pt_config_string(const ElectronConfig *cfg, char *buf, int buflen);
 

@@ -1,0 +1,45 @@
+[header]
+schema: 1
+demo: kcsa
+build-compiler: gcc 13
+build-flags: -O3 -g -Wall -Wextra -std=c11 -Iinclude
+wallclock: 2026-09-14T21:31:05Z
+rng-seed: 7
+source-hash: v9R4-kcsa-upgrade
+build-flags-note: record build must not carry -march=native
+
+[claims]
+# key value unit provenance
+kcsa.antiprism.E_K 6.8591950008121971 eV computed
+kcsa.antiprism.E_Na 6.8591950008121971 eV computed
+kcsa.antiprism.ddG_vacuum 0 eV computed
+kcsa.dehyd.K 3.0569999999999999 eV Marcus1991
+kcsa.dehyd.Na 3.7829999999999999 eV Marcus1991
+kcsa.ddG_corrected -0.72599999999999998 eV computed
+kcsa.ddG_experimental -0.17857928799699513 eV expt-1000:1@300K
+kcsa.ddG_deviation -0.54742071200300479 eV computed
+kcsa.jc.E_K 6.8053683510325884 eV JC2008
+kcsa.jc.E_Na 6.8149141958357431 eV JC2008
+kcsa.jc.ddU_vacuum -0.0095458448031546794 eV JC2008
+kcsa.jc.ddU_corrected -0.73554584480315466 eV JC2008
+kcsa.pol.E_K -0.48306343086761289 eV computed
+kcsa.pol.E_Na -0.48306343086761289 eV computed
+kcsa.ecc.scale 0.75 dimensionless computed
+kcsa.ecc.coulomb_factor 0.5625 dimensionless computed
+kcsa.pmf.E_K_min 6.8053683510325884 eV computed
+kcsa.pmf.E_Na_min 6.8149141958357431 eV computed
+kcsa.pmf.z_K_min 0 A computed
+kcsa.pmf.z_Na_min 0 A computed
+kcsa.qm.q_O_mean -0.54620000000000002 e computed
+kcsa.qm.q_K 1 e computed
+kcsa.qm.q_Na 1 e computed
+kcsa.qm.dE_K 0.15339459062661209 eV computed
+kcsa.qm.dE_Na 0.14384874582345741 eV computed
+kcsa.qm.S_K 6.3278868266213796e-07 dimensionless computed
+kcsa.qm.S_Na 2.6472723981905774e-08 dimensionless computed
+kcsa.qm.BO_K 0.0018569360213062719 dimensionless computed
+kcsa.qm.BO_Na 0.00051639365018859586 dimensionless computed
+kcsa.qm.alpha_O 0.10068138486339918 A computed
+
+[end]
+payload-sha256: f1a39e406702ad1cba0cce53ed9d7692ff47ebfda0224a79024bbc1c6b9ed628
