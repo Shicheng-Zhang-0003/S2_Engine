@@ -40,6 +40,15 @@ void sim_destroy(Simulation *sim);
  */
 int sim_add_atom(Simulation *sim, int Z, Vec3 pos, double partial_charge);
 
+/* Add an ion of element Z (nuclear charge) with integer formal_charge
+ * (e.g. K+ is Z=19, formal=+1 -> 18 electrons, [Ar]; O- is Z=8,
+ * formal=-1 -> 9 electrons). Electron configuration and orbitals are
+ * built for the actual electron count (Z - formal_charge); partial_charge
+ * remains the separate force-field Coulomb parameter. Neutral wrapper
+ * above calls this with formal_charge = 0. */
+int sim_add_ion(Simulation *sim, int Z, int formal_charge,
+                Vec3 pos, double partial_charge);
+
 /* Convenience: add atom from element symbol string. */
 int sim_add_atom_sym(Simulation *sim, const char *symbol, Vec3 pos, double q);
 

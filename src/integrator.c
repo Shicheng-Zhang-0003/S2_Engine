@@ -12,7 +12,7 @@
  * All unit conversions are explicit and commented.
  */
 
-#define KB_EV   8.617333262e-5   /* Boltzmann constant in eV/K */
+#define KB_EV   (BOLTZMANN_K / EV_TO_J)   /* eV/K, derived in-line per C1-C4 rule */
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Half-step A: velocity kick + position drift
