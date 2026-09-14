@@ -136,6 +136,20 @@ void sim_rebuild_angles(Simulation *sim);
  */
 void sim_rebuild_angles_geometric(Simulation *sim, double k_default);
 
+/* ── Harmonic positional restraints (reduced-model external mechanics) ─── */
+
+/*
+ * Anchor atom `atom_idx` toward fixed point `anchor` (Å) with spring
+ * constant `k` (eV/Å²): V = 0.5·k·|r−anchor|², F = −k·(r−anchor),
+ * evaluated inside forces_calculate() and reported as E_restraint_total.
+ * See types.h for the physics rationale and stiffness guide.
+ * Returns the restraint index, or SIM_ERR_* on bad atom/capacity.
+ */
+int sim_add_restraint(Simulation *sim, int atom_idx, Vec3 anchor, double k);
+
+/* Remove all restraints (e.g. between production phases). */
+void sim_clear_restraints(Simulation *sim);
+
 /* ── Periodic boundary conditions ────────────────────────────────────────── */
 
 /* Set simulation box dimensions (Å) and enable PBC on all three axes. */

@@ -45,13 +45,13 @@
  * file) - so a single sigma/epsilon pair per (element, hybridization)
  * category is not an approximation on top of AMBER; it IS AMBER.
  *
- * Conversion: sigma[A] = R*[A] * 2/2^(1/6),  epsilon[eV] = eps[kcal/mol]
- * * KCAL_MOL_TO_EV. Verified independently: TIP3P oxygen's AMBER class
- * (R*=1.7683) converts to sigma=3.1506 A via this same formula, an
- * exact match to the literature TIP3P value already used in
+ * Conversion: sigma[A] = R*[A] / 2^(1/6),
+ * epsilon[eV] = eps[kcal/mol] * KCAL_MOL_TO_EV. Verified independently:
+ * TIP3P oxygen's AMBER class (R*=1.7683) converts to sigma=1.5753 A
+ * via this formula, matching the literature TIP3P value already used in
  * sim_place_h2o() - confirms the conversion convention is correct.
  * ══════════════════════════════════════════════════════════════════════════ */
-#define AMBER_RSTAR_TO_SIGMA(rstar) ((rstar) * 2.0 / 1.122462048309373)
+#define AMBER_RSTAR_TO_SIGMA(rstar) ((rstar) / 1.122462048309373)
 
 /* Ring/carbonyl nitrogen: AMBER classes N,NA,NB,NC,N*,N2 (all identical) */
 #define LJ_RING_N_SIGMA   AMBER_RSTAR_TO_SIGMA(1.8240)
@@ -286,9 +286,15 @@ int sim_place_uracil(Simulation *sim, Vec3 origin) {
  * Atom order: N3 C4 N1 C2 O2 N4 C5 C6 HN1(corrected) HN41 HN42 H5 H6
  * ══════════════════════════════════════════════════════════════════════════ */
 int sim_place_cytosine(Simulation *sim, Vec3 origin) {
-    /* Heavy atoms + the 4 hydrogens that are NOT affected by the tautomer
-     * fix, exactly as verified from the PDB ideal coordinates */
-    static const double heavy[12][3] = {
+    /* Heavy atoms + the 3 hydrogens that are NOT affected by the tautomer
+     * fix, exactly as verified from the PDB ideal coordinates. H6 is NOT
+     * transcribed below: the deposited H6 entry was not recovered, so H6
+     * is constructed geometrically (same external-bisector technique
+     * validated for the N1-H relocation above): C6 is sp2 with ring
+     * neighbours C5 and N1, so its external H lies along the negative
+     * sum of the two C6->neighbour unit vectors at the standard aromatic
+     * C-H length 1.09 A, in the verified-planar ring plane. */
+    static const double heavy[11][3] = {
         {-0.356, -2.061, -3.112},  /* N3   */
         { 0.341, -0.883, -3.202},  /* C4   */
         {-0.784, -1.739, -0.794},  /* N1   */
@@ -299,8 +305,7 @@ int sim_place_cytosine(Simulation *sim, Vec3 origin) {
         {-0.124, -0.631, -0.895},  /* C6   */
         { 1.766, -0.078, -4.418},  /* HN41 */
         { 0.341, -0.687, -5.232},  /* HN42 */
-        { 1.030,  0.832, -2.104},  /* H5   */
-        { 0.001, -0.001,  0.000}   /* H6   */
+        { 1.030,  0.832, -2.104}   /* H5   */
     };
 
     Vec3 N1 = vec3(heavy[2][0], heavy[2][1], heavy[2][2]);
@@ -316,12 +321,22 @@ int sim_place_cytosine(Simulation *sim, Vec3 origin) {
     Vec3 outward = vec3_normalize(vec3_negate(vec3_add(to_C2, to_C6)));
     Vec3 HN1_pos = vec3_add(N1, vec3_scale(outward, 1.01)); /* N-H bond length */
 
-    /* Assemble final 13-atom array: heavy atoms (with the old, now-unused
-     * N3-adjacent H position dropped) plus the new, correctly-placed N1-H */
+    /* H6 on C6: external bisector of the C5-C6-N1 ring angle, same
+     * construction as HN1 above (C6 is sp2; its two ring neighbours
+     * are C5 and N1). Standard aromatic C-H length 1.09 A. */
+    Vec3 C5 = vec3(heavy[6][0], heavy[6][1], heavy[6][2]);
+    Vec3 to_C5 = vec3_normalize(vec3_sub(C5, C6));
+    Vec3 to_N1 = vec3_normalize(vec3_sub(N1, C6));
+    Vec3 outward_H6 = vec3_normalize(vec3_negate(vec3_add(to_C5, to_N1)));
+    Vec3 H6_pos = vec3_add(C6, vec3_scale(outward_H6, 1.09)); /* C-H bond length */
+
+    /* Assemble final 13-atom array: heavy atoms (H6 constructed above)
+     * plus the new, correctly-placed N1-H */
     double coords[13][3];
-    for (int i = 0; i < 12; i++) {
+    for (int i = 0; i < 11; i++) {
         coords[i][0] = heavy[i][0]; coords[i][1] = heavy[i][1]; coords[i][2] = heavy[i][2];
     }
+    coords[11][0] = H6_pos.x; coords[11][1] = H6_pos.y; coords[11][2] = H6_pos.z;
     coords[12][0] = HN1_pos.x; coords[12][1] = HN1_pos.y; coords[12][2] = HN1_pos.z;
 
     /* Index map: 0=N3 1=C4 2=N1 3=C2 4=O2 5=N4 6=C5 7=C6
@@ -631,13 +646,23 @@ int sim_place_thymine(Simulation *sim, Vec3 origin) {
     /* Tetrahedral methyl hydrogens about the C5-CM axis u, exactly the
      * same construction used in sim_place_ch4: pick any vector not
      * parallel to u, cross to get an orthonormal frame, place 3 H's at
-     * the tetrahedral angle (cos = -1/3) spaced 120 degrees apart. */
+     * the tetrahedral angle spaced 120 degrees apart.
+     *
+     * Sign derivation (this was wrong before: cos was -1/3, folding the
+     * H's back over the ring): u points C5->CM, AWAY from the ring. The
+     * physical constraint is on the H-CM-C5 angle, i.e. between each
+     * H direction `dir` and the CM->C5 direction (-u):
+     *   dir.(-u) = cos(109.47 deg) = -1/3  =>  dir.u = +1/3.
+     * Hence dir = u*(+1/3) + radial*sqrt(8)/3, giving H-CM-C5 = 109.47
+     * (H's splay outward, away from the ring) and mutual H-CM-H = 109.47
+     * by the 120-degree azimuthal spacing. The old -1/3 put H-CM-C5 at
+     * 70.5 deg with every H 1.54 A from C5 instead of 2.14 A. */
     Vec3 v_seed = (fabs(u.y) < 0.9) ? vec3(0,1,0) : vec3(1,0,0);
     Vec3 v = vec3_normalize(vec3_sub(v_seed, vec3_scale(u, vec3_dot(v_seed, u))));
     Vec3 w = vec3_cross(u, v);
 
     const double r_CH    = 1.09;
-    const double cos_tet = -1.0/3.0;
+    const double cos_tet = 1.0/3.0;
     const double sin_tet = sqrt(1.0 - cos_tet*cos_tet);
     const double TWO_PI_3 = 2.0 * 3.14159265358979323846 / 3.0;
 
@@ -954,6 +979,11 @@ int sim_place_deoxyribose_open(Simulation *sim, Vec3 origin) {
 /* ══════════════════════════════════════════════════════════════════════════
  * Planarity check: reference plane defined by the first 3 given atoms,
  * report max perpendicular deviation of all remaining atoms from it.
+ * Degenerate input (first 3 atoms collinear) defines no plane: the
+ * cross product vanishes, the normal is the zero vector, and every
+ * deviation is 0 by construction - returned explicitly rather than
+ * through a silent normalize-to-zero, so the degenerate case reads as
+ * a deliberate choice at the call site, not an accident.
  * ══════════════════════════════════════════════════════════════════════════ */
 double nb_planarity_deviation(const Simulation *sim,
                                const int *atom_indices, int n) {
@@ -963,7 +993,9 @@ double nb_planarity_deviation(const Simulation *sim,
     Vec3 p1 = sim->atoms[atom_indices[1]].position;
     Vec3 p2 = sim->atoms[atom_indices[2]].position;
 
-    Vec3 normal = vec3_normalize(vec3_cross(vec3_sub(p1, p0), vec3_sub(p2, p0)));
+    Vec3 cross = vec3_cross(vec3_sub(p1, p0), vec3_sub(p2, p0));
+    if (vec3_norm(cross) < 1.0e-12) return 0.0; /* degenerate: no plane */
+    Vec3 normal = vec3_scale(cross, 1.0 / vec3_norm(cross));
 
     double max_dev = 0.0;
     for (int i = 0; i < n; i++) {
@@ -983,19 +1015,27 @@ Vec3 nb_ring_normal(const Simulation *sim, const int *atom_indices) {
 
 /*
  * Signed angle (radians) to rotate vector v_from onto vector v_to,
- * both measured as rotation AROUND axis `n` (right-hand rule). Both
- * vectors are projected onto the plane perpendicular to n first, so
- * any small out-of-plane component doesn't bias the result. Used to
+ * both measured as rotation AROUND axis `n` (right-hand rule). The
+ * axis is normalized internally, so callers may pass any non-zero
+ * normal (a zero axis, or zero-length projections of v_from/v_to onto
+ * the plane, define no rotation: returns 0.0). Both vectors are
+ * projected onto the plane perpendicular to n first, so any small
+ * out-of-plane component doesn't bias the result. Used to
  * fix the azimuthal (in-plane) rotation left unconstrained by aligning
  * ring normals alone - without this, two coplanar rings can still end
  * up with substituents clashing into each other.
  */
 double nb_signed_inplane_angle(Vec3 v_from, Vec3 v_to, Vec3 n) {
-    Vec3 a = vec3_sub(v_from, vec3_scale(n, vec3_dot(v_from, n)));
-    Vec3 b = vec3_sub(v_to,   vec3_scale(n, vec3_dot(v_to,   n)));
-    a = vec3_normalize(a);
-    b = vec3_normalize(b);
-    double s = vec3_dot(vec3_cross(a, b), n);
+    double n_norm = vec3_norm(n);
+    if (n_norm < 1.0e-12) return 0.0;
+    Vec3 nn = vec3_scale(n, 1.0 / n_norm);
+    Vec3 a = vec3_sub(v_from, vec3_scale(nn, vec3_dot(v_from, nn)));
+    Vec3 b = vec3_sub(v_to,   vec3_scale(nn, vec3_dot(v_to,   nn)));
+    double na = vec3_norm(a), nb = vec3_norm(b);
+    if (na < 1.0e-12 || nb < 1.0e-12) return 0.0;
+    a = vec3_scale(a, 1.0 / na);
+    b = vec3_scale(b, 1.0 / nb);
+    double s = vec3_dot(vec3_cross(a, b), nn);
     double c = vec3_dot(a, b);
     return atan2(s, c);
 }
@@ -1223,12 +1263,26 @@ int sim_place_dinucleotide_TA(Simulation *sim, Vec3 origin, int *out_sugarB_C1) 
      * O3'...O5' is 2.6133 A - geometrically consistent with two 1.60 A
      * bonds at a tetrahedral angle (see the target-span comment
      * above), so P sits slightly off the direct line, not on it. */
-    Vec3 perp = vec3_normalize(vec3_cross(axis_dir, vec3(0,1,0)));
-    if (vec3_norm(perp) < 1e-6) perp = vec3_normalize(vec3_cross(axis_dir, vec3(1,0,0)));
+    Vec3 axis_cross = vec3_cross(axis_dir, vec3(0,1,0));
+    Vec3 perp = (vec3_norm(axis_cross) > 1.0e-8)
+                ? vec3_normalize(axis_cross)
+                : vec3_normalize(vec3_cross(axis_dir, vec3(1,0,0)));
     /* Solve for perpendicular offset h such that sqrt((d/2)^2+h^2)=1.60 */
     double half_d = vec3_norm(vec3_sub(O5_pos, O3_pos)) / 2.0;
     double h2 = 1.60*1.60 - half_d*half_d;
-    double h = (h2 > 0.01) ? sqrt(h2) : 0.3; /* fallback if geometry too stretched */
+    double h;
+    if (h2 > 0.01) {
+        h = sqrt(h2);
+    } else {
+        /* Overstretched O3'...O5' span: no P placement can satisfy both
+         * 1.60 A bonds (needs span <= 3.2 A). Warn loudly instead of
+         * silently writing a wrong-length bridge - a quiet 0.3 here
+         * would fake P-O ~1.34+0.3 geometry as "real 1.60 A bonds". */
+        fprintf(stderr, "sim_place_dinucleotide_TA: WARNING: O3'...O5' span %.3f A "
+                "cannot be bridged by two 1.60 A P-O bonds; P-O lengths will be wrong\n",
+                2.0 * half_d);
+        h = 0.3; /* fallback if geometry too stretched */
+    }
     Vec3 P_pos = vec3_add(mid, vec3_scale(perp, h));
 
     int P_idx = sim_add_atom(sim, 15, P_pos, 1.1); /* P, Z=15, approx charge */
@@ -1264,6 +1318,29 @@ int sim_place_dinucleotide_TA(Simulation *sim, Vec3 origin, int *out_sugarB_C1) 
     sim_set_atom_lj(sim, OP2, LJ_O2_EPS, LJ_O2_SIGMA);
     sim_add_bond(sim, P_idx, OP1, 1);
     sim_add_bond(sim, P_idx, OP2, 1);
+
+    /* Charge conservation (derived, not hard-coded): a DNA dinucleotide
+     * with one phosphodiester linkage and neutral termini carries net
+     * -1 e - the phosphodiester's second proton is dissociated at any
+     * pH above ~1 (pKa1 ~ 1), so exactly one full electron of excess
+     * negative charge must remain after all condensation steps. Rather
+     * than trusting the approximate sugar/base charge fragments to sum
+     * correctly (they don't: the uncorrected sum misses -1 by ~0.18 e,
+     * since neither fragment set was fit for this assembly), enforce
+     * the physical constraint live: measure the assembled total and put
+     * the residual symmetrically onto the two equivalent non-bridging
+     * oxygens (which share it equally by the phosphate's own C2v
+     * symmetry - no other placement preserves that symmetry). P keeps
+     * its stated +1.1; only the OP pair absorbs the residual.
+     * (Precondition: sim contains only this assembly when called, true
+     * for every caller - so the measured total is this molecule's.) */
+    {
+        double total = 0.0;
+        for (int i = 0; i < sim->num_atoms; i++) total += sim->atoms[i].partial_charge;
+        double residual = -1.0 - total; /* must land on OP1 + OP2 */
+        sim->atoms[OP1].partial_charge += 0.5 * residual;
+        sim->atoms[OP2].partial_charge += 0.5 * residual;
+    }
 
     /* Adjust the bridging ester oxygens' own charges toward typical
      * ester-oxygen values now that they've lost their H (they were

@@ -242,6 +242,32 @@ typedef struct {
     int       num_dihedrals;
     int       capacity_dihedrals;
 
+    /* Harmonic positional restraints (reduced-model external mechanics).
+     *
+     * Physics: each restraint is a real spring anchoring one atom
+     * toward a fixed laboratory-frame point:
+     *   V_r = 0.5 * k * |r_i - anchor|^2,   F_i = -k * (r_i - anchor)
+     * evaluated inside forces_calculate() like every other term, so the
+     * energy is conservative, the force enters the Verlet integration
+     * self-consistently, and E_restraint_total is reported in the same
+     * breakdown as LJ/Coulomb/bonded terms. This is the correct reduced
+     * model for what a surrounding scaffold (backbone, lattice, wall)
+     * does mechanically: it holds an atom near a site while letting it
+     * breathe and rotate around it - unlike a post-step position lerp,
+     * which is non-conservative, dt-dependent, invisible to the
+     * integrator, and leaves printed PE/T describing a state the atoms
+     * are no longer in.
+     *
+     * Stiffness guide: thermal RMS displacement per dimension is
+     * sqrt(kB*T/k). k = 0.5 eV/A^2 at 50 K gives ~0.09 A RMS: stiff
+     * but breathing. Stability limit dt < 2/sqrt(k/m) is ~34 fs for
+     * k = 0.5 on nitrogen at dt = 0.5 fs - two orders of margin. */
+    Vec3     *restraint_anchor;
+    double   *restraint_k;       /* eV/A^2, one per restraint               */
+    int      *restraint_atom;    /* atom index each restraint acts on       */
+    int       num_restraints;
+    int       capacity_restraints;
+
     /* Box */
     SimBox   box;
 
@@ -257,6 +283,10 @@ typedef struct {
     double   total_energy;      /* eV                                        */
     double   E_lj_total;        /* eV - LJ component of potential_energy     */
     double   E_coulomb_total;   /* eV - Coulomb component                    */
+    double   E_restraint_total; /* eV - harmonic-restraint component (below) */
+    int      num_constrained_dof; /* further removed DOF beyond the COM -3
+                                   * (frozen atoms, stiff restraints, linear
+                                   * molecules - see integrator.h). 0 default.*/
 
     /* Force field */
     double         cutoff;      /* non-bonded cutoff, Å                      */

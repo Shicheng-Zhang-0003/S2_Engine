@@ -204,7 +204,15 @@ void quantum_fill_orbitals(Atom *atom) {
             orb->qn.n    = n;
             orb->qn.l    = l;
             orb->qn.ml   = m - l;      /* ml = -l … +l */
-            orb->qn.ms   = 0.5;        /* representative spin */
+            /* Representative spin for this ml slot: a singly-occupied
+             * slot holds one spin-up electron (+0.5); a doubly-occupied
+             * slot holds an up/down pair whose NET spin is zero, so 0.0
+             * is the physically meaningful single-value representative
+             * (this table stores one entry per ml slot, not one per
+             * electron - splitting paired slots into two entries would
+             * double-count orbitals against MAX_ORBITALS for no consumer
+             * benefit, since no energy/force path reads ms). */
+            orb->qn.ms   = (filled[m] == 2) ? 0.0 : 0.5;
             orb->orbital_energy = energy;
             orb->occupation = filled[m];
         }
@@ -291,16 +299,27 @@ double quantum_radial_probability(int n, int l, double Z_eff, double r_ang) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
- * Most probable radius — golden-section search on P(r) in [0, r_max]
+ * Most probable radius — global maximizer of P(r) on (0, r_max]
+ *
+ * P_nl(r) for n >= 2 has radial NODES (n-l-1 of them) and therefore
+ * MULTIPLE local maxima (e.g. 2s has two peaks) - a single
+ * golden-section search over the whole interval converges to whichever
+ * peak its bracket favours, not necessarily the global one. Derivation
+ * of the fix: partition [a, b] into NSUB subintervals (64 is ample -
+ * nodes are ~Bohr-spaced, far wider than any subinterval at the n, Zeff
+ * values this codebase evaluates), run the golden-section maximizer
+ * inside each subinterval, and keep the best. Each local search is the
+ * same unimodal-safe contraction as before; the partition turns a
+ * local method into a global one by construction. Cost is ~64 x 60
+ * cheap P(r) evaluations per call - negligible for a diagnostic.
  * ══════════════════════════════════════════════════════════════════════════ */
-double quantum_most_probable_radius(int n, int l, double Z_eff) {
-    double a = 0.0001, b = 30.0 * n * n / Z_eff;
-    static const double PHI = 0.6180339887; /* 1/φ */
+static double golden_max(double a, double b, int n, int l, double Z_eff) {
+    static const double PHI = 0.6180339887; /* 1/phi */
     double c = b - PHI * (b - a);
     double d = a + PHI * (b - a);
 
-    for (int iter = 0; iter < 200; iter++) {
-        if (fabs(b - a) < 1.0e-8) break;
+    for (int iter = 0; iter < 60; iter++) {
+        if (fabs(b - a) < 1.0e-10) break;
         if (quantum_radial_probability(n, l, Z_eff, c) <
             quantum_radial_probability(n, l, Z_eff, d)) {
             a = c;
@@ -311,6 +330,20 @@ double quantum_most_probable_radius(int n, int l, double Z_eff) {
         d = a + PHI * (b - a);
     }
     return (a + b) / 2.0;
+}
+
+double quantum_most_probable_radius(int n, int l, double Z_eff) {
+    double lo = 0.0001, hi = 30.0 * n * n / Z_eff;
+    static const int NSUB = 64;
+    double best_r = lo, best_p = -1.0;
+    for (int s = 0; s < NSUB; s++) {
+        double a = lo + (hi - lo) * s / NSUB;
+        double b = lo + (hi - lo) * (s + 1) / NSUB;
+        double r = golden_max(a, b, n, l, Z_eff);
+        double p = quantum_radial_probability(n, l, Z_eff, r);
+        if (p > best_p) { best_p = p; best_r = r; }
+    }
+    return best_r;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

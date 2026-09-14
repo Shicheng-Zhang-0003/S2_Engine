@@ -86,8 +86,12 @@
  *              = 9.64853322e17 × (F/m)
  *   1 Å/fs² = 1e-10 m / (1e-15 s)² = 1e20 m/s²
  *   → a [Å/fs²] = 9.64853322e17 / 1e20 × (F/m) = 9.64853322e-3 × (F/m)
+ *
+ * Derived in-line below from EV_TO_J, ANGSTROM_TO_M and AMU so the
+ * value tracks its primaries by construction (same derive-in-line
+ * rule as J_TO_EV / KCAL_MOL_TO_EV / COULOMB_MD above).
  */
-#define MD_FORCE_CONV       9.64853322e-3
+#define MD_FORCE_CONV       ((EV_TO_J / ANGSTROM_TO_M) / AMU / 1.0e20)
 
 /*
  * Coulomb prefactor in MD units:

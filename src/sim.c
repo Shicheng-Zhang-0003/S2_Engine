@@ -34,8 +34,17 @@ Simulation *sim_create(int atom_capacity, int bond_capacity) {
     int dihedral_cap = bond_capacity * 3;
     sim->dihedrals = (Dihedral *)calloc(dihedral_cap, sizeof(Dihedral));
 
-    if (!sim->atoms || !sim->bonds || !sim->angles || !sim->dihedrals) {
+    /* Restraints: heuristic — up to 16 concurrent anchors (more than any
+     * demo needs; the duplex uses 4). Grown arrays are overkill here. */
+    int restraint_cap = 16;
+    sim->restraint_anchor = (Vec3 *)calloc(restraint_cap, sizeof(Vec3));
+    sim->restraint_k      = (double *)calloc(restraint_cap, sizeof(double));
+    sim->restraint_atom   = (int *)calloc(restraint_cap, sizeof(int));
+
+    if (!sim->atoms || !sim->bonds || !sim->angles || !sim->dihedrals ||
+        !sim->restraint_anchor || !sim->restraint_k || !sim->restraint_atom) {
         free(sim->atoms); free(sim->bonds); free(sim->angles); free(sim->dihedrals);
+        free(sim->restraint_anchor); free(sim->restraint_k); free(sim->restraint_atom);
         free(sim);
         return NULL;
     }
@@ -44,6 +53,7 @@ Simulation *sim_create(int atom_capacity, int bond_capacity) {
     sim->capacity_bonds    = bond_capacity;
     sim->capacity_angles   = angle_cap;
     sim->capacity_dihedrals = dihedral_cap;
+    sim->capacity_restraints = restraint_cap;
 
     /* Defaults */
     sim->dt      = 1.0;     /* 1 fs timestep                                */
@@ -74,6 +84,9 @@ void sim_destroy(Simulation *sim) {
     free(sim->bonds);
     free(sim->angles);
     free(sim->dihedrals);
+    free(sim->restraint_anchor);
+    free(sim->restraint_k);
+    free(sim->restraint_atom);
     free(sim);
 }
 
@@ -133,8 +146,6 @@ int sim_remove_terminal_atom(Simulation *sim, int atom_idx) {
     Atom *target = &sim->atoms[atom_idx];
     if (target->num_bonds != 1) return 0;  /* must be terminal */
 
-    int neighbor = target->bond_partners[0];
-
     /* 1. Find and remove the one bond involving atom_idx */
     int bond_to_remove = -1;
     for (int b = 0; b < sim->num_bonds; b++) {
@@ -173,6 +184,22 @@ int sim_remove_terminal_atom(Simulation *sim, int atom_idx) {
         sim->dihedrals[wd++] = *dh;
     }
     sim->num_dihedrals = wd;
+
+    /* 2c. Restraints: drop any anchor on the removed atom (its only
+     *     bond is gone, so no scaffold should hold it), shift the rest. */
+    {
+        int wr = 0;
+        for (int r = 0; r < sim->num_restraints; r++) {
+            if (sim->restraint_atom[r] == atom_idx) continue;
+            int at = sim->restraint_atom[r];
+            if (at > atom_idx) at--;
+            sim->restraint_atom[wr]   = at;
+            sim->restraint_anchor[wr] = sim->restraint_anchor[r];
+            sim->restraint_k[wr]      = sim->restraint_k[r];
+            wr++;
+        }
+        sim->num_restraints = wr;
+    }
 
     /* 3. Re-index every remaining bond/angle reference > atom_idx down by 1 */
     for (int b = 0; b < sim->num_bonds; b++) {
@@ -217,8 +244,6 @@ int sim_remove_terminal_atom(Simulation *sim, int atom_idx) {
         a->num_bonds = w2;
         a->id = i; /* keep id in sync with new index */
     }
-    (void)neighbor; /* already handled generically in the loop above */
-
     return 1;
 }
 
@@ -263,6 +288,22 @@ int sim_add_dihedral(Simulation *sim, int a, int b, int c, int d,
     dh->n      = n;
     dh->delta  = delta;
     return idx;
+}
+
+int sim_add_restraint(Simulation *sim, int atom_idx, Vec3 anchor, double k) {
+    if (atom_idx < 0 || atom_idx >= sim->num_atoms) return SIM_ERR_BADATOM;
+    if (k < 0.0) return SIM_ERR_BADPARAM;
+    if (sim->num_restraints >= sim->capacity_restraints) return SIM_ERR_OVERFLOW;
+
+    int idx = sim->num_restraints++;
+    sim->restraint_atom[idx]   = atom_idx;
+    sim->restraint_anchor[idx] = anchor;
+    sim->restraint_k[idx]      = k;
+    return idx;
+}
+
+void sim_clear_restraints(Simulation *sim) {
+    sim->num_restraints = 0;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

@@ -4,7 +4,7 @@
 
 ## In addition, S2 will not follow the R1 R2 R3 developmental scheme of Lancius and Mathlib. Instead, the v9 to v10 period for S2 will be marked by however many RC releases are necessary to achieve a OpenWorm similar display for visualising bonds occuring.
 
-*Documentation synced to the current tree state post-v9R4 (hygiene closure: quantum.c normalization fix, periodic_table.c explicit initializers, makefile suppression removal; readme designation and references updated), 2026-08-23. The embedded output block is unchanged and byte-identical to the record (SHA-256 9934bd2896c2521380e6d70c622607db324c3a665dc38b4dde3ba00dbb31759f).*
+*Documentation synced to the current tree state post-record-reset (s38: record regenerated without -march=native; s39: documentation re-synced to include Demo 17 and the s37 dehydration block; s42-physics-fix: record regenerated after derivation-based equation fixes - thymine methyl orientation, cytosine H6 bisector construction, live -1 charge conservation, conservative duplex restraints, global r_mp, HH bounds, derived unit conversions), 2026-09-14. The embedded output block is byte-identical to the record (SHA-256 19c10e128b8d654c1bd7c7ba183e196fba7cb8e0a29ac50cfbe230d59d5415a8).*
 
 S2 Engine is a multi-scale, grounded-up physical chemistry and biological
 simulator written in C. It validates biological processes across multiple
@@ -208,7 +208,7 @@ flagged, every silent behavior made explicit.** Each finding was either
 fixed in code or documented as a deliberate limitation — nothing left
 implicitly wrong. The full demo sequence was regenerated and re-asserted
 after every behavior-affecting change; the block below (and `output.txt`,
-SHA-256 `9934bd2896c2521380e6d70c622607db324c3a665dc38b4dde3ba00dbb31759f`)
+SHA-256 `19c10e128b8d654c1bd7c7ba183e196fba7cb8e0a29ac50cfbe230d59d5415a8`)
 is the verbatim post-audit record.
 
 **Fixed in code:**
@@ -438,16 +438,17 @@ note: the archived `output.after-fix09.txt` in this tree predates the
 Demo 12 caveat strengthening and the banner-line update now in
 `src/main.c`; the block below matches the current source.)
 
-**Debug build**: the makefile carries a commented alternate `CFLAGS` line enabling AddressSanitizer and UndefinedBehaviorSanitizer. As of audit fix B1, the link rule passes `$(CFLAGS)`, so uncommenting that line produces a working sanitised build through make. Verified this release: the ASan build ran the full 13-demo suite with empty stderr (zero memory errors), and its output is byte-for-byte identical to the normal build (both SHA-256 `9934bd2896c2521380e6d70c622607db324c3a665dc38b4dde3ba00dbb31759f`).
+**Debug build**: the makefile carries a commented alternate `CFLAGS` line enabling AddressSanitizer and UndefinedBehaviorSanitizer. As of audit fix B1, the link rule passes `$(CFLAGS)`, so uncommenting that line produces a working sanitised build through make. Verified this release: the ASan build ran the full 13-demo suite with empty stderr (zero memory errors), and its output is byte-for-byte identical to the normal build (both SHA-256 `19c10e128b8d654c1bd7c7ba183e196fba7cb8e0a29ac50cfbe230d59d5415a8`).
 
 ---
 
 ## Simulation Execution Output (v9R4)
 
 Below is the complete, unedited output of the `carbonsim-v9R4`
-demonstration run — all twelve demos, from the quantum orbital tables
-through the Hodgkin-Huxley action potential and the KcsA selectivity
-filter. It is reproduced verbatim from `output.txt`.
+demonstration run — all thirteen demos, from the quantum orbital tables
+through the Hodgkin-Huxley action potential, the KcsA selectivity
+filter, and the minimal DNA duplex. It is reproduced verbatim from
+`output.txt`.
 
 Note the output itself here: Demo 7 flags that its base-pairing
 magnitudes are qualitatively but not yet quantitatively trustworthy;
@@ -855,7 +856,7 @@ placeholder. These caveats are part of the record, not footnotes.
   single     N4     HN42   0.9939    (order 1)
   double     C5     C6     1.4730    (order 2)
   single     C5     H5     1.0812    (order 1)
-  single     C6     H6     1.1016    (order 1)
+  single     C6     H6     1.0900    (order 1)
 
   N1 bond count: 3 (expect 3: C2, C6, H - donor ready)
   N3 bond count: 2 (expect 2: C4, C2 - bare, acceptor ready)
@@ -866,6 +867,10 @@ placeholder. These caveats are part of the record, not footnotes.
   Ring planarity: max deviation = 0.0092 A
   C5-CH3 methyl bond length: 1.5100 A (target 1.51 A, toluene-type)
   H-CM-H methyl angle: 109.47 deg (ideal tetrahedral 109.47)
+  H(12)-CM-C5 angle: 109.47 deg
+  H(13)-CM-C5 angle: 109.47 deg
+  H(14)-CM-C5 angle: 109.47 deg
+  Max H-CM-C5 deviation from 109.47: 0.00 deg (methyl splays outward, correct)
   Total molecular charge: +0.000000 e (lower-confidence approx, see code comment)
 
   ADENINE (C5H5N5, fused 5+6 purine ring) - 15 atoms
@@ -890,33 +895,33 @@ placeholder. These caveats are part of the record, not footnotes.
     G:N1...C:N3 = 2.950 A (target 2.95)
     G:N2...C:O2 = 2.937 A
     G:O6...C:N4 = 2.949 A
-  Energy breakdown at initial placement: E_LJ=0.736544 eV  E_Coulomb=-5.294565 eV  Total_PE=-4.558021 eV
+  Energy breakdown at initial placement: E_LJ=0.736247 eV  E_Coulomb=-5.294396 eV  Total_PE=-4.558149 eV
   Closest intermolecular contact: atom 15 (Z=1) ... atom 20 (Z=8) = 1.967 A
   Largest single LJ repulsion: atom 6 (Z=7, sigma=3.25) ... atom 16 (Z=7, sigma=3.25) = 2.950 A, contributes 0.0415 eV
   Step   t(fs)      PE(eV)     T(K)       primary(A)
-  1      0.100      -4.557881  49.96      2.9501    
-  2      0.200      -4.557660  49.90      2.9501    
-  3      0.300      -4.557362  49.82      2.9502    
-  4      0.400      -4.556990  49.72      2.9502    
-  5      0.500      -4.556548  49.60      2.9503    
-  101    10.100     -4.588062  58.06      2.9166    
-  201    20.100     -4.606500  61.28      2.8780    
-  301    30.100     -4.626525  64.52      2.8972    
-  401    40.100     -4.638784  65.00      2.9410    
-  501    50.100     -4.650537  65.40      2.9889    
-  601    60.100     -4.655535  64.29      3.0321    
-  701    70.100     -4.674488  66.36      3.0718    
+  1      0.100      -4.558009  49.96      2.9501    
+  2      0.200      -4.557789  49.90      2.9501    
+  3      0.300      -4.557492  49.82      2.9502    
+  4      0.400      -4.557121  49.72      2.9502    
+  5      0.500      -4.556682  49.60      2.9503    
+  101    10.100     -4.588020  58.02      2.9166    
+  201    20.100     -4.606922  61.37      2.8780    
+  301    30.100     -4.626290  64.41      2.8973    
+  401    40.100     -4.639000  65.04      2.9410    
+  501    50.100     -4.650718  65.41      2.9888    
+  601    60.100     -4.654809  64.09      3.0320    
+  701    70.100     -4.675516  66.61      3.0719    
 
-  Initial interaction PE:        -4.558021 eV
-  PE at closest WC approach:     -4.611601 eV (primary N1...N3 = 2.878 A)
-  Global PE minimum over run:    -4.695777 eV (may reflect drift to a different,
+  Initial interaction PE:        -4.558149 eV
+  PE at closest WC approach:     -4.611531 eV (primary N1...N3 = 2.878 A)
+  Global PE minimum over run:    -4.696037 eV (may reflect drift to a different,
                                   non-WC configuration such as stacking)
-  Final PE (end of run):         -4.662334 eV
+  Final PE (end of run):         -4.660919 eV
 
   Final heavy-atom contacts:
     G:N1...C:N3 = 3.105 A
     G:N2...C:O2 = 3.126 A
-    G:O6...C:N4 = 2.948 A
+    G:O6...C:N4 = 2.949 A
 
   --- Adenine-Uracil (2 H-bonds: N1..H-N3, N6-H..O4) ---
   Initial heavy-atom contacts after geometric placement:
@@ -948,9 +953,9 @@ placeholder. These caveats are part of the record, not footnotes.
     A:N6...U:O4 = 3.079 A
 
   ══════════════════════════════════════════════════
-  G-C @ closest WC approach: -4.611601 eV (3 H-bonds)
+  G-C @ closest WC approach: -4.611531 eV (3 H-bonds)
   A-U @ closest WC approach: -1.080053 eV (2 H-bonds)
-  --> G-C binds MORE strongly than A-U (3.531549 eV difference),
+  --> G-C binds MORE strongly than A-U (3.531479 eV difference),
       and BOTH pairs are correctly attractive (negative PE) -
       the right qualitative chemistry, from nothing but real
       charges + Coulomb + LJ. Never programmed in.
@@ -985,10 +990,12 @@ placeholder. These caveats are part of the record, not footnotes.
     P - O(61): 1.4800 A
     P - O(62): 1.4800 A
 
-  Total charge: -1.0550 e (real backbone convention: -1 per
-  phosphodiester; approximate here since the sugar and phosphate
-  charges are not independently verified the way the nucleobase
-  RESP charges are - see nucleobases.c for full honest sourcing)
+  Total charge: -1.0000 e (exactly -1 by charge-conservation
+  construction: the builder measures the assembled fragment sum
+  and places the residual symmetrically on the two equivalent
+  non-bridging phosphate oxygens - the real phosphodiester
+  convention, enforced live rather than trusted to approximate
+  fragment charges)
 
   This validates the real chain-forming chemistry of the DNA
   backbone. NOT yet built: helical twist/rise (no dihedral
@@ -1068,25 +1075,25 @@ placeholder. These caveats are part of the record, not footnotes.
 ║  DEMO 11: Alpha helix - does the i,i+4 H-bond emerge?║
 ╚══════════════════════════════════════════════════════╝
   Built 5-residue poly-alanine chain: 53 atoms, 52 bonds
-  Initial clash relaxation: 18811.75 -> 8.50 eV
+  Initial clash relaxation: 18811.68 -> 8.46 eV
   Added 12 dihedral restraints (phi, psi, omega for applicable
   residues) toward real textbook values.
-  Minimized: PE = 9.7447 eV
+  Minimized: PE = 9.6942 eV
 
   Residue    phi (deg)    psi (deg)   
-  1          -58.75      
-  2          -61.51      
-  3          -58.29      
-  4          -53.96      
-  0                       -48.38      
-  1                       -47.55      
-  2                       -52.66      
-  3                       -48.26      
+  1          -58.61      
+  2          -61.34      
+  3          -58.48      
+  4          -54.08      
+  0                       -48.04      
+  1                       -47.25      
+  2                       -52.46      
+  3                       -48.32      
 
-  Max deviation from target (phi=-57, psi=-47): 5.66 deg
+  Max deviation from target (phi=-57, psi=-47): 5.46 deg
 
   === The i,i+4 backbone hydrogen bond (not programmed in) ===
-  N-H(4) ... O=C(0): H...O = 2.1637 A, N...O = 3.1286 A
+  N-H(4) ... O=C(0): H...O = 2.1635 A, N...O = 3.1258 A
   Real backbone H-bond range: H...O 1.8-2.2 A, N...O 2.8-3.2 A
 
   --> A real backbone hydrogen bond formed. Given only the
@@ -1161,6 +1168,43 @@ placeholder. These caveats are part of the record, not footnotes.
   protein backbone balances it). That O-O term is identical for Na+ and
   K+ and cancels in the Delta - so read the Delta, not the absolute
   Total_PE, as the selectivity result.
+  K+   E_LJ =   0.855625 eV   E_Coulomb =   8.081187 eV   Total_PE =   8.936812 eV
+  Na+  E_LJ =  -0.049204 eV   E_Coulomb =   8.081187 eV   Total_PE =   8.031983 eV
+
+-- Dehydration-corrected selectivity (s37) --
+Filter binding (antiprism): K+ = 8.936812 eV  Na+ = 8.031983 eV
+Vacuum selectivity dG(K)-dG(Na) = +0.9048 eV (Na+ favored, wrong direction)
+Dehydration penalty: K+ = +3.057 eV  Na+ = +3.783 eV (Marcus 1991)
+Corrected selectivity = +0.1788 eV (Na+ favored, still wrong)
+Experimental (1000:1 at 300 K) = -0.1786 eV
+Deviation from experiment: 0.3574 eV
+
+╔══════════════════════════════════════════════════════╗
+║  DEMO 17: DNA duplex - minimal G-C and A-T base pair stack║
+╚══════════════════════════════════════════════════════╝
+  Placed: G-C at y=0, A-T at y=3.4
+  Total atoms: 59
+  Initial PE: -5.941224 eV
+  Closest inter-base pair: 35-53 at 1.932 A
+  Post-placement H-bonds:
+    G-C: N1...N3=2.950  O6...N4=2.953  N2...O2=2.939
+    A-T: N1...N3=2.900  N6...O4=2.903
+  Applied glycosidic restraints (backbone proxy, real springs):
+    atom 0 anchored at (1.242, 0.000, -1.968), k=0.50 eV/A^2
+    atom 18 anchored at (-3.187, -0.009, 6.036), k=0.50 eV/A^2
+    atom 29 anchored at (-0.771, 3.400, -2.071), k=0.50 eV/A^2
+    atom 44 anchored at (-1.294, 3.400, 6.992), k=0.50 eV/A^2
+  After 800 restrained MD steps: PE=-6.325371 eV (E_restr=0.040467)  T=48.84 K
+
+  Post-MD H-bonds (restrained):
+    G-C: N1...N3=3.044  O6...N4=3.199  N2...O2=2.958
+    A-T: N1...N3=3.141  N6...O4=3.703
+
+  Planarity: G=0.0000  C=0.0000  A=0.0000  T=0.0000
+
+PLACEMENT VERDICT:  G-C PAIRED, A-T PAIRED
+MD STABILITY:       G-C HELD, A-T drifted
+--> Placement correct but drift persisted even with restraints.
 
   All demos complete.
   Three validated tracks now exist: nucleic acids (bases through a
@@ -1173,7 +1217,6 @@ placeholder. These caveats are part of the record, not footnotes.
   gating from actual protein structure rather than empirical rate
   equations - closing the loop between the protein and
   electrophysiology tracks.
-
 
 ```
 

@@ -111,19 +111,19 @@ double integrator_kinetic_energy(const Simulation *sim) {
 /* ══════════════════════════════════════════════════════════════════════════
  * Instantaneous temperature from equipartition theorem
  *
- * <KE> = (3N - 3)/2 × k_B × T
- *   → T = 2 × KE / ((3N - 3) × k_B)
- *
- * DOF = 3N - 3: the -3 removes the 3 translational DOF of the centre of
- * mass, which integrator_remove_com_velocity already constrains to zero.
- * Using 3N instead (as was done in an earlier version) systematically
- * underestimates T, with the error most severe for small systems:
- * 33% too low for N=3 (water), 8% too low for N=12 (uracil), etc.
+ * <KE> = dof/2 × k_B × T
+ *   → T = 2 × KE / (dof × k_B)
+ * dof = 3N - 3 - constrained (see integrator.h for what counts as
+ * constrained). Guarded to a minimum of 1 so a fully-pinned system
+ * reports 0 KE / 1-dof rather than dividing by zero. (History: an
+ * earlier version used 3N, underestimating T by 33% for N=3 water -
+ * the COM correction is the -3; `constrained` generalizes it.)
  * ══════════════════════════════════════════════════════════════════════════ */
 double integrator_temperature(const Simulation *sim) {
     if (sim->num_atoms < 2) return 0.0;
     double ke  = integrator_kinetic_energy(sim);
-    int    dof = 3 * sim->num_atoms - 3;      /* correct: subtract COM DOF */
+    int    dof = 3 * sim->num_atoms - 3 - sim->num_constrained_dof;
+    if (dof < 1) dof = 1;
     return (2.0 * ke) / ((double)dof * KB_EV);
 }
 
