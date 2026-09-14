@@ -39,11 +39,22 @@
  * Force constants (k) are reasonable generic single/double-bond and
  * aromatic-ring-bending values (same order of magnitude as the rest of
  * this codebase's AMBER-derived table), not independently fitted to
- * spectroscopic data for these specific rings. Partial charges are left
- * at 0.0 - accurate RESP/AMBER nucleobase charges (needed for
- * quantitative base-pairing energetics) are deferred to a follow-up;
- * fabricating precise-looking but unverified per-atom charges here
- * would be worse than leaving them at a clearly-flagged placeholder.
+ * spectroscopic data for these specific rings. Partial charges are
+ * verified RESP values (Aduri et al. JCTC 2007, Table 1, nucleoside
+ * columns) for U/C/A/G, with the glycosidic N-H set to +0.118186 from
+ * charge neutrality (the same residual falls out of all four bases
+ * independently); thymine's methyl and the sugar/phosphate fragments
+ * are documented per-constructor approximations, and the dinucleotide
+ * builder enforces the exact -1 phosphodiester net charge live by
+ * charge conservation (see sim_place_dinucleotide_TA).
+ *
+ * Two constructed hydrogens (not raw CCD transcriptions, same validated
+ * external-bisector technique in both cases): cytosine's N1-H
+ * (tautomer correction - the CCD "CYT" coordinates encode the minor
+ * imino tautomer) and cytosine's C6-H6 (aromatic C-H at 1.09 A along
+ * the C5-C6-N1 external bisector); thymine's methyl is built outward
+ * along the C5-H5 vector (C-C 1.51 A) with tetrahedral H's splaying
+ * AWAY from the ring (H-CM-C5 = 109.47, verified in Demo 6).
  *
  * All constructors return the index of the first atom added, atoms
  * follow in PDB atom-naming order as commented in each function.
@@ -124,12 +135,13 @@ int sim_place_deoxyribose_open(Simulation *sim, Vec3 origin);
 int sim_place_dinucleotide_TA(Simulation *sim, Vec3 origin, int *out_sugarB_C1);
 
 /*
- * Fit a least-squares plane through the given atom indices and return
- * the maximum perpendicular distance (Angstrom) of any atom from that
- * plane. Aromatic rings should be very close to planar (a few
- * hundredths of an Angstrom at most) - this is an independent physical
- * sanity check on the placed geometry that doesn't depend on any
- * external reference numbers.
+ * Reference plane through the FIRST THREE given atom indices; return
+ * the maximum perpendicular distance (Angstrom) of any listed atom
+ * from that plane (0.0 for fewer than 3 atoms, or a degenerate
+ * collinear triple which defines no plane). Aromatic rings should be
+ * very close to planar (a few hundredths of an Angstrom at most) -
+ * this is an independent physical sanity check on the placed geometry
+ * that doesn't depend on any external reference numbers.
  */
 double nb_planarity_deviation(const Simulation *sim,
                                const int *atom_indices, int n);

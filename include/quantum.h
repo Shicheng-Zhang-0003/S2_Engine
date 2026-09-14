@@ -47,8 +47,10 @@ double quantum_orbital_energy(int Z, int n, int l, const ElectronConfig *cfg);
  * Fills atom->orbitals[] and sets atom->num_orbitals.
  * Each orbital gets its energy set via quantum_orbital_energy().
  * Orbital ml values are assigned in order: -l, -(l-1), …, +l.
- * Spins are assigned: first electron in each orbital gets ms=+0.5,
- * second gets ms=-0.5 (Hund's rule applied per subshell).
+ * One table entry is stored per ml slot (not per electron): a
+ * singly-occupied slot carries ms=+0.5; a doubly-occupied slot carries
+ * ms=0.0, the net spin of its up/down pair (the physically meaningful
+ * single-value representative; no energy/force path reads ms).
  */
 void quantum_fill_orbitals(Atom *atom);
 
@@ -72,7 +74,11 @@ double quantum_radial_probability(int n, int l, double Z_eff, double r_angstrom)
 
 /* ── Most probable radius for orbital (n,l) with Z_eff ──────────────────── */
 /*
- * Numerically finds r_max of P(r) by golden-section search in [0, 20 Å].
+ * Global maximizer of P(r) on (0, 30n^2/Z_eff]: the interval is
+ * partitioned into 64 subintervals, each searched by golden section,
+ * and the best local maximum is kept - P_nl for n>=2 has n-l-1 nodes
+ * and multiple peaks, so a single whole-interval search can land on a
+ * secondary maximum instead of the global one.
  */
 double quantum_most_probable_radius(int n, int l, double Z_eff);
 

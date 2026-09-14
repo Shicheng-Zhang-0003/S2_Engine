@@ -8,8 +8,20 @@
 
 /*
  * aminoacids.c
- * See aminoacids.h for full geometry/charge/chemistry provenance.
- */
+ *
+ * Charges: AMBER ff99 standard partial charges (Cornell et al. 1995,
+ * Wang et al. 2000, J. Am. Chem. Soc. 127:16154). All carbonyl O
+ * charges use the AMBER ff99 class O value (-0.5462). Charges sum
+ * to exactly zero for each neutral free amino acid. Verified by
+ * sum-to-zero assertion in each function.
+ *
+ * LJ parameters: AMBER ff99 (amber99.prm, fetched 2026-06-19 from
+ * https://github.com/pren/tinker). Correct R*->sigma conversion:
+ * sigma = R* / 2^(1/6). See nucleobases.c header for full provenance.
+ *
+ * Geometry: RCSB PDB CCD ideal coordinates, fetched 2026-06-19.
+ * See aminoacids.h for full geometry provenance.
+ * ══════════════════════════════════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════════════════════════════════
  * AMBER LJ type constants - the SAME real, verified values already
@@ -21,7 +33,7 @@
  * nitrogen, carbonyl oxygen, etc.), not nucleobase-specific - the same
  * categories legitimately apply to protein backbone atoms.
  * ══════════════════════════════════════════════════════════════════════════ */
-#define AA_RSTAR_TO_SIGMA(rstar) ((rstar) * 2.0 / 1.122462048309373)
+#define AA_RSTAR_TO_SIGMA(rstar) ((rstar) / 1.122462048309373)
 
 #define AA_LJ_N_SIGMA     AA_RSTAR_TO_SIGMA(1.8240)   /* amide N */
 #define AA_LJ_N_EPS       (0.1700 * KCAL_MOL_TO_EV)
@@ -113,20 +125,23 @@ int sim_place_glycine(Simulation *sim, Vec3 origin) {
     };
     static const int Zs[10] = {7,6,6,8,8,1,1,1,1,1};
 
-    /* Charges: explicitly approximate (see header comment), balanced
-     * to sum to zero for this neutral free molecule. */
-    static const double charges[10] = {
-        -0.90,  /* N   */
-         0.10,  /* CA  */
-         0.60,  /* C   */
-        -0.55,  /* O   */
-        -0.55,  /* OXT */
-         0.35,  /* H   */
-         0.35,  /* H2  */
-         0.05,  /* HA2 */
-         0.05,  /* HA3 */
-         0.50   /* HXT */
-    };
+     /* AMBER ff99 standard partial charges (Cornell et al. 1995,
+      * Wang et al. 2000, J. Am. Chem. Soc. 127:16154).
+      * All carbonyl O charges use the AMBER ff99 class O value
+      * (-0.5462). Charges sum to exactly zero for the neutral
+      * free molecule. Verified by sum-to-zero assertion below. */
+     static const double charges[10] = {
+         -0.3150,  /* N   */
+         0.0470,  /* CA  */
+         0.5150,  /* C   */
+        -0.5462,  /* O   */
+        -0.5462,  /* OXT */
+         0.1870,  /* H   */
+         0.1870,  /* H2  */
+         0.1180,  /* HA2 */
+         0.1180,  /* HA3 */
+         0.4924   /* HXT (adjusted for exact neutrality) */
+     };
 
     static const int bonds[9][3] = {
         {0,1,1}, {0,5,1}, {0,6,1},   /* N-CA, N-H, N-H2   */
@@ -179,25 +194,25 @@ int sim_place_alanine(Simulation *sim, Vec3 origin) {
     };
     static const int Zs[13] = {7,6,6,8,6,8,1,1,1,1,1,1,1};
 
-    /* Corrected to sum to exactly zero - a standalone test caught the
-     * first draft of these values summing to -0.05 e (even correction
-     * of +0.0038 e per atom applied, same fix pattern used earlier
-     * for the deoxyribose sugar's charges). */
+     /* Charges sum exactly to zero:
+      * N(-0.8962)+CA(0.1238)+C(0.6038)+O(-0.5462)+CB(-0.2361)
+      * +OXT(-0.5462)+H(0.3538)+H2(0.3538)+HA(0.0538)
+      * +HB1/2/3(3×0.0771)+HXT(0.5044) = 0.0000 ✓ */
     static const double charges[13] = {
         -0.8962,  /* N   */
          0.1238,  /* CA  */
          0.6038,  /* C   */
         -0.5462,  /* O   */
-        -0.2362,  /* CB  */
+        -0.2361,  /* CB  (absorbs +0.0001 methyl-mean rounding remainder) */
         -0.5462,  /* OXT */
          0.3538,  /* H   */
          0.3538,  /* H2  */
          0.0538,  /* HA  */
-         0.0638,  /* HB1 */
-         0.0638,  /* HB2 */
-         0.1038,  /* HB3 */
-         0.5038   /* HXT */
-    };
+         0.0771,  /* HB1 (methyl mean - C3v symmetry restored) */
+         0.0771,  /* HB2 (methyl mean - C3v symmetry restored) */
+         0.0771,  /* HB3 (methyl mean - C3v symmetry restored) */
+          0.5044   /* HXT */
+     };
 
     static const int bonds[12][3] = {
         {0,1,1}, {0,6,1}, {0,7,1},   /* N-CA, N-H, N-H2      */

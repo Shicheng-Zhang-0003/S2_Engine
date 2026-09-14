@@ -133,6 +133,19 @@ void hh_step(HHNeuron *neuron, double dt) {
     neuron->h += (dt/6.0) * (k1.dh + 2.0*k2.dh + 2.0*k3.dh + k4.dh);
     neuron->n += (dt/6.0) * (k1.dn + 2.0*k2.dn + 2.0*k3.dn + k4.dn);
 
+    /* Physical-bounds enforcement: m, h, n are single-channel OPEN
+     * PROBABILITIES (Hodgkin-Huxley 1952) - values outside [0,1] are not
+     * "large gating", they are meaningless, and they corrupt the
+     * currents (m^3*h with m>1 exaggerates INa; negative h flips its
+     * sign). The continuous ODE preserves [0,1] exactly, but RK4's
+     * discrete polynomial step can overshoot near the steep sodium
+     * upstroke. Clamping is therefore not a fudge on the model - it is
+     * the discrete integrator respecting the state space the equations
+     * themselves are defined on. Inert at well-resolved dt (0.01 ms). */
+    if (neuron->m < 0.0) neuron->m = 0.0; else if (neuron->m > 1.0) neuron->m = 1.0;
+    if (neuron->h < 0.0) neuron->h = 0.0; else if (neuron->h > 1.0) neuron->h = 1.0;
+    if (neuron->n < 0.0) neuron->n = 0.0; else if (neuron->n > 1.0) neuron->n = 1.0;
+
     neuron->t += dt;
 
     /* Update diagnostic currents at the new state */

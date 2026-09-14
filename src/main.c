@@ -602,9 +602,24 @@ static void demo_nucleobases(void) {
         Vec3 u2 = vec3_normalize(vec3_sub(H2, CM));
         double hch = acos(vec3_dot(u1,u2)) * 180.0/3.14159265358979323846;
         printf("  H-CM-H methyl angle: %.2f deg (ideal tetrahedral 109.47)\n", hch);
+        /* Orientation check: each H must splay AWAY from the ring, i.e.
+         * the H-CM-C5 angle itself must be tetrahedral (~109.47), not
+         * folded back over the ring (~70.5) - the H-CM-H check above
+         * passes in both cases and cannot distinguish them. */
+        Vec3 to_C5 = vec3_normalize(vec3_sub(C5, CM));
+        double cch_max_dev = 0.0;
+        for (int hi = 12; hi <= 14; hi++) {
+            Vec3 uh = vec3_normalize(vec3_sub(sim->atoms[hi].position, CM));
+            double cch = acos(vec3_dot(uh, to_C5)) * 180.0/3.14159265358979323846;
+            double dev = fabs(cch - 109.47);
+            if (dev > cch_max_dev) cch_max_dev = dev;
+            printf("  H(%d)-CM-C5 angle: %.2f deg\n", hi, cch);
+        }
+        printf("  Max H-CM-C5 deviation from 109.47: %.2f deg %s\n", cch_max_dev,
+               cch_max_dev < 1.0 ? "(methyl splays outward, correct)"
+                                 : "(methyl folded back, WRONG)");
         printf("  Total molecular charge: %+.6f e "
                "(lower-confidence approx, see code comment)\n", total_charge(sim));
-        (void)C5;
         sim_destroy(sim);
     }
 
@@ -1075,10 +1090,12 @@ static void demo_dinucleotide(void) {
 
     double q = 0;
     for (int i = 0; i < sim->num_atoms; i++) q += sim->atoms[i].partial_charge;
-    printf("\n  Total charge: %+.4f e (real backbone convention: -1 per\n"
-           "  phosphodiester; approximate here since the sugar and phosphate\n"
-           "  charges are not independently verified the way the nucleobase\n"
-           "  RESP charges are - see nucleobases.c for full honest sourcing)\n",
+    printf("\n  Total charge: %+.4f e (exactly -1 by charge-conservation\n"
+           "  construction: the builder measures the assembled fragment sum\n"
+           "  and places the residual symmetrically on the two equivalent\n"
+           "  non-bridging phosphate oxygens - the real phosphodiester\n"
+           "  convention, enforced live rather than trusted to approximate\n"
+           "  fragment charges)\n",
            q);
 
     printf("\n  This validates the real chain-forming chemistry of the DNA\n"
@@ -1419,9 +1436,10 @@ static void demo_helix(void) {
 /* ══════════════════════════════════════════════════════════════════════════
  * DEMO 12: KcsA selectivity filter - K+ vs Na+, first pass
  *
- * Four backbone carbonyl oxygens (real backbone-carbonyl partial charge,
- * -0.55 e, same value used in this file's own glycine geometry) placed
- * with the real 4-fold crystallographic symmetry of the KcsA filter
+ * Four backbone carbonyl oxygens (AMBER ff99 class O partial charge,
+ * -0.5462 e, matching the amino acid O charges used throughout
+ * this codebase) placed with the real 4-fold crystallographic
+ * symmetry of the KcsA filter
  * (pure 90-degree rotations, matching PDB 1K4C's REMARK 350 BIOMT
  * operators), at the real literature/deposited K+-carbonyl coordination
  * distance for two filter sites. A single ion sits on-axis. This is a
@@ -1445,7 +1463,8 @@ static void demo_helix(void) {
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
-#define KCSA_CARBONYL_O_CHARGE  -0.55
+#define KCSA_CARBONYL_O_CHARGE  -0.5462  /* AMBER ff99 class O,
+                                              matching aminoacid O charges */
 
 /* Sourced Thr75/Val76 selectivity-filter ring z-separation (s10/s10b).
  * PDB 1K4C chain C: Thr75-O z=-38.627, Val76-O z=-35.543 -> 3.084 A.
@@ -1478,14 +1497,13 @@ static double kcsa_filter_energy(int ion_Z, double ion_charge,
                                   const char *ion_name, double radius_A) {
     Simulation *sim = sim_create(8, 8);
 
-    /* Amino-acid-specific backbone carbonyl LJ parameters, not generic
-     * periodic-table oxygen. Matches aminoacids.c's own AA_LJ_O_EPS /
-     * AA_LJ_O_SIGMA #defines exactly - 0.2100 kcal/mol via
-     * KCAL_MOL_TO_EV, 1.6612 A R* via the same R*-to-sigma conversion
-     * that file uses. Computed here rather than referenced directly
-     * because those macros are private to aminoacids.c. */
-    const double CARBONYL_O_LJ_EPS   = 0.2100 * KCAL_MOL_TO_EV;
-    const double CARBONYL_O_LJ_SIGMA = 1.6612 * 2.0 / 1.122462048309373;
+     /* Amino-acid-specific backbone carbonyl LJ parameters, not generic
+      * periodic-table oxygen. Matches aminoacids.c's own AA_LJ_O_EPS /
+      * AA_LJ_O_SIGMA #defines exactly - 0.2100 kcal/mol via
+      * KCAL_MOL_TO_EV, and 1.6612 A R* converted to sigma via
+      * sigma = R* / 2^(1/6) as in aminoacids.c/nucleobases.c. */
+     const double CARBONYL_O_LJ_EPS   = 0.2100 * KCAL_MOL_TO_EV;
+     const double CARBONYL_O_LJ_SIGMA = 1.6612 / 1.122462048309373;
 
     for (int i = 0; i < 4; i++) {
         double angle = i * (M_PI / 2.0);
@@ -1519,7 +1537,7 @@ static double kcsa_energy_at_radius(int ion_Z, double ion_charge,
                                      double radius_A) {
     Simulation *sim = sim_create(8, 8);
     const double CARBONYL_O_LJ_EPS   = 0.2100 * KCAL_MOL_TO_EV;
-    const double CARBONYL_O_LJ_SIGMA = 1.6612 * 2.0 / 1.122462048309373;
+    const double CARBONYL_O_LJ_SIGMA = 1.6612 / 1.122462048309373;
 
     for (int i = 0; i < 4; i++) {
         double angle = i * (M_PI / 2.0);
@@ -1537,9 +1555,9 @@ static double kcsa_energy_at_radius(int ion_Z, double ion_charge,
 static double kcsa_antiprism_energy(int ion_Z, double ion_charge,
         const char *ion_name,
         double d_inner, double d_outer, double *out_min_oo) {
-    Simulation *sim = sim_create(9, 9);
-    const double CARBONYL_O_LJ_EPS   = 0.2100 * KCAL_MOL_TO_EV;
-    const double CARBONYL_O_LJ_SIGMA = 1.6612 * 2.0 / 1.122462048309373;
+     Simulation *sim = sim_create(9, 9);
+     const double CARBONYL_O_LJ_EPS   = 0.2100 * KCAL_MOL_TO_EV;
+     const double CARBONYL_O_LJ_SIGMA = 1.6612 / 1.122462048309373;
     /*
      * Construction (s11): ion on-axis at z=0, midway between the two rings.
      * Ring 1 (Thr75-O) at z = -KCSA_RING_Z_SEP/2, ring 2 (Val76-O) at
@@ -1927,29 +1945,36 @@ printf("    G-C: N1...N3=%.3f  O6...N4=%.3f  N2...O2=%.3f\n",
 printf("    A-T: N1...N3=%.3f  N6...O4=%.3f\n", pm_at1, pm_at2);
 
 /* ══════════════════════════════════════════════════════════════════
-* GLYCOSIDIC TETHERS  (the backbone proxy)
-*
-* In real DNA the sugar-phosphate backbone holds each base at its
-* glycosidic bond: purines at N9, pyrimidines at N1. That tether is
-* what prevents the translational drift that breaks the free-base
-* stack. We apply a harmonic positional restraint to those 4 atoms -
-* the standard reduced-model way to represent the backbone's
-* mechanical constraint without building the full backbone.
-*   G:N9 = g+0   C:N1 = c+2   A:N9 = a+0   T:N1 = t+0
-* ══════════════════════════════════════════════════════════════════ */
+ * GLYCOSIDIC RESTRAINTS (the backbone proxy, as real forces)
+ *
+ * In real DNA the sugar-phosphate backbone holds each base at its
+ * glycosidic bond: purines at N9, pyrimidines at N1. That tether is
+ * what prevents the translational drift that breaks the free-base
+ * stack. Each restraint is a genuine harmonic spring evaluated inside
+ * forces_calculate() - V = 0.5*k*|r-anchor|^2, F = -k*(r-anchor) -
+ * the standard reduced-model representation of a scaffold's mechanics:
+ * conservative, dt-independent, integrated by the same Verlet step,
+ * and reported in the energy breakdown (E_restr) so the printed PE
+ * always describes the state the atoms are actually in.
+ *   G:N9 = g+0   C:N1 = c+2   A:N9 = a+0   T:N1 = t+0
+ *
+ * Stiffness from equipartition (not tuned): k = 0.5 eV/A^2 gives
+ * thermal RMS sqrt(kB*T/k) = sqrt(8.617e-5*50/0.5) ~= 0.09 A per
+ * dimension at 50 K - stiff-but-breathing. Stability margin:
+ * dt(0.5 fs) << 2/sqrt(k/m) (~34 fs on N). No extra velocity damping
+ * is applied - the Berendsen thermostat owns the temperature, and a
+ * second damper would fight it while hiding in no energy ledger.
+ * ══════════════════════════════════════════════════════════════════ */
 int    tether_idx[4] = { g+0, c+2, a+0, t+0 };
-Vec3   tether_anchor[4];
-for (int i = 0; i < 4; i++)
-    tether_anchor[i] = sim->atoms[tether_idx[i]].position;
-/* Harmonic restoring fraction per step (0..1). 0.10 is a stiff-but-
-* not-rigid tether: each step removes 10% of the displacement from
-* the anchor, strongly suppressing drift while still letting the
-* base breathe and rotate around the glycosidic bond. */
-const double tether_k = 0.10;
-printf("  Applied glycosidic tethers (backbone proxy) to %d atoms, "
-       "k=%.2f\n", 4, tether_k);
+printf("  Applied glycosidic restraints (backbone proxy, real springs):\n");
+for (int i = 0; i < 4; i++) {
+    Vec3 anchor = sim->atoms[tether_idx[i]].position;
+    sim_add_restraint(sim, tether_idx[i], anchor, 0.5);
+    printf("    atom %d anchored at (%.3f, %.3f, %.3f), k=0.50 eV/A^2\n",
+           tether_idx[i], anchor.x, anchor.y, anchor.z);
+}
 
-/* ── MD with glycosidic tethers ───────────────────────────────────── */
+/* ── MD with glycosidic restraints ────────────────────────────────── */
 sim->dt = 0.5;
 sim->thermostat.type               = THERMOSTAT_BERENDSEN;
 sim->thermostat.target_temperature = 50.0;
@@ -1962,26 +1987,17 @@ sim->temperature    = integrator_temperature(sim);
 
 int N_steps = 800;
 for (int step = 0; step < N_steps; step++) {
-    integrator_step(sim);
-    /* Apply the glycosidic positional restraints (backbone proxy) */
-    for (int i = 0; i < 4; i++) {
-        int idx = tether_idx[i];
-        Vec3 disp = vec3_sub(sim->atoms[idx].position, tether_anchor[i]);
-        sim->atoms[idx].position =
-            vec3_sub(sim->atoms[idx].position, vec3_scale(disp, tether_k));
-        sim->atoms[idx].velocity =
-            vec3_scale(sim->atoms[idx].velocity, 0.90);  /* mild damping */
-    }
+    integrator_step(sim); /* restraint forces enter through forces_calculate */
 }
-printf("  After %d tethered MD steps: PE=%.6f eV  T=%.2f K\n",
-       N_steps, sim->potential_energy, sim->temperature);
+printf("  After %d restrained MD steps: PE=%.6f eV (E_restr=%.6f)  T=%.2f K\n",
+       N_steps, sim->potential_energy, sim->E_restraint_total, sim->temperature);
 
 double gc1=vec3_dist(sim->atoms[g+6].position,sim->atoms[c+0].position);
 double gc2=vec3_dist(sim->atoms[g+5].position,sim->atoms[c+5].position);
 double gc3=vec3_dist(sim->atoms[g+8].position,sim->atoms[c+4].position);
 double at1=vec3_dist(sim->atoms[a+6].position,sim->atoms[t+3].position);
 double at2=vec3_dist(sim->atoms[a+5].position,sim->atoms[t+5].position);
-printf("\n  Post-MD H-bonds (tethered):\n");
+printf("\n  Post-MD H-bonds (restrained):\n");
 printf("    G-C: N1...N3=%.3f  O6...N4=%.3f  N2...O2=%.3f\n", gc1, gc2, gc3);
 printf("    A-T: N1...N3=%.3f  N6...O4=%.3f\n", at1, at2);
 
@@ -2004,10 +2020,10 @@ printf("MD STABILITY:       G-C %s, A-T %s\n",
 if (pm_gc_ok && pm_at_ok && md_gc_ok && md_at_ok) {
     printf("--> A STABLE, H-bonded two-base-pair DNA stack.\n");
     printf("    Watson-Crick pairing emerged from Coulomb+LJ, and the\n");
-    printf("    glycosidic tethers (backbone proxy) held it together\n");
-    printf("    through 800 MD steps at 50 K.\n");
+    printf("    glycosidic restraints (backbone proxy, real spring forces)\n");
+    printf("    held it together through 800 MD steps at 50 K.\n");
 } else if (pm_gc_ok && pm_at_ok) {
-    printf("--> Placement correct but drift persisted even with tethers.\n");
+    printf("--> Placement correct but drift persisted even with restraints.\n");
 } else {
     printf("--> Placement geometry wrong.\n");
 }
@@ -2015,7 +2031,7 @@ if (pm_gc_ok && pm_at_ok && md_gc_ok && md_at_ok) {
 sim_destroy(sim);
 }
 
-int main(int argc, char *argv[]) {
+int main(void) {
 
     printf("\n");
     printf("  ╔═══════════════════════════════════════════════════════╗\n");

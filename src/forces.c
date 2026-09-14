@@ -490,6 +490,7 @@ void forces_calculate(Simulation *sim) {
     double E_bond    = 0.0;
     double E_angle   = 0.0;
     double E_dihedral = 0.0;
+    double E_restraint = 0.0;
 
     /* ── 1-4 scaling: deliberately NOT applied (audit F1 resolution) ────────
      * Investigated and rejected; kept in-source so the reasoning survives.
@@ -581,9 +582,24 @@ void forces_calculate(Simulation *sim) {
             E_dihedral += forces_dihedral(sim->atoms, &sim->dihedrals[d]);
     }
 
-    sim->potential_energy = E_lj + E_coulomb + E_bond + E_angle + E_dihedral;
+    /* 6. Harmonic positional restraints: V = 0.5 k |r - anchor|^2,
+     *    F = -k (r - anchor). Conservative, integrated by the same
+     *    Verlet step as every term above. */
+    for (int r = 0; r < sim->num_restraints; r++) {
+        int ia = sim->restraint_atom[r];
+        if (ia < 0 || ia >= N) continue; /* defensive: stale index */
+        Vec3 disp = vec3_sub(sim->atoms[ia].position,
+                             sim->restraint_anchor[r]);
+        double k = sim->restraint_k[r];
+        E_restraint += 0.5 * k * vec3_norm2(disp);
+        vec3_isub(&sim->atoms[ia].force, vec3_scale(disp, k));
+    }
+
+    sim->potential_energy = E_lj + E_coulomb + E_bond + E_angle + E_dihedral
+                          + E_restraint;
     sim->E_lj_total      = E_lj;
     sim->E_coulomb_total = E_coulomb;
+    sim->E_restraint_total = E_restraint;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

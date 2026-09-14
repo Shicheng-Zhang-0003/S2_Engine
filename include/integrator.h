@@ -52,26 +52,36 @@ void integrator_step(Simulation *sim);
 /* ── Thermodynamics ──────────────────────────────────────────────────────── */
 /*
  * Kinetic energy: KE = 0.5 Σ m_i |v_i|²
- * Units: AMU × (Å/fs)² → converted to eV via EV_CONV = 1/(2×MD_FORCE_CONV)
+ * Units: AMU × (Å/fs)² → converted to eV via AMU_AFS2_TO_EV.
  *
  * Exact: 1 AMU × (Å/fs)² = 1.66053906660e-27 kg × (1e-10/1e-15)² m²/s²
  *      = 1.66053906660e-27 × 1e10 J = 1.66053906660e-17 J
  *      = 1.66053906660e-17 / 1.602176634e-19 eV = 103.6427 eV
  * So: KE [eV] = 0.5 Σ m[AMU] v²[Å²/fs²] × 103.6427
+ * (the 0.5 lives in the summation loop in integrator.c, NOT in the
+ * conversion factor - AMU_AFS2_TO_EV is the full single-unit value.)
  */
-#define AMU_AFS2_TO_EV   103.6427   /* (Å/fs)² AMU → eV */
+#define AMU_AFS2_TO_EV   (AMU * 1.0e10 / EV_TO_J)   /* (Å/fs)² AMU → eV, derived in-line */
 
 double integrator_kinetic_energy(const Simulation *sim);
 
 /*
-* Temperature from equipartition theorem: KE = ((3N - 3)/2) k_B T
-* T [K] = 2 KE [eV] / ((3N - 3) x k_B_eV)
+* Temperature from equipartition theorem: KE = (dof/2) k_B T
+* T [K] = 2 KE [eV] / (dof x k_B_eV)
 * k_B (eV/K) = 8.617333262e-5
 *
-* DOF = 3N - 3: the -3 removes the 3 centre-of-mass translational
-* degrees of freedom, already constrained to zero by
-* integrator_remove_com_velocity(). Matches the implementation of
-* integrator_temperature() in integrator.c.
+* dof = 3N - 3 - constrained: the -3 removes the 3 centre-of-mass
+* translational degrees of freedom, already constrained to zero by
+* integrator_remove_com_velocity(). `constrained` counts FURTHER
+* removed degrees of freedom the caller knows about:
+*   - 3 per frozen/immobilised atom (see integrator_minimize_frozen
+*     and the harmonic-restraint infrastructure in sim.h - a restraint
+*     with k >> kT/<x^2> pins its atom like a frozen one);
+*   - 2 more for a strictly linear molecule (rotation about its own
+*     axis carries no energy: 3N-5, not 3N-3).
+* sim->num_constrained_dof carries that count (0 by default, i.e. the
+* long-standing 3N-3 behaviour). Getting this wrong does not crash -
+* it silently biases every reported temperature, so count honestly.
 */
 double integrator_temperature(const Simulation *sim);
 
