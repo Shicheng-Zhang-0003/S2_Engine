@@ -3,7 +3,7 @@ schema: 1
 demo: kcsa
 build-compiler: gcc 13
 build-flags: -O3 -g -Wall -Wextra -std=c11 -Iinclude
-wallclock: 2026-09-14T21:31:05Z
+wallclock: 2026-09-14T21:33:05Z
 rng-seed: 7
 source-hash: v9R4-kcsa-upgrade
 build-flags-note: record build must not carry -march=native
@@ -42,4 +42,4 @@ kcsa.qm.BO_Na 0.00051639365018859586 dimensionless computed
 kcsa.qm.alpha_O 0.10068138486339918 A computed
 
 [end]
-payload-sha256: f1a39e406702ad1cba0cce53ed9d7692ff47ebfda0224a79024bbc1c6b9ed628
+payload-sha256: 2e01f27ef9503237017d9bcf0358fea32aa7671145116a51b3162469e7c311ec
