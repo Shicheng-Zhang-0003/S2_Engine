@@ -1,5 +1,5 @@
-build/
-carbonsim
-.s01_scratch/
-.s38_scratch/
-*.o
+# Scratch test binaries and selftest outputs stay out of the tree.
+# Engine objects (build/*.o) and the carbonsim binary remain tracked
+# per repo custom (record artifacts, committed with the record).
+build/test_*
+build/selftest*
