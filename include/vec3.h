@@ -71,11 +71,25 @@ static inline double vec3_dist2(Vec3 a, Vec3 b) {
 }
 
 /* ── Minimum-image convention for periodic boundaries ───────────────────── */
+/* Legacy all-axes wrapper: only correct when all three axes share the
+ * same periodicity. Prefer vec3_pbc_box() below for mixed PBC. */
 static inline Vec3 vec3_pbc(Vec3 dr, Vec3 box) {
     Vec3 r;
     r.x = dr.x - box.x * round(dr.x / box.x);
     r.y = dr.y - box.y * round(dr.y / box.y);
     r.z = dr.z - box.z * round(dr.z / box.z);
+    return r;
+}
+
+/* Per-axis minimum image: wraps only axes flagged periodic[3].
+ * Non-periodic axes pass through unwrapped. Guards degenerate box. */
+static inline Vec3 vec3_pbc_box(Vec3 dr, Vec3 box, const int periodic[3]) {
+    Vec3 r = dr;
+    if (periodic) {
+        if (periodic[0] && box.x > 1e-12) r.x = dr.x - box.x * round(dr.x / box.x);
+        if (periodic[1] && box.y > 1e-12) r.y = dr.y - box.y * round(dr.y / box.y);
+        if (periodic[2] && box.z > 1e-12) r.z = dr.z - box.z * round(dr.z / box.z);
+    }
     return r;
 }
 

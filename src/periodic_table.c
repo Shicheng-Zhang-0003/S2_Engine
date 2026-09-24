@@ -172,8 +172,10 @@ const Element *pt_by_symbol(const char *symbol) {
  * to the strict Madelung rule; we handle those here explicitly.
  */
 void pt_electron_config_n(int Z, int n_electrons, ElectronConfig *cfg) {
+    if (!cfg) return;
     memset(cfg, 0, sizeof(*cfg));
     if (n_electrons < 0) n_electrons = 0;
+    if (n_electrons > MAX_ELECTRONS) n_electrons = MAX_ELECTRONS;
     cfg->total_electrons = n_electrons;
 
     int electrons_left = n_electrons;
@@ -219,14 +221,22 @@ void pt_electron_config(int Z, ElectronConfig *cfg) {
  */
 void pt_config_string(const ElectronConfig *cfg, char *buf, int buflen) {
     static const char sub_labels[] = "spdf";
+    if (!cfg || !buf || buflen < 1) return;
+    buf[0] = '\0';
     int pos = 0;
     for (int n = 0; n < MAX_SHELLS && pos < buflen - 1; n++) {
         for (int l = 0; l < 4 && pos < buflen - 1; l++) {
             int count = cfg->config[n][l];
             if (count == 0) continue;
-            int written = snprintf(buf + pos, buflen - pos, "%d%c%d ",
+            int remain = buflen - pos;
+            int written = snprintf(buf + pos, remain, "%d%c%d ",
                                    n+1, sub_labels[l], count);
-            if (written > 0) pos += written;
+            if (written < 0) { buf[pos] = '\0'; return; }
+            if (written >= remain) { /* truncated: keep NUL-terminated prefix */
+                buf[buflen-1] = '\0';
+                return;
+            }
+            pos += written;
         }
     }
     if (pos > 0 && buf[pos-1] == ' ') buf[pos-1] = '\0';

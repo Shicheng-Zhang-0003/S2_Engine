@@ -77,9 +77,17 @@ static inline double lj_sigma_combine(double si, double sj) {
  * `box` is used for minimum-image PBC; pass NULL for no PBC.
  */
 PairEnergy forces_nonbonded_pair(Atom *atoms, int ia, int ib,
-                                  const SimBox *box,
-                                  int use_lj, int use_coulomb,
-                                  double dielectric);
+                                   const SimBox *box,
+                                   int use_lj, int use_coulomb,
+                                   double dielectric);
+
+/* Side-effect-free pair energy (no force accumulation).
+ * Use for diagnostics that must not perturb dynamics state.
+ * Same potential, same cutoff handling via box; forces untouched. */
+PairEnergy forces_nonbonded_energy(const Atom *atoms, int ia, int ib,
+                                   const SimBox *box,
+                                   int use_lj, int use_coulomb,
+                                   double dielectric);
 
 /* ── Harmonic bond force (accumulates onto both endpoint atoms) ───────────── */
 /*
@@ -103,24 +111,25 @@ double forces_angle(Atom *atoms, const Angle *angle);
  * preference (n=1 for a single minimum, n=2/3 for the multiple minima
  * typical of real sp3-sp3 or partial-double-bond rotations).
  *
- * DESIGN CHOICE, stated explicitly: the FORCE (gradient) is computed
- * via central finite-difference numerical differentiation of the
- * energy with respect to each atom's position, not an analytical
- * chain-rule formula. This is deliberate: the analytical dihedral
- * force derivation is one of the most error-prone formulas in
- * classical MD (a real, well-known source of silent, hard-to-detect
- * sign bugs in hand-written force fields), and a numerically
- * differentiated force is correct by construction regardless of how
- * complex the energy term is - trading a small, well-understood
- * O(h^2) truncation error and extra energy evaluations (24 per
- * dihedral per call: 4 atoms x 3 coordinates x 2 evaluations) for the
- * elimination of an entire class of potential derivation bugs. This
- * is standard, legitimate practice for prototype/research force field
- * code where an analytical gradient is hard to verify with confidence.
+ * The FORCE is the exact analytic chain-rule gradient through
+ * phi = atan2(y, x) (derivation in-source at forces_dihedral; the
+ * translation-invariance identity dx_a+dx_b+dx_c+dx_d = 0 holds
+ * exactly by construction of the formulas). Audit P2 closed: the
+ * former central-finite-difference default is kept as
+ * forces_dihedral_fd() (the validation oracle) and
+ * tests/test_forces.c asserts analytic-vs-FD agreement to 1e-6 plus
+ * net-zero force on generic, helical, and near-planar geometries.
+ * Collinear plane-normals (|n| < 1e-12) return energy with zero
+ * forces rather than FD's garbage-scale values.
  *
  * Returns the dihedral potential energy in eV.
  */
 double forces_dihedral(Atom *atoms, const Dihedral *dihedral);
+
+/* Finite-difference torsion force (former default, validation oracle).
+ * Same energy; forces via central differences (h=1e-5 A, 24 evals).
+ * See tests/test_forces.c for the agreement contract. */
+double forces_dihedral_fd(Atom *atoms, const Dihedral *dihedral);
 
 /* ── Master force calculation ────────────────────────────────────────────── */
 /*

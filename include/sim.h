@@ -118,18 +118,24 @@ int sim_add_bond(Simulation *sim, int ia, int ib, int order);
  * Auto-detect bonds by interatomic distance:
  *   bond if r < BOND_TOLERANCE × (r_cov_a + r_cov_b)
  * BOND_TOLERANCE = 1.15 (15% over covalent sum, handles slight distortions).
- * Bond order estimated from distance ratio (rough heuristic).
- * Call after all atoms are placed.
+ * Bond order estimated from distance ratio (rough heuristic: <0.78 triple,
+ * <0.87 double, else single).
+ * Call after all atoms are placed. Returns number of bonds added, or
+ * SIM_ERR_* on null sim. Capacity overflow during detection is counted
+ * in the return only for added bonds (overflow stops detection).
  */
 #define BOND_TOLERANCE 1.15
-void sim_detect_bonds(Simulation *sim);
+int sim_detect_bonds(Simulation *sim);
 
 /*
  * Build the angle list from the bond topology.
  * For every pair of bonds sharing an atom b, adds angle (a, b, c).
- * Call after all bonds are defined.
+ * Call after all bonds are defined. Returns number of angles built;
+ * if capacity truncates (high-coordination centers need more than the
+ * 3x-bonds heuristic), returns the built count and the truncation is
+ * visible to the caller instead of silent.
  */
-void sim_rebuild_angles(Simulation *sim);
+int sim_rebuild_angles(Simulation *sim);
 
 /*
  * Like sim_rebuild_angles, but derives each angle's equilibrium theta0
@@ -141,9 +147,9 @@ void sim_rebuild_angles(Simulation *sim);
  * angle from a generic sp3 one keyed on the same three atomic numbers).
  * All angles get the same force constant k_default (eV/rad^2) - a
  * reasonable generic aromatic-ring bending stiffness, not independently
- * fitted per angle.
+ * fitted per angle. Returns built count (see above).
  */
-void sim_rebuild_angles_geometric(Simulation *sim, double k_default);
+int sim_rebuild_angles_geometric(Simulation *sim, double k_default);
 
 /* ── Harmonic positional restraints (reduced-model external mechanics) ─── */
 
@@ -158,6 +164,10 @@ int sim_add_restraint(Simulation *sim, int atom_idx, Vec3 anchor, double k);
 
 /* Remove all restraints (e.g. between production phases). */
 void sim_clear_restraints(Simulation *sim);
+
+/* Remove all dihedral restraints (e.g. restraint-release control:
+ * drop steering torsions, then re-minimize to test persistence). */
+void sim_clear_dihedrals(Simulation *sim);
 
 /* ── Periodic boundary conditions ────────────────────────────────────────── */
 
