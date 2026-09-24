@@ -1,97 +1,100 @@
-# carbonsim v9R4 — the hygiene closure release
+# carbonsim v9R4 — release notes
 
-Not a new-physics release. Completion of the correctness and hygiene
-debt carried out of the v9R3 audit, executed as seven single-purpose,
-individually-gated scripts (s01–s07) run from the folder containing
-this tree. Every code change was proven behavior-neutral by a
-byte-identical record; every documentation change was gated on the
-record staying intact.
+v9R4 is a physics release: the quantum foundation (v4), the KcsA
+selectivity program, the AGTC duplex system, and a reinforced classical
+core, all verified end-to-end (record SHA below, s01 green, ASan+UBSan
+clean, three selftests). It supersedes the v9R3 audit posture of
+behavior-neutral hygiene: the record moved, on purpose, with every move
+derived and documented.
 
 ## Highlights
-- **The record never moved.** Every regeneration across the whole arc
-  is byte-for-byte identical to the v9R3 post-audit record — the same
-  SHA-256 at every step, asserted after every step.
-- **Both build configurations compile warning-clean under -Wall and
-  -Wextra, with nothing suppressed.** The `-Wno-missing-braces` flag
-  was removed, not extended, once the flood it masked was eliminated
-  at the source.
 
-## What the arc fixed
-- **Q1 — quantum normalization.** `quantum_radial_wavefunction`
-  computed the hydrogen-like normalization denominator with (n+l)!
-  CUBED; the correct formula uses (n+l)! to the first power. The old
-  wavefunctions were under-normalized by a factor of (n+l)! — 2x for
-  any 2s orbital, 6x for 2p; H 1s happened to be exact because
-  1! = 1. Fixed. Proven behavior-neutral: every consumer is either
-  shape-normalized (the ASCII plot divides by its own P_max) or an
-  argmax (quantum_most_probable_radius), so the record could not move
-  — and did not.
-- **B1–B3 — initializer braces.** The PERIODIC_TABLE `ground_config`
-  initializers `{0}` triggered `-Wmissing-braces` under the ASan
-  build line (which carries `-Wall` without the suppression). Three
-  passes: (1) GCC's own fixit `{0}` → `{{0}}` on all 36 element rows
-  — insufficient, because ElectronConfig nests
-  `int config[MAX_SHELLS][4]` and GCC descends a level; (2) `{{{0}}}`
-  — silenced `-Wmissing-braces` but lost the `{0}` exemption from
-  `-Wmissing-field-initializers` under `-Wextra`; (3) fully explicit
-  `{{{0}}, 0, 0}` on all 36 rows — names every ElectronConfig field,
-  relies on no compiler exemption, runtime-identical (the fields were
-  zero before and are zero now). Sentinel row untouched by design.
-- **M1 — dead suppression removed.** `-Wno-missing-braces` removed
-  from the makefile's normal CFLAGS line, with the reasoning kept
-  in-source above the surviving `CFLAGS += -march=native`. Verified,
-  not assumed: the normal build (now unsuppressed) and an ASan build
-  with `-Wall -Wextra` were both gated at zero warnings of any class.
-- **N1 — naming hygiene.** The readme's operational references now
-  point at v9R4: build path, embedded-output header, current-version
-  line, Current Status. Historical entries (the v9A1 version-history
-  line, the v9R3 audit section body) left untouched by design.
+- **K⁺ selectivity computed, not assumed.** Single-ion vacuum filter
+  statics still favor Na⁺ (+0.2…+0.4 eV, six legs — kept as the honest
+  baseline); K⁺ wins the deterministic rigid-filter exchange (−0.578 eV
+  from our own explicit-water clusters), the SCF-polar transit barrier
+  (−0.36 eV), and the valid-subset knock-on landscape (−1.62 eV).
+  Sampled polar kinetics favors Na⁺ (+0.33 ± 0.06) — reported as an
+  open bracket against the single-point barrier, not averaged away.
+- **Quantum foundation v4.** Dual-sourced Clementi–Raimondi exponents
+  for spatial ranges; exact H-like expectations; real f harmonics;
+  lobe-max σ + sum-rule π overlap; charge-responsive screening live in
+  overlap/dispersion/α; self-consistent dipoles with Hellmann–Feynman
+  forces; Slater–Kirkwood dispersion; 1-pin and 2-pin SCF charge loops.
+- **Systems built.** Knock-on ion pairs (relaxed + conductive +
+  landscape), 6-vs-8 coordination probe, forensic table printing every
+  leg side by side; duplex Phase 2 with four real glycosidic sugar
+  tethers (4× C1′–N at exactly 1.47 Å).
+- **Classical core reinforced.** Analytic dihedral gradients (audit P2
+  closed, 22-check FD-oracle selftest); Andersen canonical thermostat
+  (WHAM legs); FIRE minimizer (KcsA relax legs; steepest kept for
+  clash relief after head-to-head evidence); r2 micro-opts.
+- **Display split.** Deterministic stdout (the record) vs TTY-gated
+  stderr (timings, heartbeats, leg progress); version banner; 13-line
+  result recap; `verify_scripts.sh` gates record, both selftests plus
+  fire test, datastream seal, and key/unit compliance.
 
-## Gate discipline — including the misses the gates caught
-- s06's first version carried a post-fix check that counted ANY line
-  containing the flag string — including the script's own explanatory
-  comment — as "flag still present." Its own gate caught the false
-  failure before the script could pass; the fixed check greps active
-  (non-comment) makefile lines only.
-- s04's first version died on a sed expression error; caught by the
-  script's own post-fix verification before any gate ran, and the
-  tree was left in a known, asserted state.
-- Every script re-asserted the full record through the s01 harness
-  (normal + ASan builds, output SHAs, both program stderrs). The
-  record SHA never changed across the whole arc.
+## What the v9R3 audit had fixed (history, kept)
 
-## Scripts in this arc
-s01 record-verification harness · s02 quantum normalization fix ·
-s03–s05 initializer braces (three passes) · s06 dead-suppression
-removal · s07 naming hygiene · s08 this release record.
+- **Q1 — quantum normalization.** `(n+l)!` cubed → first power in the
+  radial normalization (2× for 2s, 6× for 2p; H 1s exact either way).
+  Behavior-neutral by construction (shape-normalized plots, argmax).
+- **B1–B3 — initializer braces.** Fully explicit `{{{0}}, 0, 0}`
+  initializers; dead `-Wno-missing-braces` suppression removed (M1).
+- **T1 — potassium row verified** against Rappé et al. 1992 UFF.
+- **F1/F5 — 1-4 scaling rejected** (broke Demo 11), cutoff switching
+  gated opt-in/off-default. **F4/P2** — analytic dihedrals, deferred
+  then, closed now (see above).
+- **N1 — naming hygiene**, v9R4 operational references.
 
-## Open items (unchanged by this release)
-v9R4 closed hygiene debt, not physics. The v9R3 open items carry
-forward untouched:
-1. **Complete Demo 12's antiprism block**: source the real ring
-   z-separation from 1K4C so the placeholder becomes a real result
-   or a real exclusion. Until then its numbers must not be cited as
-   selectivity energetics.
-2. **The missing-physics decision**: polarizability, explicit-solvent
-   competition (the dehydration penalty the vacuum calculation cannot
-   express at all), or both.
-3. **Deferred audit P2 (flagged, not failed)**: analytic dihedral
-   gradients (F4) — finite differences remain the oracle.
+## Gate discipline — misses the gates caught (this arc)
+
+- Finite-difference cross-checks rejected the first analytic-dihedral
+  draft (real sign bug in the m1·dn2 terms, localized per-atom with
+  sympy ground truth) before it could touch dynamics.
+- Undamped induction collapsed hydration minimization (−28000 eV);
+  Thole damping fixed it. SCF charge feedback collapsed Na⁺ (−51 eV);
+  gain/mixing/freezing fixed it. Soft-scaffold vacuum cages
+  dissociated (<d>→5.5 Å); protein-like stiffness + free-ion framing
+  fixed the question being asked.
+- A scratch trajectory edit overflowed a fixed-size sample array; the
+  stack protector aborted it, and sampling is now stride-based with
+  bounds guards. A capacity audit caught the duplex Phase-2 atom count
+  (127 > 96) as a segfault before release; sim sized to 160/128.
+- WHAM barrier estimates flipped across builds (0.21 vs 0.61 eV) from
+  tail-bin noise; count-thresholded barriers over 3 seed repeats fixed
+  the estimator, and the fixed-charge reference is kept alongside.
+- Every behavior-affecting change re-ran the full record through s01
+  (normal + ASan builds, output SHAs, both stderrs).
+
+## Open items (carried, precisely)
+
+1. Bulk solvent (PBC box, Ewald/PME); 6-water clusters feed exchange
+   but are not bulk. 2. Mixed-occupancy knock-on (KNa/NaK).
+3. Charge-transfer covalency, exchange/correlation beyond Slater–
+   Kirkwood/Pauli estimates. 4. Protein↔electrophysiology loop
+   (gating from structure). 5. Full phosphodiester duplex polymer.
 
 ## Record (SHAs)
+
 - Normal build output (`output.txt`):
-  `9934bd2896c2521380e6d70c622607db324c3a665dc38b4dde3ba00dbb31759f`
-- ASan build output (`output.asan.txt`): same SHA — byte-for-byte
-  identical to the normal build. ASan stderr: empty (no memory
-  errors). The readme's embedded output block is unchanged and
+  `58bb9f69f15779373cbc429998171f90deb61abc6bbd08c19c8e4c431a94134e`
+  (v9R4-release: banner + all legs above.)
+- ASan build output (`output.asan.txt`): byte-for-byte identical to the
+  normal build (verified end-to-end: full ASan+UBSan run, empty stderr,
+  SHA match). The readme's embedded output block is regenerated and
   matches this record.
+- Datastream (`kcsa.cvmds`, schema 1): 100+ claims, seal verified.
 
 ## Build
+
 ```bash
 cd biological/v9R4
-make
-./carbonsim > output.txt
+make            # warning-clean -Wall -Wextra, no suppressions
+./carbonsim > output.txt 2> stderr.txt   # + kcsa.cvmds side effect
+make selftest selftest-forces selftest-fire
+bash verify_scripts.sh
+bash ../s01_verify_record.sh
 ```
-Requires a C11 compiler and `make`. Both the default build and the
-sanitizer build compile warning-clean (-Wall -Wextra) with no
-suppression flags.
+
+Requires a C11 compiler and `make`.
