@@ -162,22 +162,28 @@ void ds_sha256_hex(const void *data, size_t len, char out65[65]) {
 static void ds_append(DSWriter *w, const char *fmt, ...) {
     va_list ap, ap2;
     int n;
+    if (!w || w->failed || !fmt) { if (w) w->failed = 1; return; }
     va_start(ap, fmt);
     va_copy(ap2, ap);
     n = vsnprintf(NULL, 0, fmt, ap);
     va_end(ap);
     if (n < 0) { va_end(ap2); w->failed = 1; return; }
+    if (w->len > (size_t)2147483647 - (size_t)n - 1) { va_end(ap2); w->failed = 1; return; }
     if (w->len + (size_t)n + 1 > w->cap) {
         size_t ncap = w->cap ? w->cap : 4096;
         char *nb;
-        while (ncap < w->len + (size_t)n + 1) ncap *= 2;
+        while (ncap < w->len + (size_t)n + 1) {
+            if (ncap > (size_t)2147483647 / 2) { va_end(ap2); w->failed = 1; return; }
+            ncap *= 2;
+        }
         nb = (char *)realloc(w->buf, ncap);
         if (!nb) { va_end(ap2); w->failed = 1; return; }
         w->buf = nb;
         w->cap = ncap;
     }
-    vsnprintf(w->buf + w->len, (size_t)n + 1, fmt, ap2);
+    int rc2 = vsnprintf(w->buf + w->len, (size_t)n + 1, fmt, ap2);
     va_end(ap2);
+    if (rc2 != n) { w->failed = 1; return; }
     w->len += (size_t)n;
 }
 
@@ -189,12 +195,24 @@ DSWriter *ds_open(const char *path, const char *demo) {
     struct tm *tmv;
     char stamp[32];
     if (!w) return NULL;
+    if (!path || !demo || !*path || !*demo) { free(w); return NULL; }
     if (snprintf(w->path, sizeof w->path, "%s", path) >= (int)sizeof w->path ||
         snprintf(w->demo, sizeof w->demo, "%s", demo) >= (int)sizeof w->demo) {
         free(w);
         return NULL; /* path/demo must fit - truncation would fork identity */
     }
     now = time(NULL);
+    /* Reproducibility: SOURCE_DATE_EPOCH overrides wallclock for
+     * byte-stable record artifacts. Otherwise wallclock is live and the
+     * file is intentionally nondeterministic (seal covers it). */
+    {
+        const char *sde = getenv("SOURCE_DATE_EPOCH");
+        if (sde && *sde) {
+            char *end = NULL;
+            long long v = strtoll(sde, &end, 10);
+            if (end != sde && v >= 0) now = (time_t)v;
+        }
+    }
     tmv = gmtime(&now);
     if (!tmv) { free(w); return NULL; }
     strftime(stamp, sizeof stamp, "%Y-%m-%dT%H:%M:%SZ", tmv);
@@ -275,14 +293,19 @@ int ds_close(DSWriter *w) {
     int rc = 0;
     if (!w) return -1;
     if (!w->failed) {
-        ds_sha256_hex(w->buf, w->len, hex);
-        ds_append(w, "\n[end]\npayload-sha256: %s\n", hex);
+        if (!w->buf && w->len != 0) w->failed = 1;
+        else {
+            ds_sha256_hex(w->buf ? w->buf : "", w->len, hex);
+            ds_append(w, "\n[end]\npayload-sha256: %s\n", hex);
+        }
     }
     if (w->failed) rc = -1;
     else {
         f = fopen(w->path, "wb");
-        if (!f || fwrite(w->buf, 1, w->len, f) != w->len) rc = -1;
-        if (f) fclose(f);
+        if (!f || fwrite(w->buf, 1, w->len, f) != w->len) {
+            rc = -1;
+            if (f) { fclose(f); remove(w->path); }
+        } else fclose(f);
     }
     free(w->buf);
     free(w);
@@ -296,11 +319,11 @@ int ds_verify_file(const char *path) {
     char *endline, *endline2, *hashfield, *hexstart;
     char hex[65];
     int rc = -1;
-    if (!f) return -1;
-    fseek(f, 0, SEEK_END);
+    if (!f || !path) { if (f) fclose(f); return -1; }
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
     sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz < 90) { fclose(f); return -1; }
+    if (sz < 0 || sz < 90) { fclose(f); return -1; }
+    if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
     buf = (char *)malloc((size_t)sz + 1);
     if (!buf) { fclose(f); return -1; }
     if (fread(buf, 1, (size_t)sz, f) != (size_t)sz) {

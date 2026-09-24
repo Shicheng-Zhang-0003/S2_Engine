@@ -1,1 +1,1 @@
-./carbonsim >> output.txt
+./carbonsim > output.txt

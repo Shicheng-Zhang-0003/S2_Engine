@@ -1,0 +1,5 @@
+build/
+carbonsim
+.s01_scratch/
+.s38_scratch/
+*.o
