@@ -49,11 +49,11 @@
  * 4-eps LJ form uses sigma = Rmin-half-derived, so
  * sigma[A] = Rstar[A]*2/2^(1/6),
  * epsilon[eV] = eps[kcal/mol] * KCAL_MOL_TO_EV. Verified independently:
- * TIP3P oxygen's AMBER class (R*=1.7683) converts to sigma=3.1506 A
- * via this formula, an exact match to the literature TIP3P value
- * already used in sim_place_h2o() - confirms the conversion
- * convention is correct (Rstar/2^(1/6) alone would give half that,
- * 1.5753 A, which is the radius not the diameter).
+ * TIP3P oxygen's AMBER class (R*=1.7683) converts to sigma=3.15075 A
+ * via this formula, matching the literature TIP3P value 3.15061 A to
+ * 1.4e-4 A (rounding-level) already used in sim_place_h2o() - confirms
+ * the conversion convention is correct (Rstar/2^(1/6) alone would give
+ * half that, 1.5753 A, which is the radius not the diameter).
  * ══════════════════════════════════════════════════════════════════════════ */
 #define AMBER_RSTAR_TO_SIGMA(rstar) ((rstar) * 2.0 / 1.122462048309373)
 

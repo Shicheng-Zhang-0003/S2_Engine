@@ -392,6 +392,7 @@ int sim_place_dipeptide_GlyAla(Simulation *sim, Vec3 origin, int *out_ala_N) {
  * ══════════════════════════════════════════════════════════════════════════ */
 void aa_adjust_residues_after_removal(AAResidue *residues, int count,
                                        int removed_idx) {
+    if (!residues || count < 1 || removed_idx < 0) return;
     for (int j = 0; j < count; j++) {
         if (residues[j].N   > removed_idx) residues[j].N--;
         if (residues[j].CA  > removed_idx) residues[j].CA--;
@@ -418,8 +419,8 @@ void aa_adjust_residues_after_removal(AAResidue *residues, int count,
 int sim_place_polyalanine(Simulation *sim, Vec3 origin, int n_residues,
                            AAResidue *residues_out) {
     const double PEPTIDE_BOND_LEN = 1.33;
-    if (n_residues > MAX_CHAIN_RESIDUES) n_residues = MAX_CHAIN_RESIDUES;
-    if (n_residues < 1) return SIM_ERR_BADPARAM;
+    if (!sim || !residues_out) return SIM_ERR_BADATOM;
+    if (n_residues < 1 || n_residues > MAX_CHAIN_RESIDUES) return SIM_ERR_BADPARAM;
 
     AAResidue res[MAX_CHAIN_RESIDUES];
 
