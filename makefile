@@ -5,7 +5,9 @@ CFLAGS_BASE = -O3 -g -Wall -Wextra -std=c11 -Iinclude
 # strings are injected here so the binary knows how it was built.
 # Builds that override CFLAGS on the command line (ASan, debug) fall
 # back to "unknown" via the #ifndef defaults in datastream.c.
-CFLAGS = $(CFLAGS_BASE) -DDS_COMPILER_ID='"$(CC) $(shell $(CC) -dumpversion)"' -DDS_CFLAGS_ID='"$(CFLAGS_BASE)"'
+# Full compiler version (not major-only) for record precision.
+CC_VERSION = $(shell $(CC) -dumpfullversion 2>/dev/null || $(CC) -dumpversion)
+CFLAGS = $(CFLAGS_BASE) -DDS_COMPILER_ID='"$(CC) $(CC_VERSION)"' -DDS_CFLAGS_ID='"$(CFLAGS_BASE)"'
 # PERIODIC_TABLE ground_config initializer flood, which s03-s05
 # eliminated at the source (fully explicit {{{0}}, 0, 0}). Keeping
 # it would only hide a future regression of the same class.
@@ -51,6 +53,21 @@ selftest: $(OBJ_DIR) $(OBJ_DIR)/test_datastream.o $(OBJ_DIR)/datastream.o
 	$(CC) $(CFLAGS) -o $(OBJ_DIR)/test_datastream $(OBJ_DIR)/test_datastream.o $(OBJ_DIR)/datastream.o -lm
 
 $(OBJ_DIR)/test_datastream.o: $(TEST_DIR)/test_datastream.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# forces selftest (audit P2): analytic dihedral vs FD oracle. Links the
+# engine objects (minus main) since forces_dihedral lives in forces.o.
+selftest-forces: all $(OBJ_DIR)/test_forces.o
+	$(CC) $(CFLAGS) -o $(OBJ_DIR)/test_forces $(OBJ_DIR)/test_forces.o $(filter-out $(OBJ_DIR)/main.o,$(OBJS)) -lm
+
+$(OBJ_DIR)/test_forces.o: $(TEST_DIR)/test_forces.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+# fire selftest: FIRE vs steepest-descent minima agreement.
+selftest-fire: all $(OBJ_DIR)/test_fire.o
+	$(CC) $(CFLAGS) -o $(OBJ_DIR)/test_fire $(OBJ_DIR)/test_fire.o $(filter-out $(OBJ_DIR)/main.o,$(OBJS)) -lm
+
+$(OBJ_DIR)/test_fire.o: $(TEST_DIR)/test_fire.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:

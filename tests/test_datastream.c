@@ -66,14 +66,19 @@ int main(void) {
     content = NULL;
     sz = 0;
     if (f) {
-        fseek(f, 0, SEEK_END);
-        sz = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        content = (char *)malloc((size_t)sz + 1);
-        if (content) {
-            if (fread(content, 1, (size_t)sz, f) != (size_t)sz) {
-                free(content); content = NULL;
-            } else content[sz] = '\0';
+        if (fseek(f, 0, SEEK_END) == 0) {
+            long rsz = ftell(f);
+            if (rsz >= 0) sz = rsz;
+            if (fseek(f, 0, SEEK_SET) != 0) sz = -1;
+        } else sz = -1;
+        if (sz >= 0) {
+            content = (char *)malloc((size_t)sz + 1);
+            if (!content) sz = -1;
+            else {
+                if (fread(content, 1, (size_t)sz, f) != (size_t)sz) {
+                    free(content); content = NULL;
+                } else content[sz] = '\0';
+            }
         }
         fclose(f);
     }
@@ -132,15 +137,22 @@ int main(void) {
 
         /* 5. Tamper test: flip one payload byte, seal must reject */
         {
-            char *t = (char *)malloc((size_t)sz + 1);
+            char *t = NULL;
             FILE *tf;
-            memcpy(t, content, (size_t)sz + 1);
-            t[12] ^= 0x01;   /* inside the header text, before [end] */
-            tf = fopen(tpath, "wb");
-            if (tf) { fwrite(t, 1, (size_t)sz, tf); fclose(tf); }
-            free(t);
-            check(ds_verify_file(tpath) != 0,
-                  "ds_verify_file rejects a tampered copy");
+            if (sz < 0) check(0, "ds_verify_file rejects a tampered copy");
+            else {
+                t = (char *)malloc((size_t)sz + 1);
+                if (!t) check(0, "ds_verify_file rejects a tampered copy");
+                else {
+                    memcpy(t, content, (size_t)sz + 1);
+                    t[12] ^= 0x01;   /* inside the header text, before [end] */
+                    tf = fopen(tpath, "wb");
+                    if (tf) { fwrite(t, 1, (size_t)sz, tf); fclose(tf); }
+                    free(t);
+                    check(ds_verify_file(tpath) != 0,
+                          "ds_verify_file rejects a tampered copy");
+                }
+            }
         }
         free(content);
     }

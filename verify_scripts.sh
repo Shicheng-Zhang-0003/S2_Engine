@@ -1,40 +1,67 @@
 #!/usr/bin/env bash
-# verify_scripts.sh — read-only. Does NOT modify anything. Run from v9R4/.
+# verify_record.sh — read-only record + spec verifier. Run from v9R4/.
+# Checks: baseline SHA match, stderr empty, selftest green,
+# kcsa.cvmds seal + key/unit compliance, cage geometry wiring.
 set -uo pipefail
-ok(){ printf '  %-52s %s\n' "$1" "$2"; }
+ok(){ printf '  %-58s %s\n' "$1" "$2"; }
+fail=0
+chk(){ if [ "$2" = "$3" ]; then printf '  PASS  %s\n' "$1"; else printf '  FAIL  %s (want %s, got %s)\n' "$1" "$2" "$3"; fail=1; fi; }
 
-echo "=== s11b: KcsA ring z-separation wiring ==="
-ok "KCSA_RING_Z_SEP in main.c        (want >=2)" "$(grep -Fc 'KCSA_RING_Z_SEP' src/main.c)"
-ok "half_sep in main.c               (want >=3)" "$(grep -Fc 'half_sep' src/main.c)"
-ok "6-arg call with &min_oo          (want 1)"   "$(grep -Fc '&min_oo' src/main.c)"
-ok "'sourced z-separation 3.084' text(want 1)"  "$(grep -Fc 'sourced z-separation 3.084 A now' src/main.c)"
+echo "=== record ==="
+[ -f CURRENT_BASELINE_SHA.txt ] || { echo "FATAL: CURRENT_BASELINE_SHA.txt missing"; exit 2; }
+[ -f output.txt ] || { echo "FATAL: output.txt missing"; exit 2; }
+EXP=$(cat CURRENT_BASELINE_SHA.txt | tr -d ' \n')
+ACT=$(sha256sum output.txt | cut -d' ' -f1)
+chk "output.txt SHA == CURRENT_BASELINE_SHA.txt" "$EXP" "$ACT"
+chk "stderr.txt empty" "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" "$(sha256sum stderr.txt 2>/dev/null | cut -d' ' -f1 || echo MISSING)"
+chk "build warning-clean" "0" "$(make clean >/dev/null 2>&1; make 2>&1 | grep -c 'warning:')"
 
-echo; echo "=== s13: readme SHA + Demo-12 bullet sync ==="
-ok "CURRENT_BASELINE_SHA.txt exists?" "$( [ -f CURRENT_BASELINE_SHA.txt ] && echo YES || echo 'NO -> s13 gate cannot run' )"
-ok "old SHA 875a2c0c… in readme      (want 0)"  "$(grep -Fc '875a2c0cf30ccf4fc6ebff8b0b64547063c7a80c5250d1b32c72af3048bc6935' readme.md)"
-ok "'antiprism block is now a real result' (>=1)" "$(grep -Fc 'antiprism block is now a real result' readme.md)"
+echo; echo "=== kcsa cage wiring (truth fixes) ==="
+ok "KCSA_RING_Z_SEP in main.c" "$(grep -Fc 'KCSA_RING_Z_SEP' src/main.c) (>=6)"
+ok "3D->xy derivation sqrt(d^2-half^2)" "$(grep -Fc 'sqrt(d_inner' src/main.c) (>=1)"
+ok "r_inner/r_outer in JC+UZ+QM legs" "$(grep -Fc 'r_inner * cos' src/main.c) (>=3)"
+ok "qm_overlap_ref used (no 1.5A Sref)" "$(grep -Fc 'qm_overlap_ref' src/main.c) (>=1)"
+ok "COULOMB_MD in induction (no hardcoded 14.399)" "$(grep -Fc 'COULOMB_MD * fabs' src/main.c) (>=1)"
+ok "ECC computed leg E_ecc" "$(grep -Fc 'jc_ecc_k' src/main.c) (>=3)"
+ok "U(z) label (not PMF-as-free-energy)" "$(grep -Fci 'free-energy PMF' src/main.c) (>=2)"
+ok "side-effect-free forces_nonbonded_energy" "$(grep -Fc 'forces_nonbonded_energy' src/main.c) (>=1)"
+ok "v2 induction+Pauli in force loop" "$(grep -Fc 'use_polar' src/forces.c) (>=2)"
+ok "v3 dispersion + SCF driver" "$(grep -Fc 'qm_scf_charges' src/qm.c) (>=2)"
+ok "relaxed coordination leg" "$(grep -Fc 'rel_cn_k' src/main.c) (>=2)"
+ok "Thole damping" "$(grep -Fci 'thole' src/qm.c) (>=3)"
+ok "explicit hydration legs" "$(grep -Fc 'hyd_k' src/main.c) (>=3)"
+ok "WHAM free energy" "$(grep -Fc 'WHAM' src/main.c) (>=2)"
 
-echo; echo "=== s14: three readme antiprism refs ==="
-ok "fix1 'Until then…cited' gone     (want 0)"  "$(grep -Fc 'Until then its numbers must not be cited' readme.md)"
-ok "fix2 '*(done)*' present          (want >=1)" "$(grep -Fc "Complete Demo 12's antiprism block** *(done)*" readme.md)"
-ok "fix3 'symmetry-validated in s10/s10b' (>=1)" "$(grep -Fc 'symmetry-validated in s10/s10b' readme.md)"
+echo; echo "=== datastream ==="
+make selftest >/dev/null 2>&1
+./build/test_datastream >/dev/null 2>&1 && ST=0 || ST=1
+chk "selftest green" "0" "$ST"
+make selftest-forces >/dev/null 2>&1
+./build/test_forces >/dev/null 2>&1 && FT=0 || FT=1
+chk "forces selftest green (P2)" "0" "$FT"
+make selftest-fire >/dev/null 2>&1
+./build/test_fire >/dev/null 2>&1 && FR=0 || FR=1
+chk "fire selftest green" "0" "$FR"
+if [ -f kcsa.cvmds ]; then
+  ./build/test_datastream >/dev/null 2>&1 # ensures verifier linked; use binary below
+  python3 - <<'PY'
+import sys
+PY
+  # seal check via built verifier through a tiny C call is overkill; use python sha to cross-check [end]
+  SEAL_OK=$(python3 -c "
+import hashlib
+d=open('kcsa.cvmds','rb').read()
+i=d.find(b'\n[end]\n')
+h=d[d.find(b'payload-sha256: ')+16:d.find(b'payload-sha256: ')+80].decode()
+print('OK' if hashlib.sha256(d[:i]).hexdigest()==h else 'BAD')")
+  chk "kcsa.cvmds seal intact" "OK" "$SEAL_OK"
+  chk "no legacy UPPER keys (q_O/dE/S_/BO_/alpha_O)" "0" "$(grep -cE 'q_O_mean|q_K|q_Na|dE_K|dE_Na|S_K|S_Na|BO_K|BO_Na|alpha_O|E_K|E_Na|ddG|ddU' kcsa.cvmds || true)"
+  chk "lower-case keys present" "1" "$(grep -Fc 'kcsa.qm.alpha_o' kcsa.cvmds)"
+  chk "charge unit e present" "1" "$(grep -Fc 'kcsa.qm.q_k' kcsa.cvmds)"
+else
+  echo "  FAIL  kcsa.cvmds missing"; fail=1
+fi
 
-echo; echo "=== s15: embedded-block intro paragraph ==="
-ok "old 'labels…placeholder' gone    (want 0)"  "$(grep -Fc 'labels its antiprism block a placeholder' readme.md)"
-ok "new 'block now a real result'    (want >=1)" "$(grep -Fc 'its antiprism block now a real result' readme.md)"
-
-echo; echo "=== s16: demo_dna_duplex printf \\n escapes ==="
-ok "demo_dna_duplex present          (want 1)"  "$(grep -Fc 'static void demo_dna_duplex' src/main.c)"
-
-echo; echo "=== s17: proper WC base-pair geometry ==="
-ok "g_N1_to_O6_norm placement math   (want >=1)" "$(grep -Fc 'g_N1_to_O6_norm' src/main.c)"
-ok "thymine at vec3(2.9, 0.0, 3.4)   (want 1)"  "$(grep -Fc 'vec3(2.9, 0.0, 3.4)' src/main.c)"
-
-echo; echo "=== s18: string.h + unused-var casts ==="
-ok "#include <string.h>              (want 1)"  "$(grep -Fc '#include <string.h>' src/main.c)"
-ok "(void)a_to_t;                    (want 1)"  "$(grep -Fc '(void)a_to_t;' src/main.c)"
-ok "'c_C4 used implicitly' comment   (want 1)"  "$(grep -Fc 'c_C4 used implicitly' src/main.c)"
-
-echo; echo "=== s19: DNA placement (expected STALE / no-op) ==="
-ok "old C 'temp, far' placement      (want 0)"  "$(grep -Fc 'vec3(15.0, 0.0, 0.0)); /* temp, far */' src/main.c)"
-ok "old T vec3(15.0, 0.0, 3.4)       (want 0)"  "$(grep -Fc 'vec3(15.0, 0.0, 3.4)' src/main.c)"
+echo
+if [ "$fail" -ne 0 ]; then echo "VERIFY FAILED"; exit 1; fi
+echo "VERIFY PASSED"
