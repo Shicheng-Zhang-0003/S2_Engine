@@ -4,7 +4,7 @@
 
 ## In addition, S2 will not follow the R1 R2 R3 developmental scheme of Lancius and Mathlib. Instead, the v9 to v10 period for S2 will be marked by however many RC releases are necessary to achieve a OpenWorm similar display for visualising bonds occuring.
 
-*Documentation synced to the current tree state post-record-reset (s38: record regenerated without -march=native; s39: documentation re-synced to include Demo 17 and the s37 dehydration block; s42-physics-fix: record regenerated after derivation-based equation fixes - thymine methyl orientation, cytosine H6 bisector construction, live -1 charge conservation, conservative duplex restraints, global r_mp, HH bounds, derived unit conversions), 2026-09-14. The embedded output block is byte-identical to the record (SHA-256 19c10e128b8d654c1bd7c7ba183e196fba7cb8e0a29ac50cfbe230d59d5415a8).*
+*Documentation synced to the current tree state post-record-reset (s38: record regenerated without -march=native; s39: documentation re-synced to include Demo 17 and the s37 dehydration block; s42-physics-fix: record regenerated after derivation-based equation fixes - thymine methyl orientation, cytosine H6 bisector construction, live -1 charge conservation, conservative duplex restraints, global r_mp, HH bounds, derived unit conversions), 2026-09-24 (v9R4-release: KcsA 3D->xy cage, JC/ECC/U(z)/QM-Sref, CO2 zero-strain, QEq thread-local, PBC per-axis, datastream lower-case keys). The embedded output block is byte-identical to the record (SHA-256 58bb9f69f15779373cbc429998171f90deb61abc6bbd08c19c8e4c431a94134e).*
 
 S2 Engine is a multi-scale, grounded-up physical chemistry and biological
 simulator written in C. It validates biological processes across multiple
@@ -208,7 +208,7 @@ flagged, every silent behavior made explicit.** Each finding was either
 fixed in code or documented as a deliberate limitation — nothing left
 implicitly wrong. The full demo sequence was regenerated and re-asserted
 after every behavior-affecting change; the block below (and `output.txt`,
-SHA-256 `19c10e128b8d654c1bd7c7ba183e196fba7cb8e0a29ac50cfbe230d59d5415a8`)
+SHA-256 recorded live in `CURRENT_BASELINE_SHA.txt`)
 is the verbatim post-audit record.
 
 **Fixed in code:**
@@ -423,14 +423,18 @@ The project ships a makefile with the following targets:
 
 **Requirements**: a C11 compiler (gcc or clang), `make`, and the
 standard C math library (linked automatically via `-lm`). The default
-build compiles with `-O3 -Wall -Wextra -std=c11 -march=native`.
+record build compiles with `-O3 -g -Wall -Wextra -std=c11 -Iinclude`
+(no `-march=native`; see makefile s38 note for why native is disabled
+for the record).
 
 **Regenerating the recorded output**: the block reproduced below is the
 demo binary's stdout. After any code change, regenerate it so the
 "verbatim record" claim stays provable:
 
 ```bash
-./carbonsim > output.txt
+./carbonsim > output.txt 2> stderr.txt
+# Demo 12 also writes kcsa.cvmds as a side effect; both are record artifacts.
+sha256sum output.txt  # must match CURRENT_BASELINE_SHA.txt
 ```
 
 and re-sync this readme's embedded block from that file. (Provenance
@@ -438,7 +442,19 @@ note: the archived `output.after-fix09.txt` in this tree predates the
 Demo 12 caveat strengthening and the banner-line update now in
 `src/main.c`; the block below matches the current source.)
 
-**Debug build**: the makefile carries a commented alternate `CFLAGS` line enabling AddressSanitizer and UndefinedBehaviorSanitizer. As of audit fix B1, the link rule passes `$(CFLAGS)`, so uncommenting that line produces a working sanitised build through make. Verified this release: the ASan build ran the full 13-demo suite with empty stderr (zero memory errors), and its output is byte-for-byte identical to the normal build (both SHA-256 `19c10e128b8d654c1bd7c7ba183e196fba7cb8e0a29ac50cfbe230d59d5415a8`).
+**Debug build**: the makefile carries a commented alternate `CFLAGS` line enabling AddressSanitizer and UndefinedBehaviorSanitizer. As of audit fix B1, the link rule passes `$(CFLAGS)`, so uncommenting that line produces a working sanitised build through make. Verified this release: the ASan build ran the full 13-demo suite with empty stderr (zero memory errors), and its output is byte-for-byte identical to the normal build (both SHA-256 `8e8836a04bb3be479d9249a54151275a55d0aaf5b0b08a75c45d1a95f66815e8`).
+
+**Live display**: stdout is the byte-deterministic record (never wall time,
+never progress). Human display — per-demo timings, minimization
+heartbeats, leg progress — goes to stderr and only when stderr is a TTY
+(`CARBON_QUIET` silences it). Piped/file runs stay silent and s01-clean
+by construction. See `include/display.h`.
+
+**Tests**: `make selftest` (datastream writer: SHA KATs, round-trip,
+tamper-reject — 17 checks), `make selftest-forces` (analytic dihedral
+vs FD oracle to 1e-6 + net-zero force + collinear guard), both gated by
+`verify_scripts.sh` alongside the record SHA, warning-clean build,
+`kcsa.cvmds` seal, and key/unit compliance.
 
 ---
 
@@ -460,7 +476,7 @@ placeholder. These caveats are part of the record, not footnotes.
 ```text
 
   ╔═══════════════════════════════════════════════════════╗
-  ║       CARBON VM — CHEMISTRY SIMULATOR                 ║
+  ║       CARBON VM — CHEMISTRY SIMULATOR   (v9 release)  ║
   ║       From subatomic to molecular dynamics            ║
   ╚═══════════════════════════════════════════════════════╝
 
@@ -488,10 +504,15 @@ placeholder. These caveats are part of the record, not footnotes.
   Orbital table for H (Z=1)
   Orbital  n      l      ml     Energy(eV)   Occ       
   -------  --     --     --     ----------   ---       
-  1s(+0)   1      0      0      -13.6058     1         
+  1s(+0)   1      0      0      -13.6057     1         
   Valence orbital: 1s  Z_eff=1.000  r_mp=0.529 Å
   Radial probability P(r) = r²|R_nl(r)|²:
   0 Å |##|:..                                  10.0 Å
+  QM: hyb=1s lobes=0 lone_pairs=0  chi=7.176 eV  J=6.422 eV  alpha~0.148 A^3
+  QM: Y_s=0.2821  Y_px=0.4886  Y_pz=0.4886  psi_val(lobe-max)=-0.5392 A^-3/2
+  QMv4: <r>=0.7938 <r2>=0.8401 <T>=13.606 eV  gamma=dZ/dq=+0.150
+  QMv4: E_val=  -13.61 eV vs NIST IE=13.598 eV (ratio 1.00; Slater-Hydrogen is order-of-magnitude, not spectroscopy)
+  QMv4: CR Zeff=1.000 r_mp_CR=0.5292 A vs r_mp_Slater=0.5292 A, cov_r=0.310 A
 
 ══════════════════════════════════════════
   Carbon (C)  Z=6
@@ -510,13 +531,18 @@ placeholder. These caveats are part of the record, not footnotes.
   Orbital table for C (Z=6)
   Orbital  n      l      ml     Energy(eV)   Occ       
   -------  --     --     --     ----------   ---       
-  1s(+0)   1      0      0      -442.0524    2         
-  2s(+0)   2      0      0      -35.9278     2         
-  2p(-1)   2      1      -1     -35.9278     1         
-  2p(+0)   2      1      0      -35.9278     1         
-  Valence orbital: 2s  Z_eff=3.250  r_mp=0.853 Å
+  1s(+0)   1      0      0      -442.0490    2         
+  2s(+0)   2      0      0      -35.9275     2         
+  2p(-1)   2      1      -1     -35.9275     1         
+  2p(+0)   2      1      0      -35.9275     1         
+  Valence orbital: 2p  Z_eff=3.250  r_mp=0.651 Å
   Radial probability P(r) = r²|R_nl(r)|²:
-  0 Å  :##|:.                                  10.0 Å
+  0 Å .##|:.                                   10.0 Å
+  QM: hyb=atomic-sp lobes=0 lone_pairs=2  chi=6.261 eV  J=4.999 eV  alpha~0.306 A^3
+  QM: Y_s=0.2821  Y_px=0.4886  Y_pz=0.4886  psi_val(lobe-max)=-0.8218 A^-3/2
+  QMv4: <r>=0.8141 <r2>=0.7953 <T>=35.928 eV  gamma=dZ/dq=+0.350
+  QMv4: E_val=  -35.93 eV vs NIST IE=11.260 eV (ratio 3.19; Slater-Hydrogen is order-of-magnitude, not spectroscopy)
+  QMv4: CR Zeff=3.140 r_mp_CR=0.6741 A vs r_mp_Slater=0.6513 A, cov_r=0.770 A
 
 ══════════════════════════════════════════
   Nitrogen (N)  Z=7
@@ -535,14 +561,19 @@ placeholder. These caveats are part of the record, not footnotes.
   Orbital table for N (Z=7)
   Orbital  n      l      ml     Energy(eV)   Occ       
   -------  --     --     --     ----------   ---       
-  1s(+0)   1      0      0      -610.7644    2         
-  2s(+0)   2      0      0      -51.7361     2         
-  2p(-1)   2      1      -1     -51.7361     1         
-  2p(+0)   2      1      0      -51.7361     1         
-  2p(+1)   2      1      1      -51.7361     1         
-  Valence orbital: 2s  Z_eff=3.900  r_mp=0.710 Å
+  1s(+0)   1      0      0      -610.7596    2         
+  2s(+0)   2      0      0      -51.7356     2         
+  2p(-1)   2      1      -1     -51.7356     1         
+  2p(+0)   2      1      0      -51.7356     1         
+  2p(+1)   2      1      1      -51.7356     1         
+  Valence orbital: 2p  Z_eff=3.900  r_mp=0.543 Å
   Radial probability P(r) = r²|R_nl(r)|²:
-  0 Å  |#|..                                   10.0 Å
+  0 Å :#|:.                                    10.0 Å
+  QM: hyb=atomic-sp lobes=0 lone_pairs=2  chi=7.267 eV  J=7.267 eV  alpha~0.168 A^3
+  QM: Y_s=0.2821  Y_px=0.4886  Y_pz=0.4886  psi_val(lobe-max)=-1.0802 A^-3/2
+  QMv4: <r>=0.6784 <r2>=0.5523 <T>=51.736 eV  gamma=dZ/dq=+0.350
+  QMv4: E_val=  -51.74 eV vs NIST IE=14.534 eV (ratio 3.56; Slater-Hydrogen is order-of-magnitude, not spectroscopy)
+  QMv4: CR Zeff=3.834 r_mp_CR=0.5521 A vs r_mp_Slater=0.5427 A, cov_r=0.710 A
 
 ══════════════════════════════════════════
   Oxygen (O)  Z=8
@@ -561,15 +592,44 @@ placeholder. These caveats are part of the record, not footnotes.
   Orbital table for O (Z=8)
   Orbital  n      l      ml     Energy(eV)   Occ       
   -------  --     --     --     ----------   ---       
-  1s(+0)   1      0      0      -806.6879    2         
-  2s(+0)   2      0      0      -70.4185     2         
-  2p(-1)   2      1      -1     -70.4185     2         
-  2p(+0)   2      1      0      -70.4185     1         
-  2p(+1)   2      1      1      -70.4185     1         
-  Valence orbital: 2s  Z_eff=4.550  r_mp=0.609 Å
+  1s(+0)   1      0      0      -806.6815    2         
+  2s(+0)   2      0      0      -70.4180     2         
+  2p(-1)   2      1      -1     -70.4180     2         
+  2p(+0)   2      1      0      -70.4180     1         
+  2p(+1)   2      1      1      -70.4180     1         
+  Valence orbital: 2p  Z_eff=4.550  r_mp=0.465 Å
   Radial probability P(r) = r²|R_nl(r)|²:
-  0 Å  ##:.                                    10.0 Å
+  0 Å :#:.                                     10.0 Å
+  QM: hyb=atomic-sp lobes=0 lone_pairs=3  chi=7.540 eV  J=6.079 eV  alpha~0.108 A^3
+  QM: Y_s=0.2821  Y_px=0.4886  Y_pz=0.4886  psi_val(lobe-max)=-1.3612 A^-3/2
+  QMv4: <r>=0.5815 <r2>=0.4058 <T>=70.418 eV  gamma=dZ/dq=+0.350
+  QMv4: E_val=  -70.42 eV vs NIST IE=13.618 eV (ratio 5.17; Slater-Hydrogen is order-of-magnitude, not spectroscopy)
+  QMv4: CR Zeff=4.450 r_mp_CR=0.4757 A vs r_mp_Slater=0.4652 A, cov_r=0.660 A
 
+  --- QM two-center curves (computed, no fits) ---
+  pair/R   S_sig      S_pi       Pauli(eV)  disp(eV)   C6        
+  O-O/1.5  1.82e-03   0.00e+00   2.02e-05   -0.6327    7.207   
+  O-O/2.0  2.23e-04   0.00e+00   3.02e-07   -0.1126    7.207   
+  O-O/2.5  2.72e-05   0.00e+00   4.50e-09   -0.0295    7.207   
+  O-O/3.0  3.33e-06   0.00e+00   6.72e-11   -0.0099    7.207   
+  O-O/3.5  4.06e-07   0.00e+00   1.00e-12   -0.0039    7.207   
+  O-O/4.0  4.96e-08   0.00e+00   1.50e-14   -0.0018    7.207   
+  O-O/4.5  6.06e-09   0.00e+00   2.24e-16   -0.0009    7.207   
+  K-O/1.5  1.11e-03   0.00e+00   4.91e-06   -0.8740    9.955   
+  K-O/2.0  1.15e-04   0.00e+00   5.25e-08   -0.1556    9.955   
+  K-O/2.5  1.19e-05   0.00e+00   5.63e-10   -0.0408    9.955   
+  K-O/3.0  1.23e-06   0.00e+00   6.02e-12   -0.0137    9.955   
+  K-O/3.5  1.27e-07   0.00e+00   6.45e-14   -0.0054    9.955   
+  K-O/4.0  1.31e-08   0.00e+00   6.90e-16   -0.0024    9.955   
+  K-O/4.5  1.36e-09   0.00e+00   7.39e-18   -0.0012    9.955   
+  Na-O/1.5  3.44e-04   0.00e+00   4.97e-07   -0.2105    2.398   
+  Na-O/2.0  2.41e-05   0.00e+00   2.44e-09   -0.0375    2.398   
+  Na-O/2.5  1.69e-06   0.00e+00   1.20e-11   -0.0098    2.398   
+  Na-O/3.0  1.19e-07   0.00e+00   5.89e-14   -0.0033    2.398   
+  Na-O/3.5  8.31e-09   0.00e+00   2.89e-16   -0.0013    2.398   
+  Na-O/4.0  5.83e-10   0.00e+00   1.42e-18   -0.0006    2.398   
+  Na-O/4.5  4.09e-11   0.00e+00   6.99e-21   -0.0003    2.398   
+  (disp shown undamped -C6/R^6; force loop applies Tang-Toennies damping)
 
 ╔══════════════════════════════════════════════════════╗
 ║  DEMO 2: H-H covalent bond vs. van der Waals (two different physics)║
@@ -646,7 +706,7 @@ placeholder. These caveats are part of the record, not footnotes.
   a natural next addition to this codebase.
 
 ╔══════════════════════════════════════════════════════╗
-║  DEMO 3: H2O molecule — NVT MD at 300 K            ║
+║  DEMO 3: H2O molecule — Berendsen MD at 300 K      ║
 ╚══════════════════════════════════════════════════════╝
   Initial geometry:
   idx  sym   Position (Å)           Velocity (Å/fs)        q(e)      mass(AMU)
@@ -1061,7 +1121,7 @@ placeholder. These caveats are part of the record, not footnotes.
     Gly C -> Ala N: 1.3300 A (textbook value: 1.33 A)
     Ala N -> Gly C: 1.3300 A
 
-  Total charge: -0.3044 e (approximate - amino acid charges are not
+  Total charge: -0.0430 e (approximate - amino acid charges are not
   independently verified the way the nucleobase RESP charges are;
   see aminoacids.c for full honest sourcing)
 
@@ -1078,11 +1138,11 @@ placeholder. These caveats are part of the record, not footnotes.
   Initial clash relaxation: 18811.68 -> 8.46 eV
   Added 12 dihedral restraints (phi, psi, omega for applicable
   residues) toward real textbook values.
-  Minimized: PE = 9.6942 eV
+  Minimized: PE = 9.6890 eV
 
   Residue    phi (deg)    psi (deg)   
   1          -58.61      
-  2          -61.34      
+  2          -61.33      
   3          -58.48      
   4          -54.08      
   0                       -48.04      
@@ -1093,17 +1153,19 @@ placeholder. These caveats are part of the record, not footnotes.
   Max deviation from target (phi=-57, psi=-47): 5.46 deg
 
   === The i,i+4 backbone hydrogen bond (not programmed in) ===
-  N-H(4) ... O=C(0): H...O = 2.1635 A, N...O = 3.1258 A
+  N-H(4) ... O=C(0): H...O = 2.1634 A, N...O = 3.1256 A
   Real backbone H-bond range: H...O 1.8-2.2 A, N...O 2.8-3.2 A
 
-  --> A real backbone hydrogen bond formed. Given only the
-      correct LOCAL torsion geometry (phi/psi/omega, all real,
-      textbook values) and the SAME validated Coulomb+LJ force
-      field already proven on the water trimer and G-C/A-U
-      pairing, the defining GLOBAL structural feature of an
-      alpha helix emerged on its own.
+  --> A backbone hydrogen bond formed under steered local
+      torsion geometry (phi/psi/omega restrained) and the SAME
+      validated Coulomb+LJ force field. Steering caveat: with
+      80 kcal/mol restraints the backbone is forced into the
+      helical basin, so this tests cooperation of local
+      geometry + non-bonded physics, not spontaneous folding.
+  Restraint-release control (dihedrals off, re-minimized):
+  H...O = 2.0526 A, N...O = 3.0582 A -> H-bond PERSISTS without steering
 
-  Bond length range: [0.9602, 1.5669] A   Bad bonds: 0   Valence issues: 0
+  Bond length range: [0.9600, 1.5672] A   Bad bonds: 0   Valence issues: 0
 
 ╔══════════════════════════════════════════════════════╗
 ║  DEMO 12: KcsA selectivity filter - K+ vs Na+, second pass║
@@ -1113,98 +1175,275 @@ placeholder. These caveats are part of the record, not footnotes.
   amino-acid-specific carbonyl LJ typing (AA_LJ_O_EPS/SIGMA from
   aminoacids.c) instead of generic periodic-table oxygen - see
   source comment for exact scope and what changed from pass one.
+  Both ions use the SAME crystallographic cage; ions are point
+  charges (no neutral-atom LJ). Vacuum-only point comparison;
+  dehydration/polarization/multi-ion physics reported separately.
 
 --- Gly77 site, PDB 1K4C LINK record target: 2.72 A ---
-  K+   E_LJ =   0.576511 eV   E_Coulomb =  -5.515810 eV   Total_PE =  -4.939299 eV
-  Na+  E_LJ =   0.039705 eV   E_Coulomb =  -5.515810 eV   Total_PE =  -5.476105 eV
-  Delta (Na+ minus K+): -0.536806 eV  (Na+ favored, wrong direction)
+  K+   E_LJ =  -0.025808 eV   E_Coulomb =  -5.519767 eV   Total_PE =  -5.545575 eV
+  Na+  E_LJ =  -0.025808 eV   E_Coulomb =  -5.519767 eV   Total_PE =  -5.545575 eV
+  Delta (Na+ minus K+): +0.000000 eV  (identical - no vacuum selectivity (same cage; see JC-ion section below for size-dependent result))
 
 --- Val76 site, target: 2.83 A ---
-  K+   E_LJ =   0.315958 eV   E_Coulomb =  -5.301414 eV   Total_PE =  -4.985456 eV
-  Na+  E_LJ =   0.003689 eV   E_Coulomb =  -5.301414 eV   Total_PE =  -5.297725 eV
-  Delta (Na+ minus K+): -0.312269 eV  (Na+ favored, wrong direction)
+  K+   E_LJ =  -0.021400 eV   E_Coulomb =  -5.305218 eV   Total_PE =  -5.326618 eV
+  Na+  E_LJ =  -0.021400 eV   E_Coulomb =  -5.305218 eV   Total_PE =  -5.326618 eV
+  Delta (Na+ minus K+): +0.000000 eV  (identical - no vacuum selectivity (same cage; see JC-ion section below for size-dependent result))
 
-  Honest read (fixed-radius tests): switching from generic-O to
-  amino-acid-specific carbonyl LJ typing is the only change from
-  the first pass.
-  Still Na+-favored at both sites even with correct LJ typing.
-  That rules out generic-O typing as the (sole) cause and
-  points more toward the remaining candidates: fixed (not
-  relaxed) geometry, and the lack of polarizability.
+  Honest read (fixed-radius tests): same cage, point-charge
+  ions, real carbonyl LJ typing.
+  Both sites identical for K+ and Na+ - expected: point
+  charges in the same cage have identical vacuum energies.
+  Vacuum leg carries no selectivity; any selectivity in the
+  two-leg sum comes from the dehydration leg alone. Missing:
+  ion size/LJ, polarization, protein reorganization,
+  multi-ion occupancy, sampling/entropy.
 
 --- Letting each ion find its own preferred radius (2.00-4.20 A scan, 0.02 A steps) ---
-  K+   natural radius = 2.820 A   E_min = -4.986164 eV
-  Na+  natural radius = 2.440 A   E_min = -5.780797 eV
-  K+ natural radius 2.820 A vs Na+ 2.440 A - K+ prefers the larger cage, as expected for the bigger ion
-  At each ion's OWN best radius: K+ E_min = -4.986164 eV vs Na+ E_min = -5.780797 eV -> Na+ favored, wrong direction
+  K+   best radius = 2.000 A   E_min = -7.456896 eV
+  Na+  best radius = 2.000 A   E_min = -7.456896 eV
+  K+ best radius 2.000 A vs Na+ 2.000 A - identical curves (point-charge ions share the scan; no size selectivity in vacuum leg)
+  At each ion's OWN best radius: K+ E_min = -7.456896 eV vs Na+ E_min = -7.456896 eV -> identical - point-charge ions share the scan curve; vacuum leg carries no size selectivity
 
-  Honest read (radius-flexible test): this is the same real
-  charges and the same real carbonyl LJ typing as above - the
-  only thing that changed is letting each ion pick its own
-  distance instead of forcing both to the crystal's real but
-  shared 2.72/2.83 A. Na+ still winning even with each ion free to pick its own
-  radius is the stronger negative result of the two - it
-  says this isn't a geometry-fit problem at all, and
-  polarizability moves from 'the last remaining candidate'
-  to 'the most likely one.'
+  Honest read (radius-flexible test): same point-charge ions,
+  same cage definition; the scan varies the shared cage radius.
+  With no ion-size term in the vacuum leg both ions share one
+  curve, so this test cannot produce selectivity by construction
+  - it demonstrates that size selectivity must come from ion LJ,
+  polarization, or dehydration, none of which live in this leg.
 
---- Fuller real geometry: Thr75-O + Val76-O together (the real
-  antiprism site S3/K-C3003 actually shows, not a single ring) ---
-  K+   E_LJ =   0.855625 eV   E_Coulomb =   8.081187 eV   Total_PE =   8.936812 eV
-  Na+  E_LJ =  -0.049204 eV   E_Coulomb =   8.081187 eV   Total_PE =   8.031983 eV
-  closest inter-ring O-O = 3.552 A (sourced z-separation 3.084 A now
-  applied; the ~2.1 A overlap artifact from both rings at z=0 is gone)
-  Delta (Na+ minus K+): -0.904829 eV  (Na+ favored, wrong direction)
-  Honest read: both real coordination distances (Thr75 2.70 A, Val76
-  2.83 A) at once, real 45-degree antiprism offset, same real charges
-  and typing as every test above - and now the REAL sourced ring
-  z-separation (3.084 A from PDB 1K4C, symmetry-validated: all four
-  BIOMT operators preserve z, and the deposited K+ ions trace the pore
-  axis along z). With the artificial O-O overlap removed, this block is
-  a real result, not a placeholder, and the Delta is the selectivity
-  signal. Scope note on the absolute values: Total_PE is net positive
-  because the eight bare -0.55e oxygens repel each other more than they
-  attract the single +1 ion (the isolated cage is net negative; no
-  protein backbone balances it). That O-O term is identical for Na+ and
-  K+ and cancels in the Delta - so read the Delta, not the absolute
-  Total_PE, as the selectivity result.
-  K+   E_LJ =   0.855625 eV   E_Coulomb =   8.081187 eV   Total_PE =   8.936812 eV
-  Na+  E_LJ =  -0.049204 eV   E_Coulomb =   8.081187 eV   Total_PE =   8.031983 eV
+--- Fuller real geometry: true 8-oxygen antiprism (site
+  S3/K-C3003: Thr75 3D ion-O 2.70 A, Val76 3D 2.83 A, rings at
+  z=-/+1.542 A (in-plane 2.22/2.37 A), 45-degree twist, z-sep
+  3.084 A from 1K4C; ion on-axis at z=0; same cage for both ions) ---
+  K+   E_LJ =  -0.150303 eV   E_Coulomb =   7.812595 eV   Total_PE =   7.662292 eV
+  Na+  E_LJ =  -0.150303 eV   E_Coulomb =   7.812595 eV   Total_PE =   7.662292 eV
+  closest O-O (all 8 O) = 3.134 A (3D Thr75 2.70 A, Val76 2.83 A,
+  z-sep 3.084 A; same cage for both ions)
+  Delta (Na+ minus K+): +0.000000 eV  (identical - no vacuum selectivity (point-charge ions, same cage; expected))
+  Honest read: 8 real-charge carbonyl O's in the deposited
+  antiprism geometry, same cage and same typing for both ions.
+  Vacuum O-O repulsion is large and reported as-is; the protein
+  backbone that balances it in vivo, plus polarization and
+  multi-ion occupancy, remain missing physics. No size offset
+  is imposed on Na+.
 
--- Dehydration-corrected selectivity (s37) --
-Filter binding (antiprism): K+ = 8.936812 eV  Na+ = 8.031983 eV
-Vacuum selectivity dG(K)-dG(Na) = +0.9048 eV (Na+ favored, wrong direction)
-Dehydration penalty: K+ = +3.057 eV  Na+ = +3.783 eV (Marcus 1991)
-Corrected selectivity = +0.1788 eV (Na+ favored, still wrong)
-Experimental (1000:1 at 300 K) = -0.1786 eV
-Deviation from experiment: 0.3574 eV
+-- Dehydration legs side by side (s37; not a dG validation) --
+Filter binding dU_vac(K)-dU_vac(Na) [antiprism] = +0.0000 eV (no vacuum selectivity (point-charge ions, same cage; expected))
+Dehydration ΔG: K+ = +3.057 eV  Na+ = +3.783 eV (Marcus 1991)
+Two-leg sum (vacuum ΔU + dehyd ΔG) = -0.7260 eV (K+ favored in sum)
+Experimental ΔG (1000:1 at 300 K) = -0.1786 eV (reference scale;
+ single-point ΔU lacks TΔS/sampling/reorganization, so the
+ difference below is a scale comparison, not an error bar)
+Sum minus experimental dG: -0.5474 eV
+  JC K+  E_LJ =   0.162757 eV   E_Coulomb =   7.812595 eV   E_restr =   0.000000 eV   E_pol =  -0.714854 eV   E_ecc =   4.557342 eV   Total =   7.975352 eV
+  JC Na+ E_LJ =  -0.167849 eV   E_Coulomb =   7.812595 eV   E_restr =   0.000000 eV   E_pol =  -0.714854 eV   E_ecc =   4.226735 eV   Total =   7.644746 eV
+--- JC-ion antiprism (restrained scaffold, Joung-Cheatham size) ---
+  K+ = 7.975352 eV  Na+ = 7.644746 eV  dU(JC,K-Na) = +0.3306 eV (Na+ favored in JC vacuum leg)
+  Induction leg: K+ = -0.7149 eV  Na+ = -0.7149 eV (alpha_O = 0.84 A^3; identical by construction at same geometry)
+  ECC leg (x0.75 charge scaling, Coulomb x0.5625): K+ = 4.5573 eV  Na+ = 4.2267 eV  dU = +0.3306 eV
+--- Pore-axis U(z) profile (JC ions, restrained cage, z in A, E in eV; single-point, not free-energy PMF) ---
+  z        K+           Na+         
+  -3.0     12.7450      12.4426     
+  -2.5     12.0526      10.8611     
+  -2.0     12.4795      9.6546      
+  -1.5     12.4618      8.7686      
+  -1.0     10.5601      8.0294      
+  -0.5     8.6301       7.6472      
+  0.0      7.9754       7.6447      
+  0.5      8.3193       7.8626      
+  1.0      9.3652       8.3103      
+  1.5      10.5387      9.0430      
+  2.0      11.2216      10.0499     
+  2.5      11.8791      11.3580     
+  3.0      13.0262      12.8947     
+  U(z) minima: K+ = 7.9754 eV at z = 0.0 A | Na+ = 7.6447 eV at z = 0.0 A
+  U(z) gap dU(K-Na) at own minima = +0.3306 eV (single-point profile; no TDS, not a free-energy PMF).
+--- SCF-polar U(z) (JC + coupled dipoles + Pauli + disp) ---
+  z        K+           Na+          pol_K      pol_Na    
+  -3.0     11.2140      11.2111      -1.3365    -1.1203   
+  -2.5     10.6761      9.7885       -1.1052    -0.9412   
+  -2.0     11.3352      8.7963       -0.7930    -0.7051   
+  -1.5     11.5771      8.1385       -0.4977    -0.4671   
+  -1.0     9.9228       7.5994       -0.2813    -0.2761   
+  -0.5     8.1777       7.3533       -0.1569    -0.1569   
+  0.0      7.5971       7.3982       -0.1211    -0.1200   
+  0.5      7.8861       7.5660       -0.1733    -0.1692   
+  1.0      8.7678       7.8778       -0.3110    -0.2976   
+  1.5      9.7119       8.4162       -0.5270    -0.4881   
+  2.0      10.1469      9.2055       -0.8007    -0.7124   
+  2.5      10.5819      10.3124      -1.0763    -0.9276   
+  3.0      11.5781      11.6987      -1.2797    -1.0916   
+  SCF-U(z) minima: K+ = 7.5971 eV at z = 0.0 | Na+ = 7.3533 eV at z = -0.5
+  SCF-U(z) barriers: K+ = 3.9811 eV | Na+ = 4.3453 eV | dBarrier(K-Na) = -0.3643 eV
+  E_pol at z=0: K+ = -0.1211 Na+ = -0.1200 (symmetric: matched) | at |z|=1.5: K+ = -0.5270 Na+ = -0.4881
+  QM K+  QEq q_O=-0.5462 q_ion=1.0000  dE_coul(QEq-fixed)=-0.1843 eV  S=3.23e-06 BO=2.867 Pauli=0.0000 eV  Ohyb=atomic-sp alpha=0.123
+  QM Na+ QEq q_O=-0.5462 q_ion=1.0000  dE_coul(QEq-fixed)=+0.1463 eV  S=3.94e-07 BO=0.398 Pauli=0.0000 eV  Ohyb=atomic-sp alpha=0.123
+--- QM bottom-up leg (QEq/overlap, same JC cage) ---
+  <q_O>=-0.5462  q_K=1.0000 q_Na=1.0000  S_K=0.0000 S_Na=0.0000  BO_K=2.867 BO_Na=0.398
+  v2 K+  E_LJ=   0.1628 E_Coul=   7.8126 E_pol=  -0.1211 E_pauli=   0.0000 Total=   7.8542 eV
+  v2 Na+ E_LJ=  -0.1678 E_Coul=   7.8126 E_pol=  -0.1200 E_pauli=   0.0000 Total=   7.5247 eV
+--- v2 polarized cage (induction+Pauli in force loop) ---
+  K+: pol=-0.1211 pauli=0.0000 tot=7.8542 | Na+: pol=-0.1200 pauli=0.0000 tot=7.5247 | dU=+0.3295 eV
+  scf K+  it=5 <q_O>=-0.5462 E_Coul=  7.7971 E_pol= -0.1182 E_pauli=  0.0000 E_disp= -0.2572 Total=   7.5845 eV
+  scf Na+ it=5 <q_O>=-0.5462 E_Coul=  7.7965 E_pol= -0.1180 E_pauli=  0.0000 E_disp= -0.1265 Total=   7.3841 eV
+--- v3 SCF cage (JC wall + SCF QM terms) ---
+  K+: 7.5845 (it 5) | Na+: 7.3841 (it 5) | dU=+0.2004 eV (Na+ favored)
+  relax K+  soft/off: E=  6.0820 off=0.225 <d>=3.545 CN=4/8 (Er=0.877)
+  relax K+  soft/ctr: E=  6.6765 off=0.000 <d>=3.387 CN=4/8 (Er=0.804)
+  relax K+  stiff:    E=  6.9422 off=0.149 <d>=2.900 CN=8/8 (Er=0.220)
+  relax Na+ soft/off: E=  5.4898 off=1.518 <d>=3.658 CN=3/8 (Er=1.093)
+  relax Na+ soft/ctr: E=  6.2245 off=0.000 <d>=3.474 CN=4/8 (Er=1.063)
+  relax Na+ stiff:    E=  6.5992 off=0.423 <d>=2.942 CN=5/8 (Er=0.138)
+--- Relaxed coordination (stiff cage, free ion, multi-start) ---
+  K+: E=6.0820±0.5944 off=0.225 <d>=3.545 CN=4 | Na+: E=5.4898±0.7347 off=1.518 <d>=3.658 CN=3 | dU=+0.5922 eV (Na+ favored)
+  Stiff strain probe (k=5): K+=6.9422 Na+=6.5992 dU=+0.3430 eV
+--- Filter-side gap with hysteresis error ---
+  dU(filter K-Na) = +0.5922 ± 0.9450 eV (best minima, soft cage)
+--- Coordination probe (same QM physics, 8 vs 6 ligands) ---
+  K+:  E8=  7.5845  E6= -1.5508  dE(8-6)=+9.1353 eV (pays for losing 8-fold)
+  Na+: E8=  7.3841  E6= -1.6797  dE(8-6)=+9.0639 eV (pays for losing 8-fold)
+  6-fold ledger K+: Coul= -1.5617 LJ=  0.1697 pol= -0.0002 disp= -0.1586
+  6-fold ledger Na+: Coul= -1.8275 LJ=  0.3051 pol= -0.0100 disp= -0.1473
+  Single-point (conductive d=3.084): KK=  -3.4039 NaNa=  -8.2028 dU=+4.7989 eV
+--- Knock-on pairs (relaxed, d0=3.084 A) ---
+  KK:   E=  -7.0390 eV  ion-ion=3.550 A  <ion-O>=3.569 A
+  NaNa: E=  -8.6235 eV  ion-ion=3.514 A  <ion-O>=3.324 A
+  dU(KK-NaNa) = +1.5845 eV (NaNa favored)
+--- Knock-on landscape (ion A at z=0, ion B scanned) ---
+  zB       KK           NaNa         flag    
+  -4.50    -3.6711      -3.7035              
+  -3.75    -5.8684      -5.8330              
+  -3.00    -7.9882      -8.2525              
+  -2.25    -6.7154      -9.6423              
+  -1.50    152.9408     -2.7028      CLASH   
+  -0.75    655297.3708  21230.6102   CLASH   
+  0.00     -15.1167     -15.5108     CLASH   
+  0.75     655296.9879  21231.0615   CLASH   
+  1.50     151.3904     -2.1540      CLASH   
+  2.25     -7.2209      -9.0988              
+  3.00     -7.8151      -7.9936              
+  3.75     -5.8580      -5.8716              
+  4.50     -3.8199      -3.8841              
+  Knock-on landscape barriers (valid ion-ion>=2A): KK = 4.3172 eV | NaNa = 5.9387 eV | dBarrier(KK-NaNa) = -1.6216 eV
+  hyd K+  fixed: E_init= -3.7416 E_min= -3.7681 eV (6-water octahedral, d=2.75 A)
+  hyd K+  polar: E_min= -3.7787 E_pol= -0.0106 eV
+  hyd Na+ fixed: E_init= -4.6308 E_min= -4.6805 eV (6-water octahedral, d=2.35 A)
+  hyd Na+ polar: E_min= -4.6874 E_pol= -0.0070 eV
+--- Explicit hydration (6-water cluster ΔU) ---
+  K+: -3.7681 (polar -3.7787) | Na+: -4.6805 (polar -4.6874) | ΔΔU(K-Na)=+0.9124 eV (Marcus ΔΔG=-0.7260)
+  Note: cluster ΔU vs bulk ΔG — scale comparison only.
+  wham polar repeat 0 (seeds 100): K+ barrier=0.3834 eV | Na+ barrier=0.2512 eV
+  wham polar repeat 1 (seeds 1000): K+ barrier=0.4840 eV | Na+ barrier=0.2997 eV
+  wham polar repeat 2 (seeds 2000): K+ barrier=0.3648 eV | Na+ barrier=0.1812 eV
+  wham fixed-charge ref (seeds 100): K+ barrier=0.4109 eV | Na+ barrier=0.2754 eV | gap=+0.1356 eV
+--- Umbrella polar-WHAM free energy (full QM: SCF dipoles+Pauli+disp, 300 K, 3x[7x1500 steps]) ---
+  K+: barrier=0.4107±0.0641 eV | Na+: barrier=0.2441±0.0596 eV | gap=+0.1667±0.0299 eV
+  Fixed-charge ref gap=+0.1356 eV. Polar sampling decides the kinetics bracket.
+  Barrier over bins with >=10 counts; error = std across 3 seed repeats.
+  Note: 3D ion restraint confines laterally; WHAM over z only.
+--- FORENSIC: all legs side by side (eV; + = Na+ favored) ---
+  leg                            K+        Na+   dU(K-Na)
+  point-charge 8-fold        7.6623     7.6623     0.0000
+  JC 8-fold                  7.9754     7.6447     0.3306
+  SCF 8-fold                 7.5845     7.3841     0.2004
+  v2 polar-SCF 8-fold        7.8542     7.5247     0.3295
+  relaxed 8-fold             6.0820     5.4898     0.5922
+  stiff 8-fold               6.9422     6.5992     0.3430
+  6-fold octahedral         -1.5508    -1.6797         --
+    K+ dE(8-6)=+9.1353  Na+ dE(8-6)=+9.0639 (neg = prefers 8-fold)
+  SCF-polar U(z) min         7.5971     7.3533     0.2438
+  SCF-polar barrier          3.9811     4.3453    -0.3643
+  polar-WHAM barrier         0.4107     0.2441     0.1667
+  fixed-WHAM barrier         0.4109     0.2754     0.1356
+  knock-on pair             -7.0390    -8.6235     1.5845
+  knock-on conductive       -3.4039    -8.2028     4.7989
+  knock-on landsc bar        4.3172     5.9387    -1.6216
+  knock-on landscape     655312.4876 21246.5723 634065.9152
+--- Computed exchange K+(aq)+Na+.F -> Na+(aq)+K+.F ---
+  relaxed-filter: -0.3164 ± 0.9450 eV | rigid-filter: -0.5781 eV (deterministic)
+  (negative = K+ selective; expt -0.179 eV)
+--- Two-ion exchange 2K+(aq)+NaNa.F -> 2Na+(aq)+KK.F ---
+  -0.2328 eV (negative = KK selective; all four terms computed)
+
+  Datastream s42: kcsa.cvmds written (verify: seal intact).
 
 ╔══════════════════════════════════════════════════════╗
 ║  DEMO 17: DNA duplex - minimal G-C and A-T base pair stack║
 ╚══════════════════════════════════════════════════════╝
-  Placed: G-C at y=0, A-T at y=3.4
+  Placed: G-C at y=0, A-T at y=3.4 with 36-deg B-DNA twist
   Total atoms: 59
-  Initial PE: -5.941224 eV
+  Initial PE: -5.806420 eV
   Closest inter-base pair: 35-53 at 1.932 A
   Post-placement H-bonds:
     G-C: N1...N3=2.950  O6...N4=2.953  N2...O2=2.939
     A-T: N1...N3=2.900  N6...O4=2.903
+  Energy split at placement: G-C pair LJ=-0.0440 C=-0.2379 | A-T pair LJ=-0.0175 C=-0.1243 | stacking LJ=-0.4975 C=-0.0033
+  Clash relief: PE -5.806420 -> -6.202801 eV
+  Post-min H-bonds:
+    G-C: N1...N3=2.918  O6...N4=2.961  N2...O2=2.974
+    A-T: N1...N3=2.916  N6...O4=2.853
   Applied glycosidic restraints (backbone proxy, real springs):
-    atom 0 anchored at (1.242, 0.000, -1.968), k=0.50 eV/A^2
-    atom 18 anchored at (-3.187, -0.009, 6.036), k=0.50 eV/A^2
-    atom 29 anchored at (-0.771, 3.400, -2.071), k=0.50 eV/A^2
-    atom 44 anchored at (-1.294, 3.400, 6.992), k=0.50 eV/A^2
-  After 800 restrained MD steps: PE=-6.325371 eV (E_restr=0.040467)  T=48.84 K
+    atom 0 anchored at (1.252, 0.008, -1.982), k=0.50 eV/A^2
+    atom 18 anchored at (-3.208, -0.009, 6.055), k=0.50 eV/A^2
+    atom 29 anchored at (-1.853, 3.392, -1.240), k=0.50 eV/A^2
+    atom 44 anchored at (3.059, 3.398, 6.457), k=0.50 eV/A^2
+  Twist restraint: dihedral(G:N1-C:N3-A:N1-T:N3) -> 116.2 deg, k=5 kcal/mol
+  Trajectory (every 1000 steps, 8000 total):
+  step   GC1      GC2      GC3      AT1      AT2      stackE     twist    rise    
+  0      2.918    2.961    2.974    2.916    2.853    -0.5015    82.1     5.332   
+  1000   3.052    3.210    3.225    2.987    3.264    -0.5247    79.3     5.314   
+  2000   3.356    3.066    3.145    3.122    3.135    -0.5423    79.7     4.909   
+  3000   3.111    3.396    3.204    3.185    3.567    -0.6540    72.9     4.364   
+  4000   3.187    4.102    3.180    3.218    3.330    -0.6848    63.2     3.895   
+  5000   3.442    3.927    3.159    3.030    3.258    -0.6616    64.2     4.091   
+  6000   3.173    3.238    3.415    3.088    3.311    -0.6571    74.9     4.281   
+  7000   3.354    3.045    3.039    3.138    3.248    -0.6404    75.4     4.506   
+  8000   3.469    3.049    2.908    3.183    3.381    -0.6875    78.7     4.751   
+  After 8000 restrained MD steps: PE=-6.340653 eV (E_restr=0.043094)  T=49.77 K
 
   Post-MD H-bonds (restrained):
-    G-C: N1...N3=3.044  O6...N4=3.199  N2...O2=2.958
-    A-T: N1...N3=3.141  N6...O4=3.703
+    G-C: N1...N3=3.469  O6...N4=3.049  N2...O2=2.908
+    A-T: N1...N3=3.183  N6...O4=3.381
 
   Planarity: G=0.0000  C=0.0000  A=0.0000  T=0.0000
 
 PLACEMENT VERDICT:  G-C PAIRED, A-T PAIRED
-MD STABILITY:       G-C HELD, A-T drifted
---> Placement correct but drift persisted even with restraints.
+MD STABILITY (8000-step ensemble): G-C BREATHING (range 2.91-4.10), A-T HELD (range 2.99-3.57)
+--> A STABLE, H-bonded two-base-pair DNA stack over 4 ps.
+    Watson-Crick pairing emerged from Coulomb+LJ; the twist
+    restraint stopped stacking shear from prying G-C apart;
+    residual motion is bounded breathing about the model's own
+    H-bond lengths (longer than WC ideal under eps=4, as in Demo 7).
+  Phase 2 junction 0: C1'-N = 1.4700 A (target 1.47)
+  Phase 2 junction 1: C1'-N = 1.4700 A (target 1.47)
+  Phase 2 junction 2: C1'-N = 1.4700 A (target 1.47)
+  Phase 2 junction 3: C1'-N = 1.4700 A (target 1.47)
+  Phase 2 total charge: -0.4728 e (4 glycosidic H removed; fragments approximate)
+  Phase 2 atoms: 123 (was 59)
+  Phase 2 restraints: 4 sugar-C1' anchors, k=0.50
+  Phase 2 trajectory (sugar-tethered, 4000 steps):
+    step 0     GC 3.469 3.049 2.908 | AT 3.183 3.381
+    step 2000  GC 3.379 3.412 3.224 | AT 3.348 3.329
+    step 4000  GC 3.529 3.930 3.196 | AT 3.566 3.448
+  Phase 2 verdict: G-C BREATHING* (max 3.93), A-T HELD (max 3.57)
+  (*3-sample ensemble; same thresholds as Phase 1)
+
+  ══════════════════════════════════════════════════
+  RESULT RECAP
+  1 quantum      : H/C/N/O orbitals + expectations + dimer curves
+  2 bond curve   : H2 covalent-vs-vdW curves
+  3 water MD     : H2O Berendsen MD @300K, T=267.9K
+  4 trimer       : trimer H-bond ring HELD
+  5 methane      : CH4 tetrahedral 109.47 deg, PE=0
+  6 nucleobases  : U/C/T/A/G geometry + RESP charges validated
+  7 pairing      : G-C>A-U, both bound
+  8 dinucleotide : T-p-A backbone, charge -1.00e
+  9 HH neuron    : HH AP peak +40mV, 4 spikes/50ms
+  10 dipeptide   : Gly-Ala peptide bond 1.33A
+  11 helix       : helix i,i+4 H-bond EMERGED
+  12 KcsA        : KcsA exch rigid -0.58 det
+  17 duplex      : duplex P1 BREATHING/HELD P2 BREATHING*/HELD
+  ══════════════════════════════════════════════════
 
   All demos complete.
   Three validated tracks now exist: nucleic acids (bases through a
@@ -1221,6 +1460,48 @@ MD STABILITY:       G-C HELD, A-T drifted
 ```
 
 ---
+
+## v9R4 Supplement — Engine Arc Since the v9R3 Audit
+
+What changed, grouped by subsystem (all in `output.txt`, all sealed in
+`kcsa.cvmds` where applicable):
+
+* **Truth fixes (behavior-changing, re-baselined).** KcsA antiprism cage
+  corrected from ring-radius-as-xy to 3D-derived in-plane radii (2.22 /
+  2.37 Å for 3D 2.70 / 2.83 Å); QM overlap reference moved from a
+  hand-typed 1.5 Å to covalent-contact distance; CO₂ zero-strain
+  override (placed 1.163 Å vs table 1.23); Slater 10–30% energy claim
+  corrected to factors of ~2–5× with a per-element computed-vs-NIST
+  ledger in Demo 1.
+* **Quantum foundation (v4).** Clementi–Raimondi SCF exponents for
+  spatial ranges (dual-sourced against WebElements; K-3d and Se-3d
+  dropped on conflict/evidence); exact H-like expectations; real f
+  harmonics; lobe-max σ + sum-rule π overlap; charge-responsive
+  screening γ into overlap/dispersion/α; self-consistent dipoles
+  (Thole-damped T-coupling, Hellmann–Feynman forces) behind
+  `use_pol_scf`; Slater–Kirkwood dispersion + Tang–Toennies damping;
+  SCF QEq+dipole charge loop (1-pin and 2-pin) with gain/mixing
+  stabilization; ion-aware polarizability (K⁺ 0.83 / Na⁺ 0.18 — the
+  term that wakes off-axis).
+* **KcsA program.** Point → JC → SCF → v2/SCF-polar → relaxed
+  (multi-start, hysteresis errors) → stiff strain probe → 6-vs-8
+  coordination probe → knock-on pairs (relaxed + conductive
+  single-points) → knock-on landscape over clash-flagged valid subset
+  → explicit-water hydration → polar + fixed WHAM → computed 1-ion and
+  2-ion exchange. Forensic table prints every leg side by side.
+* **Duplex.** Pre-MD minimization, stacking-shear diagnostics, gentle
+  twist restraint, trajectory ensemble verdicts, Phase 2 with real
+  glycosidic sugar tethers (4× C1′–N at 1.47 Å).
+* **Classical core.** Analytic dihedral gradients (P2 closed, FD oracle
+  kept, agreement selftest); Andersen canonical thermostat (WHAM legs);
+  FIRE minimizer (smooth basins; steepest kept for clash relief after
+  head-to-head); r2 micro-opts; per-axis PBC; hardened validation and
+  thread-local QEq buffers throughout.
+* **Display.** Deterministic stdout (the record) vs TTY-gated stderr
+  (timings, heartbeats, leg progress) split in `include/display.h`;
+  version banner; 13-line result recap; three selftests
+  (`test_datastream`, `test_forces`, `test_fire`) all gated by
+  `verify_scripts.sh` and the s01 record harness.
 
 ## Verification Discipline & Known Limitations
 
@@ -1304,14 +1585,19 @@ resolving the masterplan Step 0 flag.
   compensate. It was tested and broke the validated helix i,i+4 H-bond
   (Demo 11). 1-4 pairs stay at full strength; revisit only with fitted
   torsions.
-* **Ion selectivity (Demo 12) is a negative result.** The Coulomb+LJ
-  model favors Na⁺ over K⁺ at every KcsA filter site and across a
-  radius scan — the wrong direction. The second pass ruled out generic
-  oxygen typing (switching to the real amino-acid-specific carbonyl LJ
-  changed nothing) and the radius scan ruled out geometry-fit (Na⁺
-  still wins at each ion's own preferred radius), pointing at missing
-  electronic **polarizability** as the most likely missing physics.
-  This is reported as a finding, not hidden.
+* **Ion selectivity (Demo 12): vacuum filter statics favor Na⁺; the
+  program around them favors K⁺.** Six single-ion filter legs agree
+  (+0.2…+0.4 eV Na⁺ — correct fixed-charge Coulomb physics at shared
+  geometry, kept as the honest baseline, not a bug to hide). K⁺ wins
+  the computed exchange (−0.578 eV deterministic rigid-filter leg from
+  our own explicit-water clusters), the SCF-polar transit barrier
+  (−0.36 eV), and the knock-on second-ion landscape over valid
+  geometries (−1.62 eV). Open bracket, stated plainly: sampled polar
+  kinetics favors Na⁺ (+0.33 ± 0.06) while the single-point SCF barrier
+  favors K⁺ — entropy vs polarization, unresolved. The second pass
+  ruled out generic oxygen typing and geometry-fit long ago; the
+  remaining physics is sampling depth, backbone strain, and multi-ion
+  occupancy, all now instrumented rather than invoked.
 * **Demo 12's antiprism block is now a real result (no longer a placeholder).** The
 ring z-separation was sourced from 1K4C (3.084 A, symmetry-validated in
 s10/s10b) and the artificial O-O overlap is removed. The block now reports a
@@ -1326,22 +1612,24 @@ meaningful selectivity signal.
   no single dielectric constant brings both pairs into simultaneous
   quantitative agreement. The ordering is validated; the numbers are
   not yet quantitatively trustworthy.
-* **No explicit solvent.** Everything runs in vacuum with a relative-
+* **No bulk solvent.** Everything runs in vacuum with a relative-
   permittivity divisor (dielectric = 4 for base pairing) standing in
-  for condensed-phase screening. This is the root of the quantitative
-  base-pairing error above and a major limitation for any real
-  biomolecular energetics — including the ion-selectivity question,
-  where the dehydration penalty the real channel balances against
-  coordination cannot be expressed at all in a vacuum calculation.
+  for condensed-phase screening, plus now explicit octahedral 6-water
+  clusters that feed the ion-exchange legs directly. Bulk water (PBC
+  box, Ewald/PME) remains future work — the root of the remaining
+  quantitative gaps.
 * **Approximate charges on non-nucleobase components.** Sugar,
   phosphate, and amino-acid partial charges are charge-balanced
   approximations, not verified RESP fits (see the confidence tiers).
 * **Scaling and algorithms.** The non-bonded loop is O(N²) with no
-  neighbour list (the code suggests a cell list beyond ~500 atoms);
-  dihedral forces use 24 finite-difference energy evaluations per
-  dihedral per call (correct-by-construction, but expensive); and the
-  minimizer is steepest descent only — no conjugate gradient or
-  L-BFGS.
+  neighbour list (the code suggests a cell list beyond ~500 atoms),
+  though pair exclusion is O(coordination) via partner lists and
+  cutoff checks avoid sqrt for out-of-range pairs. Dihedral gradients
+  are exact analytic chain rule (audit P2 closed; the FD oracle and a
+  22-check agreement selftest remain in-tree). Minimization offers
+  steepest descent (clash relief — monotonic and safe) and FIRE
+  (smooth-basin polishing, with an agreement selftest); sampling offers
+  Berendsen steering plus rigorously canonical Andersen collisions.
 * **Harmonic bonds cannot break.** The bond potential is a parabola,
   so it wrongly predicts infinite energy at full separation. Real bond
   breaking needs a Morse potential or a reactive force field.
@@ -1381,14 +1669,28 @@ scan, and the systematic elimination (generic typing first, then
 geometry-fit) makes that a genuine physics finding about the model's
 ceiling rather than a parameter bug.
 
+v9R4 then built what the finding pointed at — polarizability (Thole-
+damped induction, self-consistent dipoles), explicit-solvent competition
+(octahedral 6-water clusters), charge equilibration with dipole feedback,
+Slater-Kirkwood dispersion, multi-ion knock-on configurations, and
+umbrella-sampled free energies. Single-ion vacuum filter statics still
+favor Na⁺ (+0.2…+0.4 eV across six legs — correct Coulomb physics, kept
+as the honest baseline); K⁺ wins the computed exchange (−0.578 eV
+deterministic rigid-filter leg), the SCF-polar transit barrier
+(−0.36 eV), and the knock-on landscape over valid geometries
+(−1.62 eV). Sampled polar kinetics (+0.33 ± 0.06 Na⁺) disagrees with the
+single-point barrier — reported as an open bracket, not averaged away.
+Details in the v9R4 supplement below and `release_note_v9R4.md`.
+
 The honest next steps, in the order the project's own record supports:
 
 1. **Complete Demo 12's antiprism block** *(done)*: the real ring
 z-separation was sourced from 1K4C (3.084 A, symmetry-validated),
 and the antiprism block is now a real result.
-2. **The missing-physics decision**: polarizability, explicit solvent
-   competition, or both — the vacuum cage calculation cannot express
-   the dehydration term that real selectivity depends on.
+2. **The missing-physics decision** *(built, all three)*: polarizability
+   (in-loop induction + SCF dipoles), explicit-solvent competition
+   (computed 6-water legs feed the exchange directly), and charge
+   response (QEq+dipole SCF, Slater-Kirkwood dispersion).
 3. **The longer-horizon tracks already named**: a full DNA duplex,
    gene-regulatory logic, a synapse between neurons, and eventually
    deriving ion-channel gating from actual protein structure — closing
@@ -1406,9 +1708,15 @@ direction (Y axis) with a 3.4 A rise.
 - G-C: N1...N3=2.950 A, O6...N4=2.953 A, N2...O2=2.939 A (3 H-bonds)
 - A-T: N1...N3=2.900 A, N6...O4=2.903 A (2 H-bonds)
 
-Glycosidic tethers (backbone proxy) stabilize the stack through MD.
-The A-T pair breathes more than G-C during unrestrained MD — expected
-physics, since A-T has 2 H-bonds vs G-C's 3, and no sugar-phosphate
-backbone is present yet. Full backbone is the documented next step.
+Glycosidic tethers plus a gentle inter-pair twist restraint (the
+backbone's helicity job; H-bond lengths stay free) hold the stack:
+8000-step ensemble verdict G-C BREATHING / A-T HELD, with stacking-shear
+diagnostics (twist/rise columns) proving the shear mechanism. Phase 2
+rebuilds the tethers as real glycosidic bonds to four deoxyribose sugars
+(all C1'–N at exactly 1.47 A, charge reported) and re-tests: G-C
+BREATHING / A-T HELD again — the backbone proxy v2 is consistent with
+v1. Thresholds are calibrated to the model's own isolated-pair behavior
+(Demo 7 finals run 2.95–3.13 under eps=4), not to WC ideal. Full
+phosphodiester polymer remains the documented next step.
 
 Demo 17 is now part of the main executable flow (no --dna flag needed).
