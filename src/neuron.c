@@ -19,13 +19,15 @@
 
 /* Numerically stable x / (1 - exp(-x)), correct in the x->0 limit
  * (where the true value is 1, by L'Hopital / Taylor expansion:
- * 1 - exp(-x) ~ x - x^2/2 for small x, so x/(1-exp(-x)) ~ 1/(1-x/2) ~ 1). */
+ * 1 - exp(-x) ~ x - x^2/2 + x^3/6 for small x, so
+ * x/(1-exp(-x)) = 1/(1-x/2+x^2/6-...) = 1 + x/2 + x^2/12 + O(x^4)). */
 static double stable_ratio(double x) {
     if (fabs(x) < 1.0e-6) {
         /* Taylor expansion near the singularity:
-         * x/(1-e^-x) = 1 + x/2 - x^2/12 + ...  NOTE the sign: the
-         * first-order correction is +x/2. (An earlier version had
-         * -x/2 here; the sign was wrong and has been corrected.) */
+         * x/(1-e^-x) = 1 + x/2 + x^2/12 + O(x^4). NOTE the signs: both
+         * corrections are positive. (An earlier version had -x/2 here;
+         * the first-order sign was wrong and has been corrected. The
+         * retained 1+x/2 truncation errs by ~x^2/12 < 1e-13 here.) */
         return 1.0 + x / 2.0;
     }
     return x / (1.0 - exp(-x));
@@ -157,5 +159,6 @@ void hh_step(HHNeuron *neuron, double dt) {
 }
 
 int hh_is_spiking(const HHNeuron *neuron, double threshold_mV) {
+    if (!neuron || !isfinite(neuron->V) || !isfinite(threshold_mV)) return 0;
     return neuron->V > threshold_mV;
 }

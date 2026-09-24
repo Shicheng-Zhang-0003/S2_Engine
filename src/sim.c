@@ -17,6 +17,12 @@
  * Lifecycle
  * ══════════════════════════════════════════════════════════════════════════ */
 Simulation *sim_create(int atom_capacity, int bond_capacity) {
+    if (atom_capacity < 1 || atom_capacity > MAX_ATOMS) return NULL;
+    if (bond_capacity < 1 || bond_capacity > MAX_BONDS) return NULL;
+    /* Overflow-checked derived caps: angle/dihedral heuristic 3x bonds.
+     * bond_capacity is bounded above so 3x cannot overflow int, but
+     * check explicitly rather than relying on the bound. */
+    if (bond_capacity > (2147483647 - 8) / 3) return NULL;
     Simulation *sim = (Simulation *)calloc(1, sizeof(Simulation));
     if (!sim) return NULL;
 
@@ -63,6 +69,14 @@ Simulation *sim_create(int atom_capacity, int bond_capacity) {
     sim->use_bonds    = 1;
     sim->use_angles   = 1;
     sim->use_dihedrals = 1;
+    sim->use_polar     = 0;   /* qm v2 opt-in: fixed-charge baseline default */
+    sim->use_pol_scf   = 0;   /* v4 opt-in */
+    sim->use_pauli     = 0;   /* qm v2 opt-in: same reason */
+    sim->use_disp      = 0;   /* v3 opt-in */
+    sim->use_scf       = 0;   /* v3 opt-in */
+    sim->scf_total_q   = 0.0;
+    sim->scf_pinned_idx = -1;
+    sim->scf_pinned_q  = 0.0;
     sim->use_switching = 0;   /* gas-phase default: no cutoff smoothing */
     sim->dielectric   = 1.0;  /* no screening by default */
 
@@ -95,7 +109,10 @@ void sim_destroy(Simulation *sim) {
  * ══════════════════════════════════════════════════════════════════════════ */
 int sim_add_ion(Simulation *sim, int Z, int formal_charge,
                 Vec3 pos, double partial_charge) {
+    if (!sim || !sim->atoms) return SIM_ERR_BADATOM;
     if (sim->num_atoms >= sim->capacity_atoms) return SIM_ERR_OVERFLOW;
+    if (!isfinite(pos.x) || !isfinite(pos.y) || !isfinite(pos.z)) return SIM_ERR_BADPARAM;
+    if (!isfinite(partial_charge)) return SIM_ERR_BADPARAM;
 
     const Element *el = pt_element(Z);
     if (!el) return SIM_ERR_BADATOM;
@@ -135,18 +152,23 @@ int sim_add_atom(Simulation *sim, int Z, Vec3 pos, double partial_charge) {
 
 int sim_add_atom_sym(Simulation *sim, const char *symbol,
                      Vec3 pos, double q) {
+    if (!sim || !symbol) return SIM_ERR_BADATOM;
     const Element *el = pt_by_symbol(symbol);
     if (!el) return SIM_ERR_BADATOM;
     return sim_add_atom(sim, el->Z, pos, q);
 }
 
 void sim_set_atom_lj(Simulation *sim, int atom_idx, double epsilon, double sigma) {
+    if (!sim) return;
     if (atom_idx < 0 || atom_idx >= sim->num_atoms) return;
+    if (!isfinite(epsilon) || !isfinite(sigma)) return;
+    if (epsilon < 0.0 || sigma < 0.0) return;
     sim->atoms[atom_idx].lj_epsilon = epsilon;
     sim->atoms[atom_idx].lj_sigma   = sigma;
 }
 
 int sim_remove_terminal_atom(Simulation *sim, int atom_idx) {
+    if (!sim || !sim->atoms || !sim->bonds) return 0;
     if (atom_idx < 0 || atom_idx >= sim->num_atoms) return 0;
     Atom *target = &sim->atoms[atom_idx];
     if (target->num_bonds != 1) return 0;  /* must be terminal */
@@ -165,12 +187,14 @@ int sim_remove_terminal_atom(Simulation *sim, int atom_idx) {
         sim->num_bonds--;
     }
 
-    /* 2. Remove any angle referencing atom_idx (it had only 1 bond, so
-     *    it can only have been the OUTER atom 'a' or 'c' of an angle,
-     *    never the central atom 'b') */
+    /* 2. Remove any angle referencing atom_idx. A healthy 1-bond atom
+     *    can only be an OUTER atom (a/c), never center b, but corrupt
+     *    topologies must not silently reindex a center reference into a
+     *    wrong atom: drop all three fields defensively. */
     int w = 0;
     for (int a = 0; a < sim->num_angles; a++) {
-        if (sim->angles[a].atom_a == atom_idx || sim->angles[a].atom_c == atom_idx)
+        if (sim->angles[a].atom_a == atom_idx || sim->angles[a].atom_b == atom_idx ||
+            sim->angles[a].atom_c == atom_idx)
             continue; /* drop this angle */
         sim->angles[w++] = sim->angles[a];
     }
@@ -253,17 +277,22 @@ int sim_remove_terminal_atom(Simulation *sim, int atom_idx) {
 }
 
 void sim_set_bond_params(Simulation *sim, int bond_idx, double r0, double k) {
+    if (!sim) return;
     if (bond_idx < 0 || bond_idx >= sim->num_bonds) return;
+    if (!isfinite(r0) || !isfinite(k)) return;
+    if (r0 <= 0.0 || k < 0.0) return;
     sim->bonds[bond_idx].r0 = r0;
     sim->bonds[bond_idx].k  = k;
 }
 
 int sim_add_angle_explicit(Simulation *sim, int a, int b, int c,
                             double theta0, double k) {
+    if (!sim) return SIM_ERR_BADATOM;
     if (a < 0 || a >= sim->num_atoms) return SIM_ERR_BADATOM;
     if (b < 0 || b >= sim->num_atoms) return SIM_ERR_BADATOM;
     if (c < 0 || c >= sim->num_atoms) return SIM_ERR_BADATOM;
     if (sim->num_angles >= sim->capacity_angles) return SIM_ERR_OVERFLOW;
+    if (!isfinite(theta0) || !isfinite(k) || k < 0.0) return SIM_ERR_BADPARAM;
 
     int idx = sim->num_angles++;
     Angle *ang = &sim->angles[idx];
@@ -277,11 +306,13 @@ int sim_add_angle_explicit(Simulation *sim, int a, int b, int c,
 
 int sim_add_dihedral(Simulation *sim, int a, int b, int c, int d,
                       double k, int n, double delta) {
+    if (!sim) return SIM_ERR_BADATOM;
     if (a < 0 || a >= sim->num_atoms) return SIM_ERR_BADATOM;
     if (b < 0 || b >= sim->num_atoms) return SIM_ERR_BADATOM;
     if (c < 0 || c >= sim->num_atoms) return SIM_ERR_BADATOM;
     if (d < 0 || d >= sim->num_atoms) return SIM_ERR_BADATOM;
     if (sim->num_dihedrals >= sim->capacity_dihedrals) return SIM_ERR_OVERFLOW;
+    if (!isfinite(k) || !isfinite(delta)) return SIM_ERR_BADPARAM;
 
     int idx = sim->num_dihedrals++;
     Dihedral *dh = &sim->dihedrals[idx];
@@ -296,8 +327,10 @@ int sim_add_dihedral(Simulation *sim, int a, int b, int c, int d,
 }
 
 int sim_add_restraint(Simulation *sim, int atom_idx, Vec3 anchor, double k) {
+    if (!sim) return SIM_ERR_BADATOM;
     if (atom_idx < 0 || atom_idx >= sim->num_atoms) return SIM_ERR_BADATOM;
-    if (k < 0.0) return SIM_ERR_BADPARAM;
+    if (!(k >= 0.0) || !isfinite(k)) return SIM_ERR_BADPARAM; /* rejects neg + NaN */
+    if (!isfinite(anchor.x) || !isfinite(anchor.y) || !isfinite(anchor.z)) return SIM_ERR_BADPARAM;
     if (sim->num_restraints >= sim->capacity_restraints) return SIM_ERR_OVERFLOW;
 
     int idx = sim->num_restraints++;
@@ -308,16 +341,31 @@ int sim_add_restraint(Simulation *sim, int atom_idx, Vec3 anchor, double k) {
 }
 
 void sim_clear_restraints(Simulation *sim) {
+    if (!sim) return;
     sim->num_restraints = 0;
+}
+
+void sim_clear_dihedrals(Simulation *sim) {
+    if (!sim) return;
+    sim->num_dihedrals = 0;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Bond management
  * ══════════════════════════════════════════════════════════════════════════ */
 int sim_add_bond(Simulation *sim, int ia, int ib, int order) {
+    if (!sim || !sim->bonds || !sim->atoms) return SIM_ERR_BADATOM;
     if (ia < 0 || ia >= sim->num_atoms) return SIM_ERR_BADATOM;
     if (ib < 0 || ib >= sim->num_atoms) return SIM_ERR_BADATOM;
+    if (ia == ib) return SIM_ERR_BADBOND;
+    if (order < 0 || order > 3) return SIM_ERR_BADPARAM;
     if (sim->num_bonds >= sim->capacity_bonds) return SIM_ERR_OVERFLOW;
+    /* Duplicate-bond guard: topology must stay simple. */
+    for (int b = 0; b < sim->num_bonds; b++) {
+        if ((sim->bonds[b].atom_a == ia && sim->bonds[b].atom_b == ib) ||
+            (sim->bonds[b].atom_a == ib && sim->bonds[b].atom_b == ia))
+            return SIM_ERR_BADBOND;
+    }
 
     int idx = sim->num_bonds++;
     Bond *b = &sim->bonds[idx];
@@ -333,19 +381,21 @@ int sim_add_bond(Simulation *sim, int ia, int ib, int order) {
     b->k  = bp.k;
 
 
-    /* Update atom bond lists */
+    /* Update atom bond lists. If either endpoint's partner list is full,
+     * roll back the Bond so topology (bonds[] vs partners[]) cannot
+     * diverge silently. */
     Atom *a = &sim->atoms[ia];
     Atom *c = &sim->atoms[ib];
-    if (a->num_bonds < MAX_BONDS_PER_ATOM) {
-        a->bond_partners[a->num_bonds]  = ib;
-        a->bond_orders  [a->num_bonds]  = order;
-        a->num_bonds++;
+    if (a->num_bonds >= MAX_BONDS_PER_ATOM || c->num_bonds >= MAX_BONDS_PER_ATOM) {
+        sim->num_bonds--;
+        return SIM_ERR_OVERFLOW;
     }
-    if (c->num_bonds < MAX_BONDS_PER_ATOM) {
-        c->bond_partners[c->num_bonds]  = ia;
-        c->bond_orders  [c->num_bonds]  = order;
-        c->num_bonds++;
-    }
+    a->bond_partners[a->num_bonds]  = ib;
+    a->bond_orders  [a->num_bonds]  = order;
+    a->num_bonds++;
+    c->bond_partners[c->num_bonds]  = ia;
+    c->bond_orders  [c->num_bonds]  = order;
+    c->num_bonds++;
 
     return idx;
 }
@@ -353,18 +403,22 @@ int sim_add_bond(Simulation *sim, int ia, int ib, int order) {
 /* ══════════════════════════════════════════════════════════════════════════
  * Auto-detect bonds from distances
  * ══════════════════════════════════════════════════════════════════════════ */
-void sim_detect_bonds(Simulation *sim) {
+int sim_detect_bonds(Simulation *sim) {
+    if (!sim) return SIM_ERR_BADATOM;
     int N = sim->num_atoms;
+    int added = 0;
 
     for (int i = 0; i < N - 1; i++) {
         for (int j = i + 1; j < N; j++) {
             const Element *ei = sim->atoms[i].element;
             const Element *ej = sim->atoms[j].element;
+            if (!ei || !ej) continue;
 
             double r_cov_sum = ei->covalent_radius + ej->covalent_radius;
             double r_max     = BOND_TOLERANCE * r_cov_sum;
             double r         = vec3_dist(sim->atoms[i].position,
                                           sim->atoms[j].position);
+            if (!isfinite(r)) continue;
 
             if (r < r_max) {
                 /* Estimate bond order from distance ratio */
@@ -373,17 +427,21 @@ void sim_detect_bonds(Simulation *sim) {
                 if (ratio < 0.78) order = 3;
                 else if (ratio < 0.87) order = 2;
 
-                sim_add_bond(sim, i, j, order);
+                int rc = sim_add_bond(sim, i, j, order);
+                if (rc >= 0) added++;
+                else if (rc == SIM_ERR_OVERFLOW) return added;
             }
         }
     }
+    return added;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Build angle list from bond topology
  * For each atom b, for every pair of bonds (a-b) and (b-c): add angle a-b-c
  * ══════════════════════════════════════════════════════════════════════════ */
-void sim_rebuild_angles(Simulation *sim) {
+int sim_rebuild_angles(Simulation *sim) {
+    if (!sim) return SIM_ERR_BADATOM;
     sim->num_angles = 0;
 
     for (int b_idx = 0; b_idx < sim->num_atoms; b_idx++) {
@@ -391,7 +449,7 @@ void sim_rebuild_angles(Simulation *sim) {
         /* Enumerate all pairs of neighbours of b */
         for (int p = 0; p < b->num_bonds - 1; p++) {
             for (int q = p + 1; q < b->num_bonds; q++) {
-                if (sim->num_angles >= sim->capacity_angles) return;
+                if (sim->num_angles >= sim->capacity_angles) return sim->num_angles;
 
                 int ia = b->bond_partners[p];
                 int ic = b->bond_partners[q];
@@ -410,6 +468,7 @@ void sim_rebuild_angles(Simulation *sim) {
             }
         }
     }
+    return sim->num_angles;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -417,14 +476,16 @@ void sim_rebuild_angles(Simulation *sim) {
  * (rather than the generic element-keyed table) - for ring systems where
  * the seed positions already encode the correct, context-specific angle.
  * ══════════════════════════════════════════════════════════════════════════ */
-void sim_rebuild_angles_geometric(Simulation *sim, double k_default) {
+int sim_rebuild_angles_geometric(Simulation *sim, double k_default) {
+    if (!sim) return SIM_ERR_BADATOM;
+    if (!isfinite(k_default) || k_default < 0.0) return SIM_ERR_BADPARAM;
     sim->num_angles = 0;
 
     for (int b_idx = 0; b_idx < sim->num_atoms; b_idx++) {
         Atom *b = &sim->atoms[b_idx];
         for (int p = 0; p < b->num_bonds - 1; p++) {
             for (int q = p + 1; q < b->num_bonds; q++) {
-                if (sim->num_angles >= sim->capacity_angles) return;
+                if (sim->num_angles >= sim->capacity_angles) return sim->num_angles;
 
                 int ia = b->bond_partners[p];
                 int ic = b->bond_partners[q];
@@ -442,18 +503,24 @@ void sim_rebuild_angles_geometric(Simulation *sim, double k_default) {
             }
         }
     }
+    return sim->num_angles;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
  * PBC helpers
  * ══════════════════════════════════════════════════════════════════════════ */
 void sim_set_box(Simulation *sim, double lx, double ly, double lz) {
+    if (!sim) return;
+    if (!isfinite(lx) || !isfinite(ly) || !isfinite(lz)) return;
+    if (lx <= 0.0 || ly <= 0.0 || lz <= 0.0) return;
     sim->box.dimensions = vec3(lx, ly, lz);
     sim->box.periodic[0] = sim->box.periodic[1] = sim->box.periodic[2] = 1;
 }
 
 void sim_wrap_positions(Simulation *sim) {
+    if (!sim) return;
     Vec3 L = sim->box.dimensions;
+    if (!(L.x > 1e-12) || !(L.y > 1e-12) || !(L.z > 1e-12)) return;
     for (int i = 0; i < sim->num_atoms; i++) {
         Vec3 *p = &sim->atoms[i].position;
         if (sim->box.periodic[0]) {
@@ -641,12 +708,18 @@ int sim_place_ch4(Simulation *sim, Vec3 origin) {
 int sim_place_co2(Simulation *sim, Vec3 origin) {
     double rCO = 1.163;
     int first = sim->num_atoms;
-    sim_add_atom(sim, 8, vec3(origin.x - rCO, origin.y, origin.z), -0.35);
-    sim_add_atom(sim, 6, vec3(origin.x,        origin.y, origin.z), +0.70);
-    sim_add_atom(sim, 8, vec3(origin.x + rCO, origin.y, origin.z), -0.35);
+    if (sim_add_atom(sim, 8, vec3(origin.x - rCO, origin.y, origin.z), -0.35) < 0) return SIM_ERR_OVERFLOW;
+    if (sim_add_atom(sim, 6, vec3(origin.x,        origin.y, origin.z), +0.70) < 0) return SIM_ERR_OVERFLOW;
+    if (sim_add_atom(sim, 8, vec3(origin.x + rCO, origin.y, origin.z), -0.35) < 0) return SIM_ERR_OVERFLOW;
 
-    sim_add_bond(sim, first,   first+1, 2);  /* O=C */
-    sim_add_bond(sim, first+1, first+2, 2);  /* C=O */
+    int b0 = sim_add_bond(sim, first,   first+1, 2);  /* O=C */
+    int b1 = sim_add_bond(sim, first+1, first+2, 2);  /* C=O */
+    /* Zero-strain override: placed r(C=O)=1.163 A (experimental) differs
+     * from BOND_TABLE's 1.23 A reference. Without this the molecule
+     * carries 0.5*51.4*(0.067)^2 ~= 0.115 eV spurious strain, breaking
+     * the codebase's zero-initial-strain rule for constructors. */
+    if (b0 >= 0) sim_set_bond_params(sim, b0, rCO, sim->bonds[b0].k);
+    if (b1 >= 0) sim_set_bond_params(sim, b1, rCO, sim->bonds[b1].k);
     /* Geometric builder, NOT sim_rebuild_angles: the element-keyed angle
      * table's O-C-O entry is parameterised for BENT carboxylate groups
      * (theta0=123 deg, sp2 carbon) and would incorrectly be applied here

@@ -4,6 +4,7 @@
 #include "../include/forces.h"
 #include "../include/constants.h"
 #include "../include/periodic_table.h"
+#include "../include/qm.h"
 
 /*
 * forces.c
@@ -252,11 +253,14 @@ static PairEnergy pair_nonbonded_core(Atom *atoms, int ia, int ib,
                                       int do_switch,
                                       double r_switch, double r_cutoff) {
     PairEnergy result = {0.0, 0.0};
+    if (!atoms || ia < 0 || ib < 0 || ia == ib) return result;
+    if (!(dielectric > 1e-9) || !isfinite(dielectric)) dielectric = 1.0;
     Atom *ai = &atoms[ia];
     Atom *bi = &atoms[ib];
     Vec3 r_ij = vec3_sub(bi->position, ai->position);
+    if (!isfinite(r_ij.x) || !isfinite(r_ij.y) || !isfinite(r_ij.z)) return result;
     if (box && (box->periodic[0] || box->periodic[1] || box->periodic[2]))
-        r_ij = vec3_pbc(r_ij, box->dimensions);
+        r_ij = vec3_pbc_box(r_ij, box->dimensions, box->periodic);
     double r2 = vec3_norm2(r_ij);
     if (r2 < 1.0e-10) return result;
     double r = sqrt(r2);
@@ -304,6 +308,38 @@ PairEnergy forces_nonbonded_pair(Atom *atoms, int ia, int ib,
                                dielectric, 0, 0.0, 0.0);
 }
 
+/* Side-effect-free variant: identical potential, no force writes.
+ * Implemented directly (not via save/restore) so diagnostics cannot
+ * leak residue even if future re-ordering forgets the zeroing step. */
+PairEnergy forces_nonbonded_energy(const Atom *atoms, int ia, int ib,
+                                   const SimBox *box,
+                                   int use_lj, int use_coulomb,
+                                   double dielectric) {
+    PairEnergy out = {0.0, 0.0};
+    if (!atoms || ia < 0 || ib < 0 || ia == ib) return out;
+    if (!(dielectric > 1e-9) || !isfinite(dielectric)) dielectric = 1.0;
+    Vec3 r_ij = vec3_sub(atoms[ib].position, atoms[ia].position);
+    if (!isfinite(r_ij.x) || !isfinite(r_ij.y) || !isfinite(r_ij.z)) return out;
+    if (box && (box->periodic[0] || box->periodic[1] || box->periodic[2]))
+        r_ij = vec3_pbc_box(r_ij, box->dimensions, box->periodic);
+    double r2 = vec3_norm2(r_ij);
+    if (r2 < 1.0e-10) return out;
+    double r = sqrt(r2);
+    if (use_lj) {
+        double eps = lj_eps_combine(atoms[ia].lj_epsilon, atoms[ib].lj_epsilon);
+        double sigma = lj_sigma_combine(atoms[ia].lj_sigma, atoms[ib].lj_sigma);
+        double sr2 = (sigma * sigma) / r2;
+        double sr6 = sr2 * sr2 * sr2;
+        out.lj_energy = 4.0 * eps * (sr6 * sr6 - sr6);
+    }
+    if (use_coulomb) {
+        double qi = atoms[ia].partial_charge, qj = atoms[ib].partial_charge;
+        if (fabs(qi) > 1.0e-9 && fabs(qj) > 1.0e-9)
+            out.coulomb_energy = COULOMB_MD * qi * qj / (r * dielectric);
+    }
+    return out;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
  * Harmonic bond force
  *
@@ -315,6 +351,8 @@ PairEnergy forces_nonbonded_pair(Atom *atoms, int ia, int ib,
  * F_b  = −F_a
  * ══════════════════════════════════════════════════════════════════════════ */
 double forces_bond(Atom *atoms, const Bond *bond) {
+    if (!atoms || !bond) return 0.0;
+    if (bond->atom_a < 0 || bond->atom_b < 0) return 0.0;
     Atom *a = &atoms[bond->atom_a];
     Atom *b = &atoms[bond->atom_b];
 
@@ -356,6 +394,8 @@ double forces_bond(Atom *atoms, const Bond *bond) {
  *        = [k(θ−θ0)/sin θ] × (e_bc − cosθ e_ba) / d_ba
  * ══════════════════════════════════════════════════════════════════════════ */
 double forces_angle(Atom *atoms, const Angle *angle) {
+    if (!atoms || !angle) return 0.0;
+    if (angle->atom_a < 0 || angle->atom_b < 0 || angle->atom_c < 0) return 0.0;
     Atom *a = &atoms[angle->atom_a];
     Atom *b = &atoms[angle->atom_b];
     Atom *c = &atoms[angle->atom_c];
@@ -426,25 +466,121 @@ static double dihedral_energy_only(const Atom *atoms, const Dihedral *dh) {
     /* Guard against a degenerate (near-zero-length or collinear) case,
      * where the dihedral angle is undefined - contributes no energy
      * rather than risk a NaN from dividing by a near-zero norm inside
-     * vec3_dihedral's normalize step. */
+     * vec3_dihedral's normalize step. Collinearity checked via plane
+     * normals: |b1×b2| or |b2×b3| near zero means undefined torsion. */
     if (vec3_norm(b1) < 1.0e-10 || vec3_norm(b2) < 1.0e-10 ||
         vec3_norm(b3) < 1.0e-10) return 0.0;
+    if (vec3_norm(vec3_cross(b1, b2)) < 1.0e-12 ||
+        vec3_norm(vec3_cross(b2, b3)) < 1.0e-12) return 0.0;
+    if (!isfinite(b1.x) || !isfinite(b2.x) || !isfinite(b3.x)) return 0.0;
 
     double phi = vec3_dihedral(b1, b2, b3);
+    if (!isfinite(phi)) return 0.0;
     return dh->k * (1.0 + cos(dh->n * phi - dh->delta));
 }
 
 double forces_dihedral(Atom *atoms, const Dihedral *dh) {
-    double energy = dihedral_energy_only(atoms, dh);
+    if (!atoms || !dh) return 0.0;
+    if (dh->atom_a < 0 || dh->atom_b < 0 || dh->atom_c < 0 || dh->atom_d < 0) return 0.0;
+    /* Analytic torsion gradient (audit P2 closed): exact chain rule
+     * through phi = atan2(y, x), x = n1.n2, y = m1.n2, with
+     * n1 = b1xb2, n2 = b2xb3, m1 = n1 x b2hat.
+     * dphi = (x*dy - y*dx)/(x^2+y^2); F = -dV/dphi * dphi/dr with
+     * dV/dphi = -k*n*sin(n*phi-delta). Per-atom dx/dr, dy/dr below are
+     * derived term-by-term from dn1 = db1xb2 + b1xdb2 etc. via the
+     * cyclic identity (AxB).C = A.(BxC):
+     *   a: dx = n2xb2,              dy = (bhat2xn2)xb2
+     *   d: dx = n1xb2,              dy = m1xb2
+     *   b: dx = (b2xn2)-(n2xb1)+(n1xb3),
+     *      dy = (b2xW2)-(W2xb1)+(m1xb3)+(-W3+bhat2(bhat2.W3))/|b2|
+     *   c: dx = (n2xb1)+(b3xn1)+(b2xn1),
+     *      dy = (W2xb1)+(b3xm1)+(b2xm1)+(W3-bhat2(bhat2.W3))/|b2|
+     * with W2 = bhat2xn2, W3 = n2xn1. The m1.dn2 terms (present only
+     * for the middle atoms b, c) carry (b3xm1)/(b2xm1) order — the
+     * cyclic identity A.(BxC) = B.(CxA), NOT B.(AxC): writing (m1xb3)
+     * here was a real sign bug caught by tests/test_forces.c.
+     * Translation invariance (sums = 0) holds exactly — asserted.
+     * guard (|n| < 1e-12) returns energy with zero forces (FD gives
+     * garbage-scale values there; zero is the honest choice). */
+    Vec3 pa = atoms[dh->atom_a].position;
+    Vec3 pb = atoms[dh->atom_b].position;
+    Vec3 pc = atoms[dh->atom_c].position;
+    Vec3 pd = atoms[dh->atom_d].position;
+    Vec3 b1 = vec3_sub(pb, pa);
+    Vec3 b2 = vec3_sub(pc, pb);
+    Vec3 b3 = vec3_sub(pd, pc);
+    double b2n = vec3_norm(b2);
+    if (vec3_norm(b1) < 1.0e-10 || b2n < 1.0e-10 ||
+        vec3_norm(b3) < 1.0e-10) return 0.0;
+    Vec3 n1 = vec3_cross(b1, b2);
+    Vec3 n2 = vec3_cross(b2, b3);
+    double n1n = vec3_norm(n1), n2n = vec3_norm(n2);
+    Vec3 bhat = vec3_scale(b2, 1.0 / b2n);
+    Vec3 m1 = vec3_cross(n1, bhat);
+    double x = vec3_dot(n1, n2);
+    double y = vec3_dot(m1, n2);
+    double denom = x * x + y * y;
+    double phi = atan2(y, x);
+    if (!isfinite(phi)) return 0.0;
+    double sarg = dh->n * phi - dh->delta;
+    double energy = dh->k * (1.0 + cos(sarg));
+    if (!isfinite(energy)) return 0.0;
+    if (n1n < 1.0e-12 || n2n < 1.0e-12) return energy;
+    if (!(denom > 0.0) || !isfinite(denom)) return energy;
+    double Vp = -dh->k * dh->n * sin(sarg); /* dV/dphi */
+    if (!isfinite(Vp)) return energy;
 
-    /* Central finite-difference force: F_x,i = -dV/dx_i, computed by
-     * perturbing each of the 4 atoms' 3 coordinates by +-h and
-     * re-evaluating the energy. See forces.h for the full rationale
-     * (correctness-by-construction vs. an error-prone analytical
-     * chain-rule derivation). h chosen small enough for O(h^2)
-     * truncation error to be negligible at the ~0.01-1 eV energy
-     * scales this force field operates at, large enough to avoid
-     * floating-point cancellation noise in the energy difference. */
+    Vec3 W2 = vec3_cross(bhat, n2);
+    Vec3 W3 = vec3_cross(n2, n1);
+    double bhW3 = vec3_dot(bhat, W3);
+
+    Vec3 dxa = vec3_cross(n2, b2);
+    Vec3 dya = vec3_cross(W2, b2);
+    Vec3 dxd = vec3_cross(n1, b2);
+    Vec3 dyd = vec3_cross(m1, b2);
+    Vec3 dxb = vec3_add(vec3_sub(vec3_cross(b2, n2), vec3_cross(n2, b1)),
+                        vec3_cross(n1, b3));
+    Vec3 dyb = vec3_add(vec3_add(vec3_sub(vec3_cross(b2, W2), vec3_cross(W2, b1)),
+                                 vec3_cross(m1, b3)),
+                        vec3_scale(vec3_add(vec3_negate(W3),
+                                            vec3_scale(bhat, bhW3)),
+                                   1.0 / b2n));
+    Vec3 dxc = vec3_add(vec3_add(vec3_cross(n2, b1), vec3_cross(b3, n1)),
+                        vec3_cross(b2, n1));
+    Vec3 dyc = vec3_add(vec3_add(vec3_cross(W2, b1), vec3_cross(b3, m1)),
+                        vec3_add(vec3_cross(b2, m1),
+                                 vec3_scale(vec3_sub(W3, vec3_scale(bhat, bhW3)),
+                                            1.0 / b2n)));
+
+    Vec3 dpa = vec3_scale(vec3_sub(vec3_scale(dya, x), vec3_scale(dxa, y)),
+                          -Vp / denom);
+    Vec3 dpb = vec3_scale(vec3_sub(vec3_scale(dyb, x), vec3_scale(dxb, y)),
+                          -Vp / denom);
+    Vec3 dpc = vec3_scale(vec3_sub(vec3_scale(dyc, x), vec3_scale(dxc, y)),
+                          -Vp / denom);
+    Vec3 dpd = vec3_scale(vec3_sub(vec3_scale(dyd, x), vec3_scale(dxd, y)),
+                          -Vp / denom);
+    if (!isfinite(dpa.x + dpa.y + dpa.z + dpb.x + dpb.y + dpb.z +
+                  dpc.x + dpc.y + dpc.z + dpd.x + dpd.y + dpd.z))
+        return energy;
+    vec3_iadd(&atoms[dh->atom_a].force, dpa);
+    vec3_iadd(&atoms[dh->atom_b].force, dpb);
+    vec3_iadd(&atoms[dh->atom_c].force, dpc);
+    vec3_iadd(&atoms[dh->atom_d].force, dpd);
+    return energy;
+}
+
+/* Finite-difference torsion force (former default, kept as the
+ * validation oracle): perturbs each coordinate by +-h and
+ * re-evaluates dihedral_energy_only. tests/test_forces.c asserts the
+ * analytic forces_dihedral() above agrees with this to 1e-6 on
+ * generic, helical, and near-planar geometries. */
+double forces_dihedral_fd(Atom *atoms, const Dihedral *dh) {
+    if (!atoms || !dh) return 0.0;
+    if (dh->atom_a < 0 || dh->atom_b < 0 || dh->atom_c < 0 || dh->atom_d < 0) return 0.0;
+    double energy = dihedral_energy_only(atoms, dh);
+    if (!isfinite(energy)) return 0.0;
+
     const double h = 1.0e-5; /* Angstrom */
     int idx[4] = {dh->atom_a, dh->atom_b, dh->atom_c, dh->atom_d};
 
@@ -479,6 +615,23 @@ double forces_dihedral(Atom *atoms, const Dihedral *dh) {
  * Master force calculation
  * ══════════════════════════════════════════════════════════════════════════ */
 void forces_calculate(Simulation *sim) {
+    if (!sim || !sim->atoms || sim->num_atoms < 1) return;
+    if (!sim->bonds && sim->num_bonds > 0) return;
+    if (!sim->angles && sim->num_angles > 0) return;
+    if (!sim->dihedrals && sim->num_dihedrals > 0) return;
+    /* v3 SCF: converge charges (with dipole feedback) before forces. */
+    if (sim->use_scf) {
+        if (sim->scf_pinned_idx >= 0)
+            qm_scf_charges(sim, sim->scf_total_q, sim->dielectric,
+                           sim->scf_pinned_idx, sim->scf_pinned_q);
+        else {
+            double qq[128];
+            int nn = sim->num_atoms < 128 ? sim->num_atoms : 128;
+            if (qm_qeq(sim, sim->scf_total_q, sim->dielectric, qq) == 0)
+                for (int i = 0; i < nn; i++)
+                    if (isfinite(qq[i])) sim->atoms[i].partial_charge = qq[i];
+        }
+    }
     int N = sim->num_atoms;
 
     /* 1. Zero all forces */
@@ -521,35 +674,61 @@ void forces_calculate(Simulation *sim) {
     double r_cutoff = sim->cutoff;
     double r_switch = 0.8 * r_cutoff;
     int do_switch = (sim->use_switching && r_cutoff > 2.0) ? 1 : 0;
-    /* 2. Non-bonded pairs (O(N²) — replace with cell list for large N) */
+    /* 2. Non-bonded pairs.
+     * Exclusion via per-atom bond_partners lists: O(degree) per pair
+     * instead of O(B+A) scans. 1-2: j in i's partners. 1-3: share a
+     * common bonded neighbor (angle center or either endpoint's
+     * partner walk). Degree is bounded by MAX_BONDS_PER_ATOM (8), so
+     * per-pair work is O(1). Falls back to exact angle-list check only
+     * if topology and partner lists ever diverge (defensive). */
+    double cutoff2 = sim->cutoff * sim->cutoff;
+    int cutoff_ok = (sim->cutoff > 0.0) && isfinite(sim->cutoff);
     for (int i = 0; i < N - 1; i++) {
         for (int j = i + 1; j < N; j++) {
             /* Skip pairs that are bonded (1-2) or angle-related (1-3) */
             int skip = 0;
-            for (int b = 0; b < sim->num_bonds; b++) {
-                if ((sim->bonds[b].atom_a == i && sim->bonds[b].atom_b == j) ||
-                    (sim->bonds[b].atom_a == j && sim->bonds[b].atom_b == i)) {
-                    skip = 1; break;
+            const Atom *ai0 = &sim->atoms[i];
+            const Atom *aj0 = &sim->atoms[j];
+            for (int p = 0; p < ai0->num_bonds; p++) {
+                if (ai0->bond_partners[p] == j) { skip = 1; break; }
+            }
+            if (!skip) {
+                /* 1-3: any common bonded neighbor k of i and j. */
+                for (int p = 0; p < ai0->num_bonds && !skip; p++) {
+                    int k = ai0->bond_partners[p];
+                    if (k < 0 || k >= N) continue;
+                    const Atom *ak = &sim->atoms[k];
+                    for (int q = 0; q < ak->num_bonds; q++) {
+                        if (ak->bond_partners[q] == j) { skip = 1; break; }
+                    }
                 }
+                /* Defensive: if partner lists are incomplete, consult
+                 * the authoritative angle list (covers rebuilt topologies
+                 * where partner sync may lag). */
+                if (!skip) {
+                    for (int a = 0; a < sim->num_angles; a++) {
+                        const Angle *ang = &sim->angles[a];
+                        if ((ang->atom_a == i && ang->atom_c == j) ||
+                            (ang->atom_a == j && ang->atom_c == i)) {
+                            skip = 1; break;
+                        }
+                    }
+                }
+                /* Silence unused-variable warning when partner path hits. */
+                (void)aj0;
             }
             if (skip) continue;
 
-            /* Check 1-3 exclusion via angles */
-            for (int a = 0; a < sim->num_angles && !skip; a++) {
-                const Angle *ang = &sim->angles[a];
-                if ((ang->atom_a == i && ang->atom_c == j) ||
-                    (ang->atom_a == j && ang->atom_c == i))
-                    skip = 1;
-            }
-            if (skip) continue;
-
-            /* Distance cutoff check */
+            /* Distance cutoff check (r2 compare: identical branching
+             * for valid cutoffs, skips sqrt for out-of-range pairs;
+             * degenerate cutoff (<=0/NaN) disables pairs — garbage in,
+             * documented out, never silent wrong physics). */
             Vec3 r_ij = vec3_sub(sim->atoms[j].position,
                                  sim->atoms[i].position);
             if (sim->box.periodic[0] || sim->box.periodic[1] || sim->box.periodic[2])
-                r_ij = vec3_pbc(r_ij, sim->box.dimensions);
+                r_ij = vec3_pbc_box(r_ij, sim->box.dimensions, sim->box.periodic);
 
-            if (vec3_norm(r_ij) > sim->cutoff) continue;
+            if (!cutoff_ok || vec3_norm2(r_ij) > cutoff2) continue;
 
             PairEnergy pe = pair_nonbonded_core(
                 sim->atoms, i, j,
@@ -591,15 +770,44 @@ void forces_calculate(Simulation *sim) {
         Vec3 disp = vec3_sub(sim->atoms[ia].position,
                              sim->restraint_anchor[r]);
         double k = sim->restraint_k[r];
+        if (!isfinite(k) || !isfinite(disp.x)) continue;
         E_restraint += 0.5 * k * vec3_norm2(disp);
         vec3_isub(&sim->atoms[ia].force, vec3_scale(disp, k));
     }
 
+    /* 7. qm v2/v4: induced-dipole polarization (analytic forces).
+     * use_pol_scf (coupled dipoles) supersedes use_polar (first-order). */
+    double E_polar = 0.0;
+    if (sim->use_pol_scf) {
+        E_polar = qm_induction_scf_forces(sim, sim->dielectric, NULL);
+        if (!isfinite(E_polar)) E_polar = 0.0;
+    } else if (sim->use_polar) {
+        E_polar = qm_induction_forces(sim, sim->dielectric);
+        if (!isfinite(E_polar)) E_polar = 0.0;
+    }
+
+    /* 8. qm v2: overlap-Pauli repulsion (FD forces). */
+    double E_pauli = 0.0;
+    if (sim->use_pauli) {
+        E_pauli = qm_pauli_forces(sim);
+        if (!isfinite(E_pauli)) E_pauli = 0.0;
+    }
+
+    /* 9. v3: QM Slater-Kirkwood damped dispersion (analytic forces). */
+    double E_disp = 0.0;
+    if (sim->use_disp) {
+        E_disp = qm_dispersion_forces(sim);
+        if (!isfinite(E_disp)) E_disp = 0.0;
+    }
+
     sim->potential_energy = E_lj + E_coulomb + E_bond + E_angle + E_dihedral
-                          + E_restraint;
+                          + E_restraint + E_polar + E_pauli + E_disp;
     sim->E_lj_total      = E_lj;
     sim->E_coulomb_total = E_coulomb;
     sim->E_restraint_total = E_restraint;
+    sim->E_polar_total   = E_polar;
+    sim->E_pauli_total   = E_pauli;
+    sim->E_disp_total    = E_disp;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

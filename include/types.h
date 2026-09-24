@@ -202,7 +202,8 @@ typedef struct {
 
 typedef enum {
     THERMOSTAT_NONE      = 0,
-    THERMOSTAT_BERENDSEN = 1    /* simple velocity rescaling                 */
+    THERMOSTAT_BERENDSEN = 1,   /* simple velocity rescaling (steering, not NVT) */
+    THERMOSTAT_ANDERSEN  = 2    /* stochastic collisions: rigorously canonical  */
     /* THERMOSTAT_NOSE_HOOVER was removed by audit fix S3: it was declared
      * but never implemented, so selecting it would have silently run NVE
      * with no thermostat at all. Nosé-Hoover is real future work; re-add
@@ -213,6 +214,9 @@ typedef struct {
     ThermostatType type;
     double target_temperature; /* K                                          */
     double tau;                /* coupling time constant, fs                 */
+    double nu;                 /* Andersen collision frequency, 1/fs (rate   *
+                                * per atom; prob per step = 1-exp(-nu*dt)).  *
+                                * Ignored by Berendsen.                     */
     /* xi (Nosé-Hoover friction variable) and Q (Nosé-Hoover mass
      * parameter) were removed by audit fix S3 together with
      * THERMOSTAT_NOSE_HOOVER: they were declared but never used by any
@@ -284,6 +288,9 @@ typedef struct {
     double   E_lj_total;        /* eV - LJ component of potential_energy     */
     double   E_coulomb_total;   /* eV - Coulomb component                    */
     double   E_restraint_total; /* eV - harmonic-restraint component (below) */
+    double   E_polar_total;     /* eV - induced-dipole polarization (qm v2)  */
+    double   E_pauli_total;     /* eV - overlap Pauli repulsion (qm v2)      */
+    double   E_disp_total;      /* eV - QM Slater-Kirkwood dispersion (v3)   */
     int      num_constrained_dof; /* further removed DOF beyond the COM -3
                                    * (frozen atoms, stiff restraints, linear
                                    * molecules - see integrator.h). 0 default.*/
@@ -295,6 +302,25 @@ typedef struct {
     int            use_bonds;
     int            use_angles;
     int            use_dihedrals;
+    int            use_polar;     /* qm v2: isotropic induced dipoles U=-0.5ΣαE².
+                                  * 0 default (fixed-charge baseline preserved).
+                                  * 1 = energy+analytic forces in forces_calculate. */
+    int            use_pol_scf;   /* v4: self-consistent dipoles (dipole-dipole
+                                  * coupling, Hellmann-Feynman forces).
+                                  * Superset of use_polar when set. */
+    int            use_pauli;     /* qm v2: overlap Pauli E=A·S² with FD forces.
+                                  * 0 default. 1 = short-range, same 1-2/1-3
+                                  * exclusions as LJ. */
+    int            use_disp;      /* v3: QM Slater-Kirkwood damped dispersion
+                                  * E=-ΣC6·f6/r⁶, C6 from live alpha/IE.
+                                  * 0 default. 1 = analytic forces. */
+    int            use_scf;       /* v3: SCF charge loop in force path. When 1,
+                                  * forces_calculate first runs qm_scf_charges
+                                  * with scf_total_q/pinned below (dipole
+                                  * reaction-field feedback included). */
+    double         scf_total_q;   /* total charge constraint for SCF */
+    int            scf_pinned_idx;/* pinned atom (e.g. ion) or -1 = none */
+    double         scf_pinned_q;  /* pinned charge value */
     int            use_switching;   /* audit F5 follow-through: smooth non-bonded cutoff
                                      * switching. 0 (default) = plain hard cutoff,
                                      * correct for every current gas-phase/vacuum

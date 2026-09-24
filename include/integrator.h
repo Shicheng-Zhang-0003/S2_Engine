@@ -99,6 +99,15 @@ double integrator_temperature(const Simulation *sim);
  */
 void integrator_berendsen(Simulation *sim);
 
+/* ── Andersen thermostat ───────────────────────────────────────────────── */
+/*
+ * Stochastic bath collisions (Andersen 1980): each atom resampled from
+ * Maxwell-Boltzmann at T0 with probability 1-exp(-nu*dt) per step.
+ * Rigorously canonical (NVT) — use for free-energy sampling legs.
+ * COM re-zeroed after kicks (keeps 3N-3 exact). nu defaults to 1/tau.
+ */
+void integrator_andersen(Simulation *sim);
+
 /* ── Maxwell-Boltzmann velocity initialisation ───────────────────────────── */
 /*
  * Assigns velocities drawn from the Maxwell-Boltzmann distribution at
@@ -140,5 +149,21 @@ double integrator_minimize(Simulation *sim, int max_iterations,
 double integrator_minimize_frozen(Simulation *sim, const int *frozen,
                                    int max_iterations, double initial_step,
                                    double force_tolerance);
+
+/*
+ * FIRE energy minimization (Bitzek et al., PRL 96, 054102 (2006)):
+ * inertial dynamics with velocity mixing toward forces and adaptive
+ * timestep; faster than steepest descent on stiff/ill-conditioned
+ * landscapes. Velocities and dt are saved and restored (FIRE owns them
+ * during the run). Same divergence guards (displacement cap, -50000 eV
+ * floor) as steepest descent. Returns the final potential energy.
+ * tests/test_fire.c asserts minimum-agreement with steepest descent.
+ * SCOPE: use for smooth-basin polishing (KcsA relax legs); prefer
+ * steepest descent for fresh-condensation clash relief, where FIRE's
+ * inertia demonstrably overshoots narrow clash-resolution channels
+ * (duplex Phase 2) and settles different basins (helix control).
+ */
+double integrator_fire(Simulation *sim, int max_iterations,
+                       double dt_start, double force_tolerance);
 
 #endif /* INTEGRATOR_H */

@@ -4,6 +4,7 @@
 #include "../include/integrator.h"
 #include "../include/forces.h"
 #include "../include/constants.h"
+#include "../include/display.h"
 
 /*
  * integrator.c
@@ -13,6 +14,7 @@
  */
 
 #define KB_EV   (BOLTZMANN_K / EV_TO_J)   /* eV/K, derived in-line per C1-C4 rule */
+
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Half-step A: velocity kick + position drift
@@ -25,10 +27,14 @@
  *   r_i(t+dt)   = r_i(t) + v_i(t+dt/2) × dt
  * ══════════════════════════════════════════════════════════════════════════ */
 void integrator_kick_drift(Simulation *sim) {
+    if (!sim || !sim->atoms || sim->num_atoms < 1) return;
+    if (!isfinite(sim->dt)) return;
     double dt   = sim->dt;
 
     for (int i = 0; i < sim->num_atoms; i++) {
         Atom *a = &sim->atoms[i];
+        if (!(a->mass > 1e-12) || !isfinite(a->mass)) continue;
+        if (!isfinite(a->force.x) || !isfinite(a->force.y) || !isfinite(a->force.z)) continue;
 
         /* a [Å/fs²] = F [eV/Å] / m [AMU] × MD_FORCE_CONV */
         double inv_m = MD_FORCE_CONV / a->mass;
@@ -49,10 +55,14 @@ void integrator_kick_drift(Simulation *sim) {
  * Half-step B: final velocity kick with new forces
  * ══════════════════════════════════════════════════════════════════════════ */
 void integrator_kick(Simulation *sim) {
+    if (!sim || !sim->atoms || sim->num_atoms < 1) return;
+    if (!isfinite(sim->dt)) return;
     double dt = sim->dt;
 
     for (int i = 0; i < sim->num_atoms; i++) {
         Atom *a = &sim->atoms[i];
+        if (!(a->mass > 1e-12) || !isfinite(a->mass)) continue;
+        if (!isfinite(a->force.x) || !isfinite(a->force.y) || !isfinite(a->force.z)) continue;
         double inv_m = MD_FORCE_CONV / a->mass;
 
         a->velocity.x += 0.5 * a->force.x * inv_m * dt;
@@ -77,6 +87,8 @@ void integrator_step(Simulation *sim) {
     /* 4. Apply thermostat if active */
     if (sim->thermostat.type == THERMOSTAT_BERENDSEN)
         integrator_berendsen(sim);
+    else if (sim->thermostat.type == THERMOSTAT_ANDERSEN)
+        integrator_andersen(sim);
 
     /* 5. Update thermodynamics */
     sim->kinetic_energy = integrator_kinetic_energy(sim);
@@ -99,10 +111,12 @@ void integrator_step(Simulation *sim) {
  *   = 103.6427 eV
  * ══════════════════════════════════════════════════════════════════════════ */
 double integrator_kinetic_energy(const Simulation *sim) {
+    if (!sim || !sim->atoms || sim->num_atoms < 1) return 0.0;
     double ke = 0.0;
     for (int i = 0; i < sim->num_atoms; i++) {
         const Atom *a = &sim->atoms[i];
         double v2 = vec3_norm2(a->velocity);
+        if (!isfinite(v2) || !isfinite(a->mass)) continue;
         ke += 0.5 * a->mass * v2;
     }
     return ke * AMU_AFS2_TO_EV;
@@ -120,9 +134,10 @@ double integrator_kinetic_energy(const Simulation *sim) {
  * the COM correction is the -3; `constrained` generalizes it.)
  * ══════════════════════════════════════════════════════════════════════════ */
 double integrator_temperature(const Simulation *sim) {
-    if (sim->num_atoms < 2) return 0.0;
+    if (!sim || sim->num_atoms < 2) return 0.0;
     double ke  = integrator_kinetic_energy(sim);
-    int    dof = 3 * sim->num_atoms - 3 - sim->num_constrained_dof;
+    if (!isfinite(ke)) return 0.0;
+    long dof = 3L * (long)sim->num_atoms - 3L - (long)sim->num_constrained_dof;
     if (dof < 1) dof = 1;
     return (2.0 * ke) / ((double)dof * KB_EV);
 }
@@ -140,21 +155,27 @@ double integrator_temperature(const Simulation *sim) {
  * cools strongly while keeping motion alive so the thermostat recovers.
  * ══════════════════════════════════════════════════════════════════════════ */
 void integrator_berendsen(Simulation *sim) {
+    if (!sim || !sim->atoms) return;
     double T     = integrator_temperature(sim);
     double T0    = sim->thermostat.target_temperature;
     double tau   = sim->thermostat.tau;
     double dt    = sim->dt;
 
-    if (T < 1.0e-10) return;
+    if (!(T > 1.0e-10) || !isfinite(T)) return;
+    if (!(tau > 1e-12) || !isfinite(tau)) return;
+    if (!isfinite(T0) || !isfinite(dt)) return;
 
     double ratio = T0 / T;
     double arg   = 1.0 + (dt / tau) * (ratio - 1.0);
+    if (!isfinite(arg)) return;
     if (arg < 0.01) arg = 0.01;          /* clamp: avoids motion lockout */
     double lambda = sqrt(arg);
 
     for (int i = 0; i < sim->num_atoms; i++)
         vec3_iscale(&sim->atoms[i].velocity, lambda);
 }
+
+
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Maxwell-Boltzmann velocity initialisation
@@ -185,12 +206,16 @@ static double rand_normal(uint64_t *state) {
 
 void integrator_maxwell_boltzmann(Simulation *sim, double T_init,
                                    unsigned long seed) {
+    if (!sim || !sim->atoms || sim->num_atoms < 1) return;
+    if (!isfinite(T_init) || T_init < 0.0) return;
     sim->rng_state = (seed == 0) ? 12345678901234567ULL : (uint64_t)seed;
 
     for (int i = 0; i < sim->num_atoms; i++) {
         Atom *a = &sim->atoms[i];
+        if (!(a->mass > 1e-12) || !isfinite(a->mass)) continue;
         /* σ_v [Å/fs] = sqrt(k_B T [eV] / (m [AMU] × AMU_AFS2_TO_EV)) */
         double sigma_v = sqrt(KB_EV * T_init / (a->mass * AMU_AFS2_TO_EV));
+        if (!isfinite(sigma_v)) sigma_v = 0.0;
 
         a->velocity.x = rand_normal(&sim->rng_state) * sigma_v;
         a->velocity.y = rand_normal(&sim->rng_state) * sigma_v;
@@ -202,8 +227,9 @@ void integrator_maxwell_boltzmann(Simulation *sim, double T_init,
 
     /* Rescale to exact target temperature */
     double T_actual = integrator_temperature(sim);
-    if (T_actual > 1.0e-10) {
+    if (T_actual > 1.0e-10 && isfinite(T_actual) && T_init > 0.0) {
         double scale = sqrt(T_init / T_actual);
+        if (!isfinite(scale)) return;
         for (int i = 0; i < sim->num_atoms; i++)
             vec3_iscale(&sim->atoms[i].velocity, scale);
     }
@@ -226,6 +252,46 @@ void integrator_remove_com_velocity(Simulation *sim) {
     Vec3 v_com = vec3_scale(p_com, 1.0 / total_mass);
     for (int i = 0; i < sim->num_atoms; i++)
         vec3_isub(&sim->atoms[i].velocity, v_com);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Andersen thermostat (Andersen, JCP 72, 2384 (1980))
+ *
+ * Each atom independently suffers a stochastic "collision" with the heat
+ * bath with probability p = 1 - exp(-nu*dt) per step; collided atoms get
+ * fresh Maxwell-Boltzmann velocities at T0 (Box-Muller, per-atom sigma).
+ * Unlike Berendsen rescaling this generates the RIGOROUS canonical (NVT)
+ * ensemble — the right thermostat for free-energy sampling (WHAM legs).
+ * COM is re-zeroed after kicking (keeps the 3N-3 temperature exact for
+ * small systems; documented perturbation of the ensemble, negligible).
+ * Default nu = 1/tau if nu <= 0 (tau reuse, documented).
+ * ══════════════════════════════════════════════════════════════════════════ */
+void integrator_andersen(Simulation *sim) {
+    if (!sim || !sim->atoms || sim->num_atoms < 1) return;
+    double T0 = sim->thermostat.target_temperature;
+    double dt = sim->dt;
+    double nu = sim->thermostat.nu;
+    if (!(nu > 0.0) || !isfinite(nu)) {
+        if (!(sim->thermostat.tau > 1e-12) || !isfinite(sim->thermostat.tau)) return;
+        nu = 1.0 / sim->thermostat.tau;
+    }
+    if (!isfinite(T0) || T0 < 0.0 || !isfinite(dt) || dt <= 0.0) return;
+    double p = 1.0 - exp(-nu * dt);
+    if (!(p > 0.0) || !isfinite(p)) return;
+    if (p > 1.0) p = 1.0;
+    int kicked = 0;
+    for (int i = 0; i < sim->num_atoms; i++) {
+        if (rand_uniform(&sim->rng_state) >= p) continue;
+        Atom *a = &sim->atoms[i];
+        if (!(a->mass > 1e-12) || !isfinite(a->mass)) continue;
+        double sigma_v = sqrt(KB_EV * T0 / (a->mass * AMU_AFS2_TO_EV));
+        if (!isfinite(sigma_v)) continue;
+        a->velocity.x = rand_normal(&sim->rng_state) * sigma_v;
+        a->velocity.y = rand_normal(&sim->rng_state) * sigma_v;
+        a->velocity.z = rand_normal(&sim->rng_state) * sigma_v;
+        kicked = 1;
+    }
+    if (kicked) integrator_remove_com_velocity(sim);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -259,14 +325,21 @@ double integrator_minimize(Simulation *sim, int max_iterations,
     const double MAX_DISPLACEMENT = 0.05;
     const double DIVERGENCE_THRESHOLD = -50000.0;
 
+    if (!sim || !sim->atoms || sim->num_atoms < 1) return 0.0;
+    if (max_iterations < 1) return sim->potential_energy;
+    if (!isfinite(initial_step) || initial_step <= 0.0) return sim->potential_energy;
+    if (!isfinite(force_tolerance) || force_tolerance < 0.0) return sim->potential_energy;
+    if ((size_t)sim->num_atoms > (size_t)2147483647 / sizeof(Vec3)) return sim->potential_energy;
     double step_size = initial_step;
     forces_calculate(sim);
     double E_current = sim->potential_energy;
 
-    Vec3 *saved_positions = (Vec3 *)malloc(sizeof(Vec3) * sim->num_atoms);
+    Vec3 *saved_positions = (Vec3 *)malloc(sizeof(Vec3) * (size_t)sim->num_atoms);
     if (!saved_positions) return E_current;
 
     for (int iter = 0; iter < max_iterations; iter++) {
+        if (progress_mark(iter, max_iterations))
+            progress("minimize %d/%d (E=%.3f)", iter, max_iterations, E_current);
         double max_force = 0.0;
         for (int i = 0; i < sim->num_atoms; i++) {
             double f = vec3_norm(sim->atoms[i].force);
@@ -325,14 +398,22 @@ double integrator_minimize_frozen(Simulation *sim, const int *frozen,
     const double MAX_DISPLACEMENT = 0.05;
     const double DIVERGENCE_THRESHOLD = -50000.0;
 
+    if (!sim || !sim->atoms || sim->num_atoms < 1) return 0.0;
+    if (!frozen) return integrator_minimize(sim, max_iterations, initial_step, force_tolerance);
+    if (max_iterations < 1) return sim->potential_energy;
+    if (!isfinite(initial_step) || initial_step <= 0.0) return sim->potential_energy;
+    if (!isfinite(force_tolerance) || force_tolerance < 0.0) return sim->potential_energy;
+    if ((size_t)sim->num_atoms > (size_t)2147483647 / sizeof(Vec3)) return sim->potential_energy;
     double step_size = initial_step;
     forces_calculate(sim);
     double E_current = sim->potential_energy;
 
-    Vec3 *saved_positions = (Vec3 *)malloc(sizeof(Vec3) * sim->num_atoms);
+    Vec3 *saved_positions = (Vec3 *)malloc(sizeof(Vec3) * (size_t)sim->num_atoms);
     if (!saved_positions) return E_current;
 
     for (int iter = 0; iter < max_iterations; iter++) {
+        if (progress_mark(iter, max_iterations))
+            progress("minimize %d/%d (E=%.3f)", iter, max_iterations, E_current);
         double max_force = 0.0;
         for (int i = 0; i < sim->num_atoms; i++) {
             if (frozen[i]) continue;
@@ -380,5 +461,136 @@ double integrator_minimize_frozen(Simulation *sim, const int *frozen,
     }
 
     free(saved_positions);
+    return sim->potential_energy;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * FIRE minimization (Bitzek-Koskinen-Gähler-Moseler-Parrinello 2006)
+ *
+ * Inertial MD with velocity mixing: v -> (1-a)v + a|v|Fhat whenever
+ * power P = F.v > 0 (accelerate along downhill direction, dt grows),
+ * full stop (v = 0, dt shrinks) on uphill. Same safety rails as the
+ * steepest minimizers above: per-step displacement cap, -50000 eV
+ * divergence floor with rollback, NaN guards. Velocities and dt are
+ * saved on entry and restored on exit (FIRE owns them while running).
+ * ══════════════════════════════════════════════════════════════════════════ */
+double integrator_fire(Simulation *sim, int max_iterations,
+                       double dt_start, double force_tolerance) {
+    const double MAX_DISPLACEMENT = 0.05;
+    const double DIVERGENCE_THRESHOLD = -50000.0;
+    const double F_INC = 1.1, F_DEC = 0.5, F_ALPHA = 0.99;
+    const double ALPHA_START = 0.1;
+    const int N_MIN = 5;
+
+    if (!sim || !sim->atoms || sim->num_atoms < 1) return 0.0;
+    if (max_iterations < 1) return sim->potential_energy;
+    if (!isfinite(dt_start) || dt_start <= 0.0 || dt_start > 5.0) return sim->potential_energy;
+    if (!isfinite(force_tolerance) || force_tolerance < 0.0) return sim->potential_energy;
+    if ((size_t)sim->num_atoms > (size_t)2147483647 / sizeof(Vec3)) return sim->potential_energy;
+
+    Vec3 *saved_vel = (Vec3 *)malloc(sizeof(Vec3) * (size_t)sim->num_atoms);
+    Vec3 *saved_pos = (Vec3 *)malloc(sizeof(Vec3) * (size_t)sim->num_atoms);
+    if (!saved_vel || !saved_pos) { free(saved_vel); free(saved_pos); return sim->potential_energy; }
+    for (int i = 0; i < sim->num_atoms; i++) saved_vel[i] = sim->atoms[i].velocity;
+    double dt_saved = sim->dt;
+
+    double dt = dt_start;
+    double dt_max = 10.0 * dt_start;
+    if (dt_max > 2.0) dt_max = 2.0;
+    double alpha = ALPHA_START;
+    int n_accel = 0;
+
+    forces_calculate(sim);
+    for (int i = 0; i < sim->num_atoms; i++)
+        sim->atoms[i].velocity = vec3_zero();
+
+    int iter;
+    for (iter = 0; iter < max_iterations; iter++) {
+        if (progress_mark(iter, max_iterations))
+            progress("fire %d/%d (E=%.3f)", iter, max_iterations, sim->potential_energy);
+        double max_force = 0.0;
+        for (int i = 0; i < sim->num_atoms; i++) {
+            double f = vec3_norm(sim->atoms[i].force);
+            if (f > max_force) max_force = f;
+        }
+        if (max_force < force_tolerance) break;
+        if (!isfinite(max_force) || max_force < 1e-300) break;
+
+        /* Power P = F.v (current velocities). */
+        double P = 0.0;
+        for (int i = 0; i < sim->num_atoms; i++)
+            P += vec3_dot(sim->atoms[i].force, sim->atoms[i].velocity);
+        if (!isfinite(P)) P = -1.0;
+
+        /* Velocity mixing toward forces. */
+        double vnorm = 0.0, fnorm = 0.0;
+        for (int i = 0; i < sim->num_atoms; i++) {
+            vnorm += vec3_norm2(sim->atoms[i].velocity);
+            fnorm += vec3_norm2(sim->atoms[i].force);
+        }
+        vnorm = sqrt(vnorm);
+        fnorm = sqrt(fnorm);
+        if (isfinite(vnorm) && isfinite(fnorm) && vnorm > 0.0 && fnorm > 0.0) {
+            for (int i = 0; i < sim->num_atoms; i++) {
+                Vec3 mix = vec3_add(vec3_scale(sim->atoms[i].velocity, 1.0 - alpha),
+                                    vec3_scale(sim->atoms[i].force, alpha * vnorm / fnorm));
+                sim->atoms[i].velocity = isfinite(mix.x + mix.y + mix.z) ? mix : vec3_zero();
+            }
+        }
+
+        if (P > 0.0) {
+            n_accel++;
+            if (n_accel > N_MIN) {
+                dt *= F_INC;
+                if (dt > dt_max) dt = dt_max;
+                alpha *= F_ALPHA;
+            }
+        } else {
+            for (int i = 0; i < sim->num_atoms; i++)
+                sim->atoms[i].velocity = vec3_zero();
+            dt *= F_DEC;
+            alpha = ALPHA_START;
+            n_accel = 0;
+        }
+
+        for (int i = 0; i < sim->num_atoms; i++)
+            saved_pos[i] = sim->atoms[i].position;
+        sim->dt = dt;
+        integrator_kick_drift(sim);
+        /* Displacement cap: rescale the whole step if any atom flew. */
+        {
+            double worst = 0.0;
+            for (int i = 0; i < sim->num_atoms; i++) {
+                double d = vec3_dist(sim->atoms[i].position, saved_pos[i]);
+                if (d > worst) worst = d;
+            }
+            if (worst > MAX_DISPLACEMENT && worst > 0.0) {
+                double s = MAX_DISPLACEMENT / worst;
+                for (int i = 0; i < sim->num_atoms; i++) {
+                    Vec3 dd = vec3_sub(sim->atoms[i].position, saved_pos[i]);
+                    sim->atoms[i].position = vec3_add(saved_pos[i], vec3_scale(dd, s));
+                }
+                for (int i = 0; i < sim->num_atoms; i++)
+                    vec3_iscale(&sim->atoms[i].velocity, s);
+            }
+        }
+        forces_calculate(sim);
+        integrator_kick(sim);
+
+        double E_new = sim->potential_energy;
+        if (E_new < DIVERGENCE_THRESHOLD || isnan(E_new) || !isfinite(E_new)) {
+            for (int i = 0; i < sim->num_atoms; i++)
+                sim->atoms[i].position = saved_pos[i];
+            forces_calculate(sim);
+            break;
+        }
+    }
+
+    for (int i = 0; i < sim->num_atoms; i++)
+        sim->atoms[i].velocity = saved_vel[i];
+    sim->dt = dt_saved;
+    forces_calculate(sim);
+    free(saved_vel);
+    free(saved_pos);
     return sim->potential_energy;
 }
