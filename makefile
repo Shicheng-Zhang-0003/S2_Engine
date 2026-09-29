@@ -22,14 +22,18 @@ CFLAGS = $(CFLAGS_BASE) -DDS_COMPILER_ID='"$(CC) $(CC_VERSION)"' -DDS_CFLAGS_ID=
 # Uncomment for debug build with address sanitiser:
 # CFLAGS = -g -O0 -Wall -std=c11 -Iinclude -fsanitize=address,undefined
 
+# Dependency generation flags
+DEPFLAGS = -MMD -MP -MF $(OBJ_DIR)/$*.d
+
 SRC_DIR = src
 OBJ_DIR = build
 BIN     = carbonsim
 
 SRCS = $(wildcard $(SRC_DIR)/*.c)
 OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SRCS))
+DEPS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.d, $(SRCS))
 
-.PHONY: all clean run selftest
+.PHONY: all clean run selftest selftest-forces selftest-fire deps
 
 all: $(OBJ_DIR) $(BIN)
 
@@ -39,8 +43,11 @@ $(OBJ_DIR):
 $(BIN): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
+# Include auto-generated dependencies
+-include $(DEPS)
+
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c -o $@ $<
 
 run: all
 	./$(BIN)
@@ -52,8 +59,11 @@ TEST_DIR = tests
 selftest: $(OBJ_DIR) $(OBJ_DIR)/test_datastream.o $(OBJ_DIR)/datastream.o
 	$(CC) $(CFLAGS) -o $(OBJ_DIR)/test_datastream $(OBJ_DIR)/test_datastream.o $(OBJ_DIR)/datastream.o -lm
 
+# Test compilation uses TEST_DEPFLAGS for correct dependency paths
+TEST_DEPFLAGS = -MMD -MP -MF $(OBJ_DIR)/$(*F).d
+
 $(OBJ_DIR)/test_datastream.o: $(TEST_DIR)/test_datastream.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
 
 # forces selftest (audit P2): analytic dihedral vs FD oracle. Links the
 # engine objects (minus main) since forces_dihedral lives in forces.o.
@@ -61,14 +71,20 @@ selftest-forces: all $(OBJ_DIR)/test_forces.o
 	$(CC) $(CFLAGS) -o $(OBJ_DIR)/test_forces $(OBJ_DIR)/test_forces.o $(filter-out $(OBJ_DIR)/main.o,$(OBJS)) -lm
 
 $(OBJ_DIR)/test_forces.o: $(TEST_DIR)/test_forces.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
 
 # fire selftest: FIRE vs steepest-descent minima agreement.
 selftest-fire: all $(OBJ_DIR)/test_fire.o
 	$(CC) $(CFLAGS) -o $(OBJ_DIR)/test_fire $(OBJ_DIR)/test_fire.o $(filter-out $(OBJ_DIR)/main.o,$(OBJS)) -lm
 
 $(OBJ_DIR)/test_fire.o: $(TEST_DIR)/test_fire.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
 
 clean:
 	rm -rf $(OBJ_DIR) $(BIN)
+
+# Print dependency info for debugging
+deps:
+	@echo "Sources: $(SRCS)"
+	@echo "Objects: $(OBJS)"
+	@echo "Deps: $(DEPS)"
