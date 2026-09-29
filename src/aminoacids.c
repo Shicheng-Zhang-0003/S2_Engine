@@ -5,6 +5,7 @@
 #include "../include/forces.h"
 #include "../include/constants.h"
 #include "../include/nucleobases.h"
+#include "../include/amber_lj.h"
 
 /*
  * aminoacids.c
@@ -34,34 +35,8 @@
  * nitrogen, carbonyl oxygen, etc.), not nucleobase-specific - the same
  * categories legitimately apply to protein backbone atoms.
  * ══════════════════════════════════════════════════════════════════════════ */
-#define AA_RSTAR_TO_SIGMA(rstar) ((rstar) * 2.0 / 1.122462048309373)
+/* AMBER ff99 LJ types now live in include/amber_lj.h (one copy, not four). */
 
-#define AA_LJ_N_SIGMA     AA_RSTAR_TO_SIGMA(1.8240)   /* amide N */
-#define AA_LJ_N_EPS       (0.1700 * KCAL_MOL_TO_EV)
-#define AA_LJ_C_SIGMA     AA_RSTAR_TO_SIGMA(1.9080)   /* sp2 carbonyl C */
-#define AA_LJ_C_EPS       (0.0860 * KCAL_MOL_TO_EV)
-#define AA_LJ_O_SIGMA     AA_RSTAR_TO_SIGMA(1.6612)   /* carbonyl O */
-#define AA_LJ_O_EPS       (0.2100 * KCAL_MOL_TO_EV)
-#define AA_LJ_OH_SIGMA    AA_RSTAR_TO_SIGMA(1.7210)   /* hydroxyl O */
-#define AA_LJ_OH_EPS      (0.2104 * KCAL_MOL_TO_EV)
-#define AA_LJ_CT_SIGMA    AA_RSTAR_TO_SIGMA(1.9080)   /* sp3 carbon */
-#define AA_LJ_CT_EPS      (0.1094 * KCAL_MOL_TO_EV)
-#define AA_LJ_HN_SIGMA    AA_RSTAR_TO_SIGMA(0.6000)   /* amide/amine H */
-#define AA_LJ_HN_EPS      (0.0157 * KCAL_MOL_TO_EV)
-#define AA_LJ_HC_SIGMA    AA_RSTAR_TO_SIGMA(1.4870)   /* aliphatic H */
-#define AA_LJ_HC_EPS      (0.0157 * KCAL_MOL_TO_EV)
-#define AA_LJ_HA_SIGMA    AA_RSTAR_TO_SIGMA(1.3870)   /* H1-type: aliphatic H, 1 electroneg neighbor (CA-H) */
-#define AA_LJ_HA_EPS      (0.0157 * KCAL_MOL_TO_EV)
-/* Hydroxyl H (HXT): small NONZERO stability values, NOT the technically
- * real AMBER "HO" value of exactly zero. LJ's geometric-mean combining
- * rule means ANY zero-epsilon atom poisons a pairwise interaction to
- * exactly zero regardless of the partner's real LJ, leaving nothing
- * but Coulomb between a zero-LJ hydrogen and any oppositely-charged
- * atom it might approach. Confirmed dangerous by direct testing on a
- * flexible poly-alanine chain: two atoms collapsed to 0.0001 A
- * separation with PE plunging to -39,093 eV before this fix. */
-#define AA_LJ_HO_SIGMA    0.5
-#define AA_LJ_HO_EPS      0.001
 
 /* ══════════════════════════════════════════════════════════════════════════
  * Shared placement helper - identical pattern to nucleobases.c's
@@ -153,16 +128,16 @@ int sim_place_glycine(Simulation *sim, Vec3 origin) {
 
     int first = place_aa_molecule(sim, origin, coords, Zs, charges, 10, bonds, 9);
 
-    sim_set_atom_lj(sim, first+0, AA_LJ_N_EPS, AA_LJ_N_SIGMA);   /* N   */
-    sim_set_atom_lj(sim, first+1, AA_LJ_CT_EPS, AA_LJ_CT_SIGMA); /* CA  */
-    sim_set_atom_lj(sim, first+2, AA_LJ_C_EPS, AA_LJ_C_SIGMA);   /* C   */
-    sim_set_atom_lj(sim, first+3, AA_LJ_O_EPS, AA_LJ_O_SIGMA);   /* O   */
-    sim_set_atom_lj(sim, first+4, AA_LJ_OH_EPS, AA_LJ_OH_SIGMA); /* OXT */
-    sim_set_atom_lj(sim, first+5, AA_LJ_HN_EPS, AA_LJ_HN_SIGMA); /* H   */
-    sim_set_atom_lj(sim, first+6, AA_LJ_HN_EPS, AA_LJ_HN_SIGMA); /* H2  */
-    sim_set_atom_lj(sim, first+7, AA_LJ_HA_EPS, AA_LJ_HA_SIGMA); /* HA2 */
-    sim_set_atom_lj(sim, first+8, AA_LJ_HA_EPS, AA_LJ_HA_SIGMA); /* HA3 */
-    sim_set_atom_lj(sim, first+9, AA_LJ_HO_EPS, AA_LJ_HO_SIGMA); /* HXT */
+    sim_set_atom_lj(sim, first+0, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);   /* N   */
+    sim_set_atom_lj(sim, first+1, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA); /* CA  */
+    sim_set_atom_lj(sim, first+2, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);   /* C   */
+    sim_set_atom_lj(sim, first+3, LJ_AMBER_O_EPS, LJ_AMBER_O_SIGMA);   /* O   */
+    sim_set_atom_lj(sim, first+4, LJ_AMBER_OH_EPS, LJ_AMBER_OH_SIGMA); /* OXT */
+    sim_set_atom_lj(sim, first+5, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA); /* H   */
+    sim_set_atom_lj(sim, first+6, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA); /* H2  */
+    sim_set_atom_lj(sim, first+7, LJ_AMBER_H1_EPS, LJ_AMBER_H1_SIGMA); /* HA2 */
+    sim_set_atom_lj(sim, first+8, LJ_AMBER_H1_EPS, LJ_AMBER_H1_SIGMA); /* HA3 */
+    sim_set_atom_lj(sim, first+9, LJ_AMBER_HO_EPS, LJ_AMBER_HO_SIGMA); /* HXT */
 
     return first;
 }
@@ -225,19 +200,19 @@ int sim_place_alanine(Simulation *sim, Vec3 origin) {
 
     int first = place_aa_molecule(sim, origin, coords, Zs, charges, 13, bonds, 12);
 
-    sim_set_atom_lj(sim, first+0, AA_LJ_N_EPS, AA_LJ_N_SIGMA);
-    sim_set_atom_lj(sim, first+1, AA_LJ_CT_EPS, AA_LJ_CT_SIGMA);
-    sim_set_atom_lj(sim, first+2, AA_LJ_C_EPS, AA_LJ_C_SIGMA);
-    sim_set_atom_lj(sim, first+3, AA_LJ_O_EPS, AA_LJ_O_SIGMA);
-    sim_set_atom_lj(sim, first+4, AA_LJ_CT_EPS, AA_LJ_CT_SIGMA); /* CB */
-    sim_set_atom_lj(sim, first+5, AA_LJ_OH_EPS, AA_LJ_OH_SIGMA);
-    sim_set_atom_lj(sim, first+6, AA_LJ_HN_EPS, AA_LJ_HN_SIGMA);
-    sim_set_atom_lj(sim, first+7, AA_LJ_HN_EPS, AA_LJ_HN_SIGMA);
-    sim_set_atom_lj(sim, first+8, AA_LJ_HA_EPS, AA_LJ_HA_SIGMA);
-    sim_set_atom_lj(sim, first+9, AA_LJ_HC_EPS, AA_LJ_HC_SIGMA);  /* HB1/2/3 */
-    sim_set_atom_lj(sim, first+10, AA_LJ_HC_EPS, AA_LJ_HC_SIGMA);
-    sim_set_atom_lj(sim, first+11, AA_LJ_HC_EPS, AA_LJ_HC_SIGMA);
-    sim_set_atom_lj(sim, first+12, AA_LJ_HO_EPS, AA_LJ_HO_SIGMA);
+    sim_set_atom_lj(sim, first+0, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);
+    sim_set_atom_lj(sim, first+1, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA);
+    sim_set_atom_lj(sim, first+2, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);
+    sim_set_atom_lj(sim, first+3, LJ_AMBER_O_EPS, LJ_AMBER_O_SIGMA);
+    sim_set_atom_lj(sim, first+4, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA); /* CB */
+    sim_set_atom_lj(sim, first+5, LJ_AMBER_OH_EPS, LJ_AMBER_OH_SIGMA);
+    sim_set_atom_lj(sim, first+6, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);
+    sim_set_atom_lj(sim, first+7, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);
+    sim_set_atom_lj(sim, first+8, LJ_AMBER_H1_EPS, LJ_AMBER_H1_SIGMA);
+    sim_set_atom_lj(sim, first+9, LJ_AMBER_HC_EPS, LJ_AMBER_HC_SIGMA);  /* HB1/2/3 */
+    sim_set_atom_lj(sim, first+10, LJ_AMBER_HC_EPS, LJ_AMBER_HC_SIGMA);
+    sim_set_atom_lj(sim, first+11, LJ_AMBER_HC_EPS, LJ_AMBER_HC_SIGMA);
+    sim_set_atom_lj(sim, first+12, LJ_AMBER_HO_EPS, LJ_AMBER_HO_SIGMA);
 
     return first;
 }
