@@ -1991,14 +1991,81 @@ static int kcsa_pair_relax(int ion_Z, double d0, int do_min,
 }
 
 
+/* ── Sampling diagnostics (audit fix S1) ────────────────────────────────
+ *
+ * The histogram counts fed to MBAR are NOT independent samples. The ion
+ * coordinate is sampled every WHAM_SAMPLE_EVERY steps from a single
+ * continuous trajectory inside a harmonic umbrella well, so consecutive
+ * counts are strongly correlated and the effective sample size is far
+ * below the nominal count. Reporting the nominal count as if it were the
+ * sample size overstates the statistical content of the free energy by
+ * roughly the autocorrelation factor.
+ *
+ * tau is the integrated autocorrelation time of the sampled z series,
+ * computed by the standard initial-positive-sequence estimator, and
+ * N_eff = N / (2*tau) is the effective number of independent samples per
+ * window. Both are printed so the reader can see what the estimate is
+ * actually worth. The value is reported, not used to rescale anything:
+ * the caller decides how much to trust it.
+ *
+ * For reference: the umbrella force constant k = 0.15 eV/A^2 on K+
+ * (m = 38.96 amu) gives omega ~ 6.1e-3 rad/fs, a period near 1030 fs,
+ * so with dt = 0.5 fs and sampling every 5 steps the coordinate is only
+ * weakly decorrelated between counts and tau is expected to be tens of
+ * samples - the reason the trajectory length below was raised 8x.
+ * ──────────────────────────────────────────────────────────────────────── */
+#define WHAM_STEPS        12000   /* was 1500; see audit fix S1 */
+#define WHAM_SAMPLE_EVERY 5
+
+/* Integrated autocorrelation time by the initial-positive-sequence
+ * estimator (Geyer). Returns tau in units of samples. */
+static double wham_tau(const double *x, int n) {
+    if (!x || n < 8) return 0.5;
+    double m = 0.0;
+    for (int i = 0; i < n; i++) m += x[i];
+    m /= n;
+    double v = 0.0;
+    for (int i = 0; i < n; i++) { double d = x[i] - m; v += d * d; }
+    v /= n;
+    if (!(v > 0.0)) return 0.5;
+    double maxlag = (n < 200) ? n / 2 : 200;
+    /* gamma(k) = (1/n) sum_{t} (x_t - m)(x_{t+k} - m) */
+    double sum = 0.0;
+    for (int k = 0; k < maxlag; k++) {
+        double g = 0.0;
+        for (int t = 0; t + k < n; t++) g += (x[t] - m) * (x[t + k] - m);
+        g /= n;
+        /* initial positive sequence: stop at the first non-positive pair */
+        sum += g;
+        if (k > 0 && g <= 0.0) break;
+    }
+    double tau = 0.5 * (1.0 + 2.0 * sum / v);
+    if (!isfinite(tau) || tau < 0.5) tau = 0.5;
+    return tau;
+}
+
 /* One WHAM repeat: 7 umbrella windows per ion (z0=-3..3, k=0.15,
- * T=300 K, 1500 steps, sample every 5), WHAM over 0.25 A bins.
- * Barrier = max F(z)-min over bins with >= min_count total counts
- * (tail bins with 1-2 counts otherwise set F_max from pure noise —
- * observed 0.21 vs 0.61 eV build-to-build instability from exactly
- * this). Seed base varies per repeat for honest spread. */
+ * T=300 K, WHAM_STEPS steps, sample every WHAM_SAMPLE_EVERY), MBAR over
+ * 0.25 A bins.
+ *
+ * AUDIT FIX S1 (sampling and its statistics):
+ *  - Trajectory length raised 8x, because the sampled z series is
+ *    strongly autocorrelated and 300 nominal samples per window carried
+ *    only a handful of independent ones.
+ *  - The autocorrelation time and effective sample size are now
+ *    MEASURED and printed (see wham_tau above) rather than assumed.
+ *  - The number of bins dropped by the min_count filter is reported. A
+ *    dropped bin containing the true barrier maximum would bias the
+ *    barrier low, and that used to be invisible.
+ *
+ * Barrier = max F(z) - min F(z) over the retained bins. Seed base varies
+ * per repeat; the caller reports the spread across repeats, which
+ * captures seed-to-seed variation but NOT within-run sampling error -
+ * the two are different things and only the former is available from
+ * independent repeats. */
 static void kcsa_wham_one(unsigned long seed_base, long min_count,
-                          double *bar_k, double *bar_na, int use_qm) {
+                          double *bar_k, double *bar_na, int use_qm,
+                          double *ess_out, int *bins_dropped_out) {
     const double half_sep = KCSA_RING_Z_SEP * 0.5;
     const double r_inner = sqrt(2.70 * 2.70 - half_sep * half_sep);
     const double r_outer = sqrt(2.83 * 2.83 - half_sep * half_sep);
@@ -2012,6 +2079,9 @@ static void kcsa_wham_one(unsigned long seed_base, long min_count,
         int ion_Z = (ion_pass == 0) ? 19 : 11;
         long hist[7][28] = {{0}};
         long mcnt[7] = {0};
+        /* Sampled z series, for the autocorrelation diagnostic only. */
+        static double zs[WHAM_STEPS / WHAM_SAMPLE_EVERY + 2];
+        double tau_sum = 0.0, ess_sum = 0.0;
         for (int w = 0; w < 7; w++) {
             Simulation *sim = sim_create(16, 32);
             if (!sim) continue;
@@ -2048,13 +2118,21 @@ static void kcsa_wham_one(unsigned long seed_base, long min_count,
             sim->thermostat.nu = 0.02;
             integrator_maxwell_boltzmann(sim, Tumb, seed_base + 10 * (unsigned long)ion_pass + (unsigned long)w);
             forces_calculate(sim);
-            for (int step = 0; step < 1500; step++) {
+            int nsamp = 0;
+            for (int step = 0; step < WHAM_STEPS; step++) {
                 integrator_step(sim);
-                if (step % 5 == 0) {
+                if (step % WHAM_SAMPLE_EVERY == 0) {
                     double z = sim->atoms[ion].position.z;
+                    if (nsamp < (int)(sizeof zs / sizeof zs[0]))
+                        zs[nsamp++] = z;
                     int b = (int)floor((z + 3.5) / 0.25);
                     if (b >= 0 && b < 28) { hist[w][b]++; mcnt[w]++; }
                 }
+            }
+            if (nsamp > 8) {
+                double tau = wham_tau(zs, nsamp);
+                tau_sum += tau;
+                ess_sum += (double)nsamp / (2.0 * tau);
             }
             sim_destroy(sim);
         }
@@ -2100,14 +2178,31 @@ static void kcsa_wham_one(unsigned long seed_base, long min_count,
             P[b] = (den > 0) ? num / den : 0.0;
         }
         double mn = 1e30, mx = -1e30;
+        int dropped = 0, retained = 0;
         for (int b = 0; b < 28; b++) {
-            if (tot[b] < min_count || P[b] <= 0) continue;
+            /* AUDIT FIX S1: a bin dropped by min_count could have held the
+             * true barrier maximum, biasing the barrier low. Count them
+             * and report rather than dropping silently. */
+            if (tot[b] < min_count || P[b] <= 0) { dropped++; continue; }
+            retained++;
             double F = -kT * log(P[b]);
             if (F < mn) mn = F;
             if (F > mx) mx = F;
         }
         double bar = (mx > -1e29 && mn < 1e29) ? mx - mn : 0.0;
         if (ion_pass == 0) *bar_k = bar; else *bar_na = bar;
+        if (ion_pass == 0) {
+            if (ess_out) {
+                *ess_out = (tau_sum > 0.0) ? ess_sum / 7.0 : 0.0;
+                printf("    sampling: %.1f samples/window, mean tau = %.1f samples, "
+                       "N_eff = %.1f independent samples/window\n",
+                       (double)(WHAM_STEPS / WHAM_SAMPLE_EVERY), tau_sum / 7.0,
+                       *ess_out);
+            }
+            if (bins_dropped_out) *bins_dropped_out = dropped;
+            printf("    bins: %d retained, %d dropped by min_count=%ld\n",
+                   retained, dropped, min_count);
+        }
     }
 }
 
@@ -2499,7 +2594,7 @@ static void demo_kcsa_filter(void) {
                 qm_chi_J(sim->atoms[0].element, &chi_o, &J_o);
                 qm_chi_J(sim->atoms[ion].element, &chi_i, &J_i);
                 double pauli = qm_pauli(SS, J_i, J_o);
-                QmHybrid hyb = qm_hybridization(&sim->atoms[0]);
+                QmHybrid hyb = qm_hybridization_ctx(sim, 0);
                 if (ion_pass == 0) {
                     qm_q_o = qo_sum / 8.0; qm_q_ion_k = qion;
                     qm_dE_k = e_qeq - e_fixed; qm_S_k = SS;
@@ -2888,11 +2983,21 @@ static void demo_kcsa_filter(void) {
                 }
                 sim->use_pol_scf = pol;
                 sim->use_pauli = 0;
-                int frozen[32] = {0};
+                /* AUDIT FIX B2 (frozen[] was a fixed 32-element stack
+                 * array indexed by an atom index, and handed to
+                 * integrator_minimize_frozen, which reads it for every
+                 * atom). The hydration demo has 19 atoms so it happened
+                 * to fit, but growing the cluster by one water would
+                 * write past the end of a stack array. Sized to the
+                 * system and bounds-checked instead. */
+                if (ion < 0 || ion >= sim->num_atoms) { sim_destroy(sim); continue; }
+                int *frozen = (int *)calloc((size_t)sim->num_atoms, sizeof(int));
+                if (!frozen) { sim_destroy(sim); continue; }
                 frozen[ion] = 1;
                 forces_calculate(sim);
                 double e_init = sim->potential_energy;
                 double e_min = integrator_minimize_frozen(sim, frozen, 2000, 0.005, 0.02);
+                free(frozen);
                 if (ion_pass == 0) {
                     if (!pol) hyd_k = e_min; else hyd_pol_k = e_min;
                 } else {
@@ -2929,14 +3034,15 @@ static void demo_kcsa_filter(void) {
         unsigned long bases[3] = {100UL, 1000UL, 2000UL};
         for (int r = 0; r < 3; r++) {
             progress("KcsA polar-WHAM repeat %d/3", r + 1);
-            kcsa_wham_one(bases[r], 10L, &bk[r], &bna[r], 1);
+            double ess_r = 0.0; int drop_r = 0;
+            kcsa_wham_one(bases[r], 10L, &bk[r], &bna[r], 1, &ess_r, &drop_r);
             printf("  wham polar repeat %d (seeds %lu): K+ barrier=%.4f eV | Na+ barrier=%.4f eV\n",
                    r, bases[r], bk[r], bna[r]);
         }
         /* Fixed-charge reference: one repeat (legacy estimator). */
         {
             double fk = 0.0, fna = 0.0;
-            kcsa_wham_one(100UL, 10L, &fk, &fna, 0);
+            kcsa_wham_one(100UL, 10L, &fk, &fna, 0, NULL, NULL);
             fef_k_bar = fk; fef_na_bar = fna; fef_gap = fk - fna;
             printf("  wham fixed-charge ref (seeds 100): K+ barrier=%.4f eV | Na+ barrier=%.4f eV | gap=%+.4f eV\n",
                    fk, fna, fk - fna);
@@ -2956,8 +3062,15 @@ static void demo_kcsa_filter(void) {
         printf("  K+: barrier=%.4f±%.4f eV | Na+: barrier=%.4f±%.4f eV | gap=%+.4f±%.4f eV\n",
                mk, sk, mna, sna, mg, sg);
         printf("  Fixed-charge ref gap=%+.4f eV. Polar sampling decides the kinetics bracket.\n", fef_gap);
-        printf("  Barrier over bins with >=10 counts; error = std across 3 seed repeats.\n");
-        printf("  Note: 3D ion restraint confines laterally; WHAM over z only.\n");
+        printf("  Barrier over bins with >=10 counts.\n");
+        printf("  ERROR BAR DEFINITION (audit S1): the +/- is the sample standard\n");
+        printf("    deviation across 3 INDEPENDENT SEED REPEATS of the whole\n");
+        printf("    sampling protocol. It is NOT a standard error of the mean and\n");
+        printf("    NOT a confidence interval. With n=3 the standard error of that\n");
+        printf("    standard deviation is itself ~76%% of its value. It captures\n");
+        printf("    seed-to-seed variation only; within-run sampling error is\n");
+        printf("    characterised separately by the reported tau and N_eff.\n");
+        printf("  Note: 3D ion restraint confines laterally; MBAR over z only.\n");
     }
 
     /* == FORENSIC TABLE: every leg, both ions, one place ==
