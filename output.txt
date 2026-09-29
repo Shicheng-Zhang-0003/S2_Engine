@@ -1,11 +1,12 @@
 
   ╔═══════════════════════════════════════════════════════╗
-  ║       CARBON VM — CHEMISTRY SIMULATOR   (v9 release)  ║
+  ║   CARBON VM — CHEMISTRY SIMULATOR   v9R4 / V0.9RC4    ║
   ║       From subatomic to molecular dynamics            ║
   ╚═══════════════════════════════════════════════════════╝
+  v9R4 / V0.9RC4 — https://github.com/Shicheng-Zhang-0003/S2_Engine
 
   Unit system: Length=Å  Time=fs  Energy=eV  Mass=AMU
-  Physical constants: 2019 CODATA  |  LJ: UFF defaults + AMBER ff99 overrides  |  Bonds: placed-geometry r0, generic spectroscopic k (audit F2)
+  Physical constants: CODATA  |  LJ: UFF (periodic table, sigma = Rmin/2^(1/6)) + AMBER ff99 (biomolecular)  |  Bonds: placed-geometry r0, generic spectroscopic k (audit F2)
 
 
 ╔══════════════════════════════════════════════════════╗
@@ -950,15 +951,15 @@ Sum minus experimental dG: -0.5474 eV
     dominant contribution.
 
     site   K+ CN/r        Na+ CN/r        E_bind K+ E_bind Na+
-    1      8 / 2.93 A     8 / 2.93 A        -3.6414    -3.6284
-    2      8 / 2.78 A     8 / 2.78 A        -6.4981    -6.4856
-    3      8 / 2.77 A     8 / 2.77 A        -8.3048    -8.2926
-    4      8 / 2.91 A     8 / 2.91 A        -9.0412    -9.0290
+    1      8 / 2.93 A     8 / 2.93 A        -3.6428    -3.6293
+    2      8 / 2.78 A     8 / 2.78 A        -6.4995    -6.4865
+    3      8 / 2.77 A     8 / 2.77 A        -8.3063    -8.2935
+    4      8 / 2.91 A     8 / 2.91 A        -9.0423    -9.0297
 
     interaction (rigid cage, ion radius + Coulomb + LJ):
-      K+  -27.4855 eV      Na+ -27.4357 eV      difference -0.0498 eV
+      K+  -27.4911 eV      Na+ -27.4390 eV      difference -0.0521 eV
     plus the measured dehydration cost:
-      K+  -14.1363 eV      Na+ -8.6142 eV      difference -5.5222 eV
+      K+  -14.1419 eV      Na+ -8.6175 eV      difference -5.5244 eV
 
   --- what this does and does not show ---
     SHOWS: the filter is now the real KcsA TVGYG filter, with the
@@ -966,7 +967,7 @@ Sum minus experimental dG: -0.5474 eV
     The K+/Na+ preference in THIS model is carried essentially
     entirely by the measured dehydration free energy (1.368 eV); the
     rigid-cage electrostatics separate the two ions by only
-    0.0125 eV, because a symmetric 8-oxygen cage pulls both cations
+    0.0130 eV, because a symmetric 8-oxygen cage pulls both cations
     to the same axis position.
     DOES NOT SHOW: an absolute selectivity free energy. There is no
     bulk solvent, no membrane potential, no ion concentrations, and
