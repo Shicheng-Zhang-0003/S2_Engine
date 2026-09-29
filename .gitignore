@@ -3,3 +3,16 @@
 # per repo custom (record artifacts, committed with the record).
 build/test_*
 build/selftest*
+
+# Auto-generated header-dependency files (-MMD -MP). These are pure
+# derived data: a stale one naming a header that no longer exists makes
+# make fail hard on a tree that is otherwise fine, and a fresh clone has
+# no use for them since every object will rebuild anyway. Tracked engine
+# objects are a repo custom about record provenance; dependency graphs
+# are not record artifacts.
+build/*.d
+
+# Sanitizer scratch output. The record's stderr.txt is tracked; the ASan
+# run's is a verification byproduct and is expected to be empty.
+stderr_asan.txt
+output.asan.txt
