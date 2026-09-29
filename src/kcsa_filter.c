@@ -6,6 +6,7 @@
 #include "../include/forces.h"
 #include "../include/sim.h"
 #include "../include/integrator.h"
+#include "../include/amber_lj.h"
 
 /*
  * kcsa_filter.c — the KcsA TVGYG selectivity filter from deposited 1K4C
@@ -186,10 +187,10 @@ int kcsa_build_filter(Simulation *sim, Vec3 origin, int n_subunits) {
         for (int i = 0; i < KCSA_FILTER_ATOMS; i++) {
             int Z = KCSA_TVGYG[i].Z;
             int ai = base + i;
-            if (Z == 8)      sim_set_atom_lj(sim, ai, 0.2100 * KCAL_MOL_TO_EV, 3.06615);
-            else if (Z == 7) sim_set_atom_lj(sim, ai, 0.1700 * KCAL_MOL_TO_EV, 3.24979);
-            else if (Z == 1) sim_set_atom_lj(sim, ai, 0.0157 * KCAL_MOL_TO_EV, 0.60000);
-            else             sim_set_atom_lj(sim, ai, 0.1094 * KCAL_MOL_TO_EV, 3.39967);
+            if (Z == 8)      sim_set_atom_lj(sim, ai, LJ_AMBER_O_EPS,  LJ_AMBER_O_SIGMA);
+            else if (Z == 7) sim_set_atom_lj(sim, ai, LJ_AMBER_N_EPS,  LJ_AMBER_N_SIGMA);
+            else if (Z == 1) sim_set_atom_lj(sim, ai, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);
+            else             sim_set_atom_lj(sim, ai, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA);
         }
     }
     /* NO sim_rebuild_angles here, deliberately.
@@ -319,14 +320,15 @@ double kcsa_cation_radius(int Z) {
 /* Shared ion–O well depth, kcal/mol. One value for all alkalis, so the
  * K/Na comparison has no per-ion strength to lean on. */
 #define KCSA_ION_O_EPS  0.05
-/* The filter oxygen's own sigma (must match what kcsa_build_filter set). */
-#define KCSA_FILTER_O_SIGMA 3.06615
-#define KCSA_FILTER_O_EPS  (0.2100 * KCAL_MOL_TO_EV)
+/* The filter oxygen is the AMBER ff99 carbonyl O, now named once in
+ * include/amber_lj.h instead of being respelled locally. */
+#define KCSA_FILTER_O_SIGMA LJ_AMBER_O_SIGMA
+#define KCSA_FILTER_O_EPS  LJ_AMBER_O_EPS
 
 void kcsa_set_ion_radius(Simulation *sim, int ion, int Z) {
     if (!sim || !sim->atoms || ion < 0 || ion >= sim->num_atoms) return;
     double contact = kcsa_cation_radius(Z) + KCSA_O_RADIUS;
-    double sig_ionO = contact / 1.122462048309373;   /* / 2^(1/6) */
+    double sig_ionO = contact / TWOPOW_SIXTH;
     double sig_ion  = 2.0 * sig_ionO - KCSA_FILTER_O_SIGMA;
     if (!(sig_ion > 0.05)) sig_ion = 0.05;
     /* Back out the per-ion epsilon that Lorentz–Berthelot needs to give
