@@ -107,6 +107,16 @@
  */
 #define COULOMB_MD          (COULOMB_K * ELEM_CHARGE / 1.0e-10)  /* eV·Å / e² (audit fix C2: derived in-line) */
 
+/* ── Release identity ───────────────────────────────────────────────────────
+ * Internal name (v9R4) and the external release tag (V0.9RC4) are kept
+ * side by side so they cannot drift apart - which is exactly the failure
+ * mode this file's own derive-in-line discipline exists to prevent. The
+ * datastream header previously carried a hand-typed source string that
+ * had been wrong for several releases.
+ */
+#define S2_VERSION_INTERNAL "v9R4"
+#define S2_VERSION_EXTERNAL "V0.9RC4"
+
 /* ── Simulation limits ───────────────────────────────────────────────────── */
 #define MAX_ELECTRONS       128
 #define MAX_ATOMS           100000
