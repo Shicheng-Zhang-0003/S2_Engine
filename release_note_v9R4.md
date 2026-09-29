@@ -1,125 +1,208 @@
-# carbonsim v9R4 — release notes
+# v9R4 — Deep Audit Release
 
-v9R4 is a physics release: the quantum foundation (v4), the KcsA
-selectivity program, the AGTC duplex system, and a reinforced classical
-core, all verified end-to-end (record SHA below, s01 green, ASan+UBSan
-clean, three selftests). It supersedes the v9R3 audit posture of
-behavior-neutral hygiene: the record moved, on purpose, with every move
-derived and documented.
+## What this release is
 
-## Highlights
+A second, adversarial audit of the whole tree, in which nothing the code
+claimed about itself was taken at face value. Every analytic force was checked
+against an independent finite-difference oracle, every physical constant
+against its primary source, every tabulated dataset against published reference
+values, and every documentation claim against the code.
 
-- **K⁺ selectivity computed, not assumed.** Single-ion vacuum filter
-  statics still favor Na⁺ (+0.2…+0.4 eV, six legs — kept as the honest
-  baseline); K⁺ wins the deterministic rigid-filter exchange (−0.578 eV
-  from our own explicit-water clusters), the SCF-polar transit barrier
-  (−0.36 eV), and the valid-subset knock-on landscape (−1.62 eV).
-  Sampled polar kinetics favors Na⁺ (+0.33 ± 0.06) — reported as an
-  open bracket against the single-point barrier, not averaged away.
-- **Quantum foundation v4.** Dual-sourced Clementi–Raimondi exponents
-  for spatial ranges; exact H-like expectations; real f harmonics;
-  lobe-max σ + sum-rule π overlap; charge-responsive screening live in
-  overlap/dispersion/α; self-consistent dipoles with Hellmann–Feynman
-  forces; Slater–Kirkwood dispersion; 1-pin and 2-pin SCF charge loops.
-- **Systems built.** Knock-on ion pairs (relaxed + conductive +
-  landscape), 6-vs-8 coordination probe, forensic table printing every
-  leg side by side; duplex Phase 2 with four real glycosidic sugar
-  tethers (4× C1′–N at exactly 1.47 Å).
-- **Classical core reinforced.** Analytic dihedral gradients (audit P2
-  closed, 22-check FD-oracle selftest); Andersen canonical thermostat
-  (WHAM legs); FIRE minimizer (KcsA relax legs; steepest kept for
-  clash relief after head-to-head evidence); r2 micro-opts.
-- **Display split.** Deterministic stdout (the record) vs TTY-gated
-  stderr (timings, heartbeats, leg progress); version banner; 13-line
-  result recap; `verify_scripts.sh` gates record, both selftests plus
-  fire test, datastream seal, and key/unit compliance.
+The headline: **the tree did not compile**, and two independent defects in
+sequence had hidden that fact. The physics underneath also had a
+sign error and a functional discontinuity that were invisible in every printed
+number.
 
-## What the v9R3 audit had fixed (history, kept)
+## The build was broken, and the artifacts hid it
 
-- **Q1 — quantum normalization.** `(n+l)!` cubed → first power in the
-  radial normalization (2× for 2s, 6× for 2p; H 1s exact either way).
-  Behavior-neutral by construction (shape-normalized plots, argmax).
-- **B1–B3 — initializer braces.** Fully explicit `{{{0}}, 0, 0}`
-  initializers; dead `-Wno-missing-braces` suppression removed (M1).
-- **T1 — potassium row verified** against Rappé et al. 1992 UFF.
-- **F1/F5 — 1-4 scaling rejected** (broke Demo 11), cutoff switching
-  gated opt-in/off-default. **F4/P2** — analytic dihedrals, deferred
-  then, closed now (see above).
-- **N1 — naming hygiene**, v9R4 operational references.
+1. The first v9R4 pass added static assertions to `include/types.h` that were
+   wrong: four asserted struct sizes that ignore padding, and four that
+   referenced the `SimError` enum about twenty lines before it was declared.
+   `make` failed on every source file.
+2. The repair removed that block — and dropped a closing brace in
+   `src/forces.c`, leaving `origin/main` still unable to build from a clean
+   tree. Everything after line 170 was swallowed into an unclosed `if`.
 
-## Gate discipline — misses the gates caught (this arc)
+Neither was visible because the repository **tracks `build/*.o` and the
+`carbonsim` binary**. An in-place `make` sees the committed objects as
+up-to-date, rebuilds nothing, and succeeds. `verify_scripts.sh` counted build
+warnings with a bare `make`, so it reported "0 warnings" on a source tree that
+could not compile. The verify script now runs `make clean` first and treats a
+failed clean build as a hard failure.
 
-- Finite-difference cross-checks rejected the first analytic-dihedral
-  draft (real sign bug in the m1·dn2 terms, localized per-atom with
-  sympy ground truth) before it could touch dynamics.
-- Undamped induction collapsed hydration minimization (−28000 eV);
-  Thole damping fixed it. SCF charge feedback collapsed Na⁺ (−51 eV);
-  gain/mixing/freezing fixed it. Soft-scaffold vacuum cages
-  dissociated (<d>→5.5 Å); protein-like stiffness + free-ion framing
-  fixed the question being asked.
-- A scratch trajectory edit overflowed a fixed-size sample array; the
-  stack protector aborted it, and sampling is now stride-based with
-  bounds guards. A capacity audit caught the duplex Phase-2 atom count
-  (127 > 96) as a segfault before release; sim sized to 160/128.
-- WHAM barrier estimates flipped across builds (0.21 vs 0.61 eV) from
-  tail-bin noise; count-thresholded barriers over 3 seed repeats fixed
-  the estimator, and the fixed-charge reference is kept alongside.
-- Every behavior-affecting change re-ran the full record through s01
-  (normal + ASan builds, output SHAs, both stderrs).
+This is worth stating plainly because it means the previously published record
+SHA was produced by a stale binary, not by the source in the repository.
 
-## Open items (carried, precisely)
+## Physics corrections
 
-1. Bulk solvent (PBC box, Ewald/PME); 6-water clusters feed exchange
-   but are not bulk. 2. Mixed-occupancy knock-on (KNa/NaK).
-3. Charge-transfer covalency, exchange/correlation beyond Slater–
-   Kirkwood/Pauli estimates. 4. Protein↔electrophysiology loop
-   (gating from structure). 5. Full phosphodiester duplex polymer.
+Every item was found by measurement, and each is pinned by a regression test
+that fails on the old code.
 
-## Record (SHAs)
+**Critical**
 
-- Normal build output (`output.txt`):
-  `58bb9f69f15779373cbc429998171f90deb61abc6bbd08c19c8e4c431a94134e`
-  (v9R4-release: banner + all legs above.)
-- ASan build output (`output.asan.txt`): byte-for-byte identical to the
-  normal build (verified end-to-end: full ASan+UBSan run, empty stderr,
-  SHA match). The readme's embedded output block is regenerated and
-  matches this record.
-- Datastream (`kcsa.cvmds`, schema 1): 100+ claims, seal verified.
+* **The dispersion force had the wrong sign.** The energy `-C6 f6(r)/r6` is
+  attractive and every printed `E_disp` was correct, but the force was applied
+  as `-(dE/dr)(d/r)` instead of `+(dE/dr)(d/r)` — so the van der Waals term
+  acted as a repulsion in the dynamics. Finite differences showed the analytic
+  force exactly anti-parallel to the true gradient (relL2 = 2.000, the
+  signature of `F = -F_FD`); correcting the sign drops the error to 5.9e-11.
+* **The self-consistent polarization energy was a discontinuous function of
+  geometry.** The code used a Hellmann-Feynman weight that does not apply once
+  the dipoles are self-consistent (`dU/dE0 = -mu (I - T alpha)^-1`, not
+  `-mu/2`), and on solver non-convergence it silently substituted a *different*
+  energy functional. Measured result: a **5.92 eV jump over a 0.01 Å
+  displacement**. Nothing conserved energy on that path.
+* **The "SCF" was a fixed-point iteration for a linear system.** It consumed
+  96–97 of its 100 iterations for a *four-atom* system; a tuned-acceleration
+  replacement still failed on 121 of 401 sampled geometries. Replaced with an
+  exact 128-bit linear solve.
+* **Induced-dipole catastrophe cancellation on bonded pairs.** With no dipole
+  hard core, a 1.3 Å C=O bond with α_C = 1.76 gives an off-diagonal coupling
+  of about 2.8, pushing an eigenvalue of `(I - A)` past 1 so that no solution
+  exists. Standard 1-2/1-3 exclusion applied, matching what the QEq solve
+  already did.
 
-## Build
+**Major**
 
-```bash
-cd biological/v9R4
-make            # warning-clean -Wall -Wextra, no suppressions
-./carbonsim > output.txt 2> stderr.txt   # + kcsa.cvmds side effect
-make selftest selftest-forces selftest-fire
-bash verify_scripts.sh
-bash ../s01_verify_record.sh
+* **LJ σ stored UFF's Rmin rather than σ**, putting every effective Lennard-Jones
+  well 12.2% too far out (carbon minimum at 4.32 Å instead of 3.85 Å). All 36
+  elements converted, and now consistent with the AMBER conversions already
+  used for amino acids and nucleobases.
+* **Carbonyl oxygen and amide nitrogen were labelled sp3.** The classifier's
+  `p_count >= 3` clause fired for every nitrogen and oxygen, overriding the
+  steric logic — on exactly the functional groups the whole biomolecular model
+  is made of. Hybridization now decides by steric number with a proper
+  conjugation test, which is what separates an amine (sp3) from an amide
+  (sp2); that distinction is invisible to a bare `Atom`, so a topology-aware
+  entry point was added.
+* **`r_mp³` was being used as a polarizability.** It is a screening-radius
+  volume, and because the branch was selected by atomic number the induction
+  energy jumped 13.6× between two adjacent elements (H 0.420 vs He 0.031). It
+  also fed Pauli screening and the Slater-Kirkwood C6. Replaced with a
+  tabulated set of measured atomic polarizabilities for H–Kr, stored in atomic
+  units and converted in code.
+* **QEq had neither a hard core nor a clamp.** Standard QEq zeroes `A_ij` for
+  1-2 and 1-3 pairs; including the full 1/r term let the solve run away to
+  q(C) = +4.82 e and q(O) = −5.63 e on a bonded C-O-O fragment at real bond
+  lengths.
+* **The minimizer divergence floor did not scale with the system.** A hard
+  −50000 eV threshold silently disables minimization for anything below it — a
+  protein at a routine −15 eV/atom crosses it near 3300 atoms, and
+  `s10_1K4C.pdb` is in this repository. The result would have been an
+  unminimized structure returned as a success. Now scaled per atom.
+* **Free-energy sampling had no statistical treatment.** 300 nominal samples
+  per umbrella window, autocorrelation ignored, barriers quoted to two decimals.
+  Trajectories lengthened 8×, and the integrated autocorrelation time and
+  effective sample size are now **measured and printed**: τ = 50–96 samples,
+  N_eff ≈ 15–30 independent samples per window out of 2400 nominal. Bins
+  dropped by the `min_count` filter are counted and reported rather than
+  silently discarded.
+* **PCG64 was documented but did not exist.** The previous notes stated "PCG64
+  RNG added as opt-in (LCG retained for record reproducibility)". There was no
+  PCG64 anywhere in the tree. It is implemented now, tested, and selectable via
+  `sim->rng_kind`; the LCG remains the default so the record stays
+  byte-identical. The uniform conversion also moved from 31 to 53 bits.
+
+**Moderate and minor**
+
+* Silent orbital truncation now reported through an out-parameter instead of
+  quietly dropping electrons for heavy elements.
+* Unclamped QEq charges on the `forces_calculate` path.
+* `qm_alpha` dereferenced before its NULL check; `integrator_remove_com_velocity`
+  had no guard at all.
+* Five unguarded `->element->` dereferences. The periodic table stops at Kr
+  (Z = 36) while `MAX_ELEMENTS` advertises 118, so `sim_add_atom(s, 37, ...)`
+  yields `element == NULL` and then segfaults in five places.
+* `vec3_pbc` produced NaN on a degenerate box dimension; `nb_planarity_deviation`
+  read past the atom array on a bad index.
+* A dead per-atom displacement clamp in both steepest-descent minimizers.
+* The induction constant was hand-typed as a 2.2e-6 truncation of
+  `1/COULOMB_MD`, against the codebase's own derive-in-line rule.
+* `frozen[32]` stack array indexed by an atom index and read for every atom.
+
+## Memory safety
+
+Two out-of-bounds **writes**, both confirmed under UBSan:
+
+```
+forces.c:147  index 4 out of bounds for type 'int [4]'
+forces.c:199  index 118 out of bounds for type 'int [118][118][118]'
 ```
 
-Requires a C11 compiler and `make`.
+The de-duplication arrays used caller-supplied bond orders and atomic numbers as
+indices, and consumed 6.9 MB of BSS to implement "print once". Replaced with a
+bounded key set, so no caller-supplied value is ever an index.
 
----
+## Confirmed correct
 
-## v9R4 Audit & Hardening Addendum (2026-09-28)
+Equally worth recording, because it bounds where the doubt lies.
 
-This addendum documents the comprehensive audit and hardening performed post-release:
+* **The hydrogenic quantum mechanics is exact** — `∫r²|R_nl|²dr`, `<r>`, `<r²>`
+  for n = 1…3, l = 0…n−1 agree with quadrature to **1e-13**.
+* **Slater's rules are correct**, including the single 0.85 tier for
+  `(n−1)s/(n−1)p/(n−1)d`; reproduces Slater's own Fe 4s and Fe 3d worked
+  examples exactly.
+* **The Clementi–Raimondi table is sound.** O 1s was suspected of a digit
+  transposition (7.6579 vs 7.7579) and is correct: the 1s series rises a
+  uniform 0.9925 per element from Li to Kr, and 7.6579 sits on that line. The
+  suite now asserts that smoothness so a real transposition would be caught.
+* **All 49 real spherical harmonics are orthonormal** for l ≤ 3, including the
+  hand-normalized f₂ coefficient.
+* **SHA-256 matches all three NIST vectors**; the datastream verifier correctly
+  resists parser confusion and detects tampering.
+* **Velocity Verlet conserves energy** below 1e-7 eV/step over 20 000 steps,
+  flat in `dt`.
+* **CHARMM cutoff switching, the angle gradient, the first-order induction
+  gradient, and Tang-Toennies damping (including `df6/dr`) are all correct.**
+* **MBAR is implemented correctly** — the problem was sampling, not the
+  estimator.
+* **`neuron.c` is a clean Hodgkin–Huxley implementation**, with the removable
+  singularities in α_m and α_n handled by a correct Taylor expansion.
 
-### Mathematical Verification
-- All Slater screening values verified against Slater's 1930 worked examples
-- Radial wavefunction normalization verified to machine precision for n=1..3
-- Most probable radii match analytical values for all hydrogen-like orbitals
-- UFF LJ parameters (H–Ca) match Rappé et al. 1992 reference table exactly
-- Clementi-Raimondi exponents for K dual-sourced (Wikipedia + WebElements)
+## Verification
 
-### Code Quality Improvements
-- Fallback warnings in `forces.c` now print once per unique missing combination
-- Compile-time static assertions for all struct layouts, enums, and constants
-- PCG64 RNG available as opt-in (LCG retained for record reproducibility)
-- Automatic dependency generation (`-MMD -MP`) in makefile
-- Static analysis clean: ASan+UBSan zero findings
+New `make selftest-regression`: **118 checks**, one per defect, on independent
+oracles so it can fail. `make test` runs every gate.
 
-### Testing
-- All selftests pass (17 datastream + 22 forces + 7 fire checks)
-- Record byte-identical across normal and ASan builds
-- Zero memory errors, zero UB findings under sanitizers
+```
+clean build                         0 warnings, 0 errors
+selftest / forces / fire            17 / 22 / 7 checks green
+selftest-regression                 118 checks green
+ASan + UBSan                         0 memory errors, 0 UB, empty stderr
+stdout byte-identical across runs    yes
+stdout byte-identical under ASan     yes
+record SHA-256                       fb41c5f1324dde07e20bb43342bf3ce06b49152e39191b9c05e763a551b95c91
+```
+
+The record digest changed. That is the honest consequence of fixing the
+physics: a force that pointed the wrong way, a corrected LJ well, a tabulated
+polarizability, a hard-core QEq, corrected hybridization labels, a direct
+dipole solve and a wider uniform conversion all change trajectories. The
+previous digest was produced by a binary that the committed source could not
+rebuild.
+
+## What the model is, stated honestly
+
+**It is not KcsA.** `aminoacids.c` implements glycine, alanine, a Gly-Ala
+dipeptide and poly-alanine; the only residue codes in the tree are `ALA` and
+`GLY`. The real KcsA selectivity filter is the sequence **TVGYG** — the Thr
+hydroxyl, Val isopropyl and Tyr phenol that constitute its chemistry are
+absent entirely. The Demo 12 filter is not built from residues at all but from
+a hand-placed array of carbonyl oxygens held by harmonic position restraints.
+
+What is actually computed is Na⁺ versus K⁺ in a frozen, restrained,
+hexa-coordinate oxygen cage in vacuum. The Coulomb numbers are correct physics
+for that model. The biological attribution is not supported by it, and the
+previous release notes' framing of the result as settling the KcsA selectivity
+question was not warranted.
+
+Also unchanged and still open: no bulk solvent, no membrane potential, no ion
+concentrations, harmonic bonds that cannot break, the three tracks
+(protein / nucleic acid / electrophysiology) still unconnected, qualitative
+base-pairing energetics that overshoot gas-phase references by about 4x, and
+`qm_overlap` which is a heuristic rather than an overlap integral.
+
+The `±` on the umbrella barriers is a sample standard deviation over three
+seed repeats — not a standard error, not a confidence interval — and the
+measured `N_eff` of 15–30 means the barriers are not determined to the digits
+at which they are printed. The program now says so in its own output.

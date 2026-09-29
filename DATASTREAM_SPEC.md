@@ -48,6 +48,16 @@ Key/value pairs, one per line, `key: value`.
 Static per-atom identity, one row per atom.
 Columns: `idx  Z  symbol  mass_amu  charge_e  lj_eps_ev  lj_sigma_a`
 
+`lj_sigma_a` is the 12-6 Lennard-Jones **collision diameter** — the distance at
+which the potential crosses zero — and is the quantity consumed by the
+`4 eps [(sigma/r)^12 - (sigma/r)^6]` form in `pair_nonbonded_core()`. It is NOT
+UFF's `x1` column, which is Rmin (the distance of minimum) and exceeds sigma by
+2^(1/6). The periodic table was corrected during the v9R4 deep audit to store
+`x1 / 2^(1/6)`; amino acid and nucleobase sites use the equivalent AMBER
+`Rstar -> sigma` conversion. The minimum of any pair potential reconstructed
+from a record's `lj_eps_ev`/`lj_sigma_a` columns should therefore come out at
+`2^(1/6) * sigma`, and can be used as a validation check on a consumer.
+
 ### 3.3 `[steps]` — optional
 Per-timestep scalar observables, one row per step.
 Columns: `step  time_fs  KE_ev  PE_ev  E_ev  T_k`
