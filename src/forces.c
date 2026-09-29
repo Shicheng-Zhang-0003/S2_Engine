@@ -143,7 +143,11 @@ int forces_bond_params(int Za, int Zb, int order, BondParam *out) {
         for (int i = 0; i < BOND_TABLE_LEN; i++) {
             const BondParam *p = &BOND_TABLE[i];
             if (p->Za == Za && p->Zb == Zb && p->order == 1) {
-                fprintf(stderr, "forces: WARNING (audit fix F3): no BOND_TABLE entry for Z%d-Z%d order %d - falling back to single-bond parameters instead of the requested bond order\n", Za, Zb, order);
+                static volatile int bond_order_warned[118][118][4] = {{0}};
+                if (!bond_order_warned[Za][Zb][order]) {
+                    bond_order_warned[Za][Zb][order] = 1;
+                    fprintf(stderr, "forces: WARNING (audit fix F3): no BOND_TABLE entry for Z%d-Z%d order %d - falling back to single-bond parameters instead of the requested bond order\n", Za, Zb, order);
+                }
                 *out = *p;
                 return 1;
             }
@@ -154,12 +158,15 @@ int forces_bond_params(int Za, int Zb, int order, BondParam *out) {
     const Element *ea = pt_element(Za);
     const Element *eb = pt_element(Zb);
     if (ea && eb) {
-        fprintf(stderr, "forces: WARNING (audit fix F3): no BOND_TABLE entry for %s(Z%d)-%s(Z%d) order %d - geometric fallback: r0 from covalent-radii sum, generic k = 20 eV/A^2\n", ea->symbol, Za, eb->symbol, Zb, order);
+        static volatile int bond_geom_warned[118][118][4] = {{0}};
+        if (!bond_geom_warned[Za][Zb][order]) {
+            bond_geom_warned[Za][Zb][order] = 1;
+            fprintf(stderr, "forces: WARNING (audit fix F3): no BOND_TABLE entry for %s(Z%d)-%s(Z%d) order %d - geometric fallback: r0 from covalent-radii sum, generic k = 20 eV/A^2\n", ea->symbol, Za, eb->symbol, Zb, order);
+        }
         out->Za = Za; out->Zb = Zb; out->order = order;
         out->r0 = ea->covalent_radius + eb->covalent_radius;
         out->k  = 20.0;  /* generic, eV/Å² */
         return 1;
-    }
     return 0;
 }
 
@@ -187,7 +194,11 @@ int forces_angle_params(int Za, int Zb, int Zc, AngleParam *out) {
      * angle type inconsistent, too-soft physics relative to every
      * tabulated entry - using a representative generic AMBER value
      * (40 kcal/mol/rad^2, the CT-CT-CT constant) here instead. */
-    fprintf(stderr, "forces: WARNING (audit fix F3): no ANGLE_TABLE entry for angle Z%d-Z%d-Z%d - generic tetrahedral fallback (109.47 deg, k = 3.469 eV/rad^2)\n", Za, Zb, Zc);
+    static volatile int angle_warned[118][118][118] = {{0}};
+    if (!angle_warned[Za][Zb][Zc]) {
+        angle_warned[Za][Zb][Zc] = 1;
+        fprintf(stderr, "forces: WARNING (audit fix F3): no ANGLE_TABLE entry for angle Z%d-Z%d-Z%d - generic tetrahedral fallback (109.47 deg, k = 3.469 eV/rad^2)\n", Za, Zb, Zc);
+    }
     out->Za = Za; out->Zb = Zb; out->Zc = Zc;
     out->theta0 = DEG2RAD(109.47);
     out->k      = 2.0 * 40.0 * KCAL_MOL_TO_EV;  /* = 3.469 eV/rad^2 */
