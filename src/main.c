@@ -10,6 +10,7 @@
 #include "../include/sim.h"
 #include "../include/nucleobases.h"
 #include "../include/kcsa_filter.h"
+#include "../include/amber_lj.h"
 #include "../include/neuron.h"
 #include "../include/aminoacids.h"
 #include "../include/datastream.h"
@@ -1661,9 +1662,9 @@ static void kcsa_set_ion_point_charge(Simulation *sim, int ion_idx) {
  * Na+: sigma = 2.4396 A, eps = 0.0037917 eV.
  * K+:  sigma = 3.0385 A, eps = 0.0083989 eV.
  * Ref: Joung & Cheatham, J. Phys. Chem. B 112, 9020 (2008). */
-#define KCSA_JC_NA_SIGMA  (2.0 * 1.369 / 1.122462048309373)
+#define KCSA_JC_NA_SIGMA  AMBER_RSTAR_TO_SIGMA(1.369)
 #define KCSA_JC_NA_EPS    (0.0874393 * KCAL_MOL_TO_EV)
-#define KCSA_JC_K_SIGMA   (2.0 * 1.705 / 1.122462048309373)
+#define KCSA_JC_K_SIGMA   AMBER_RSTAR_TO_SIGMA(1.705)
 #define KCSA_JC_K_EPS     (0.1936829 * KCAL_MOL_TO_EV)
 static void kcsa_set_ion_jc(Simulation *sim, int ion_idx, int ion_Z) {
     if (ion_Z == 11) sim_set_atom_lj(sim, ion_idx, KCSA_JC_NA_EPS, KCSA_JC_NA_SIGMA);
@@ -1709,7 +1710,7 @@ static double kcsa_filter_energy(int ion_Z, double ion_charge,
       * KCAL_MOL_TO_EV, and 1.6612 A R* converted to sigma via
       * sigma = 2 Rstar over 2^(1/6) as in aminoacids.c and nucleobases.c. */
      const double CARBONYL_O_LJ_EPS   = 0.2100 * KCAL_MOL_TO_EV;
-     const double CARBONYL_O_LJ_SIGMA = 1.6612 * 2.0 / 1.122462048309373;
+     const double CARBONYL_O_LJ_SIGMA = LJ_AMBER_O_SIGMA;
 
      for (int i = 0; i < 4; i++) {
          double angle = i * (M_PI / 2.0);
@@ -1744,7 +1745,7 @@ static double kcsa_filter_energy(int ion_Z, double ion_charge,
                                       double radius_A) {
      Simulation *sim = sim_create(8, 8);
      const double CARBONYL_O_LJ_EPS   = 0.2100 * KCAL_MOL_TO_EV;
-     const double CARBONYL_O_LJ_SIGMA = 1.6612 * 2.0 / 1.122462048309373;
+     const double CARBONYL_O_LJ_SIGMA = LJ_AMBER_O_SIGMA;
 
      for (int i = 0; i < 4; i++) {
          double angle = i * (M_PI / 2.0);
@@ -1774,7 +1775,7 @@ static double kcsa_filter_energy(int ion_Z, double ion_charge,
        * Vacuum 8-O Coulomb repulsion large, reported as-is. */
       Simulation *sim = sim_create(16, 16);
       const double CARBONYL_O_LJ_EPS   = 0.2100 * KCAL_MOL_TO_EV;
-      const double CARBONYL_O_LJ_SIGMA = 1.6612 * 2.0 / 1.122462048309373;
+      const double CARBONYL_O_LJ_SIGMA = LJ_AMBER_O_SIGMA;
       const double half_sep = KCSA_RING_Z_SEP * 0.5;
       double r_inner = d_inner > half_sep
           ? sqrt(d_inner * d_inner - half_sep * half_sep) : d_inner;
@@ -1842,7 +1843,7 @@ static int kcsa_relax_one(int ion_Z, double k_rest, Vec3 start,
     const double r_inner = sqrt(2.70 * 2.70 - half_sep * half_sep);
     const double r_outer = sqrt(2.83 * 2.83 - half_sep * half_sep);
     const double ceps = 0.2100 * KCAL_MOL_TO_EV;
-    const double csig = 1.6612 * 2.0 / 1.122462048309373;
+    const double csig = LJ_AMBER_O_SIGMA;
     const double total_q = 8.0 * KCSA_CARBONYL_O_CHARGE + 1.0;
     Simulation *sim = sim_create(16, 32);
     if (!sim) return -1;
@@ -1899,7 +1900,7 @@ static double kcsa_cage6_energy(int ion_Z, double d_3d, double *out_coul,
                                 double *out_lj, double *out_pol,
                                 double *out_disp) {
     const double ceps = 0.2100 * KCAL_MOL_TO_EV;
-    const double csig = 1.6612 * 2.0 / 1.122462048309373;
+    const double csig = LJ_AMBER_O_SIGMA;
     static const double ax[6][3] = {
         {1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
     Simulation *sim = sim_create(16, 32);
@@ -1943,7 +1944,7 @@ static int kcsa_pair_relax(int ion_Z, double d0, int do_min,
     const double r_inner = sqrt(2.70 * 2.70 - half_sep * half_sep);
     const double r_outer = sqrt(2.83 * 2.83 - half_sep * half_sep);
     const double ceps = 0.2100 * KCAL_MOL_TO_EV;
-    const double csig = 1.6612 * 2.0 / 1.122462048309373;
+    const double csig = LJ_AMBER_O_SIGMA;
     const double total_q = 8.0 * KCSA_CARBONYL_O_CHARGE + 2.0;
     Simulation *sim = sim_create(24, 40);
     if (!sim) return -1;
@@ -2071,7 +2072,7 @@ static void kcsa_wham_one(unsigned long seed_base, long min_count,
     const double r_inner = sqrt(2.70 * 2.70 - half_sep * half_sep);
     const double r_outer = sqrt(2.83 * 2.83 - half_sep * half_sep);
     const double ceps = 0.2100 * KCAL_MOL_TO_EV;
-    const double csig = 1.6612 * 2.0 / 1.122462048309373;
+    const double csig = LJ_AMBER_O_SIGMA;
     const double k_umb = 0.15, Tumb = 300.0;
     const double kT = (BOLTZMANN_K / EV_TO_J) * Tumb;
     static const double z0s[7] = {-3,-2,-1,0,1,2,3};
@@ -2360,7 +2361,7 @@ static void demo_kcsa_filter(void) {
         const double r_inner = sqrt(2.70 * 2.70 - half_sep * half_sep);
         const double r_outer = sqrt(2.83 * 2.83 - half_sep * half_sep);
         const double ceps = 0.2100 * KCAL_MOL_TO_EV;
-        const double csig = 1.6612 * 2.0 / 1.122462048309373;
+        const double csig = LJ_AMBER_O_SIGMA;
         for (int ion_pass = 0; ion_pass < 2; ion_pass++) {
             int ion_Z = (ion_pass == 0) ? 19 : 11;
             Simulation *sim = sim_create(16, 32);
@@ -2425,7 +2426,7 @@ static void demo_kcsa_filter(void) {
         const double r_inner = sqrt(2.70 * 2.70 - half_sep * half_sep);
         const double r_outer = sqrt(2.83 * 2.83 - half_sep * half_sep);
         const double ceps = 0.2100 * KCAL_MOL_TO_EV;
-        const double csig = 1.6612 * 2.0 / 1.122462048309373;
+        const double csig = LJ_AMBER_O_SIGMA;
         printf("--- Pore-axis U(z) profile (JC ions, restrained cage, z in A, E in eV; single-point, not free-energy PMF) ---\n");
         printf("  %-8s %-12s %-12s\n", "z", "K+", "Na+");
         for (double z = -3.0; z <= 3.01; z += 0.5) {
@@ -2479,7 +2480,7 @@ static void demo_kcsa_filter(void) {
         const double r_inner = sqrt(2.70 * 2.70 - half_sep * half_sep);
         const double r_outer = sqrt(2.83 * 2.83 - half_sep * half_sep);
         const double ceps = 0.2100 * KCAL_MOL_TO_EV;
-        const double csig = 1.6612 * 2.0 / 1.122462048309373;
+        const double csig = LJ_AMBER_O_SIGMA;
         printf("--- SCF-polar U(z) (JC + coupled dipoles + Pauli + disp) ---\n");
         printf("  %-8s %-12s %-12s %-10s %-10s\n", "z", "K+", "Na+", "pol_K", "pol_Na");
         for (double z = -3.0; z <= 3.01; z += 0.5) {
@@ -2543,7 +2544,7 @@ static void demo_kcsa_filter(void) {
         const double r_inner = sqrt(2.70 * 2.70 - half_sep * half_sep);
         const double r_outer = sqrt(2.83 * 2.83 - half_sep * half_sep);
         const double ceps = 0.2100 * KCAL_MOL_TO_EV;
-        const double csig = 1.6612 * 2.0 / 1.122462048309373;
+        const double csig = LJ_AMBER_O_SIGMA;
         const double total_q = 8.0 * KCSA_CARBONYL_O_CHARGE + 1.0;
         for (int ion_pass = 0; ion_pass < 2; ion_pass++) {
             int ion_Z = (ion_pass == 0) ? 19 : 11;
@@ -2634,7 +2635,7 @@ static void demo_kcsa_filter(void) {
         const double r_inner = sqrt(2.70 * 2.70 - half_sep * half_sep);
         const double r_outer = sqrt(2.83 * 2.83 - half_sep * half_sep);
         const double ceps = 0.2100 * KCAL_MOL_TO_EV;
-        const double csig = 1.6612 * 2.0 / 1.122462048309373;
+        const double csig = LJ_AMBER_O_SIGMA;
         for (int ion_pass = 0; ion_pass < 2; ion_pass++) {
             int ion_Z = (ion_pass == 0) ? 19 : 11;
             Simulation *sim = sim_create(16, 32);
@@ -2694,7 +2695,7 @@ static void demo_kcsa_filter(void) {
         const double r_inner = sqrt(2.70 * 2.70 - half_sep * half_sep);
         const double r_outer = sqrt(2.83 * 2.83 - half_sep * half_sep);
         const double ceps = 0.2100 * KCAL_MOL_TO_EV;
-        const double csig = 1.6612 * 2.0 / 1.122462048309373;
+        const double csig = LJ_AMBER_O_SIGMA;
         const double total_q = 8.0 * KCSA_CARBONYL_O_CHARGE + 1.0;
         for (int ion_pass = 0; ion_pass < 2; ion_pass++) {
             int ion_Z = (ion_pass == 0) ? 19 : 11;
@@ -2885,7 +2886,7 @@ static void demo_kcsa_filter(void) {
         const double r_inner = sqrt(2.70 * 2.70 - half_sep * half_sep);
         const double r_outer = sqrt(2.83 * 2.83 - half_sep * half_sep);
         const double ceps = 0.2100 * KCAL_MOL_TO_EV;
-        const double csig = 1.6612 * 2.0 / 1.122462048309373;
+        const double csig = LJ_AMBER_O_SIGMA;
         const double total_q = 8.0 * KCSA_CARBONYL_O_CHARGE + 2.0;
         printf("--- Knock-on landscape (ion A at z=0, ion B scanned) ---\n");
         printf("  %-8s %-12s %-12s %-8s\n", "zB", "KK", "NaNa", "flag");
@@ -3144,9 +3145,14 @@ static void demo_kcsa_filter(void) {
         DSWriter *w = ds_open("kcsa.cvmds", "kcsa");
         if (w) {
             ds_set_header(w, "rng-seed", "7");
-            ds_set_header(w, "source-hash", "record-tree-v9R4-fixed-no-vcs");
+            ds_set_header(w, "version-internal", S2_VERSION_INTERNAL);
+            ds_set_header(w, "version-external", S2_VERSION_EXTERNAL);
+            ds_set_header(w, "source-hash", "git-tracked-tree; see CURRENT_BASELINE_SHA.txt");
             ds_set_header(w, "build-flags-note", "record build must not carry -march=native");
-            ds_set_header(w, "cage-geometry", "3d-2.70-2.83-xy-derived-zsep-3.084");
+            ds_set_header(w, "cage-geometry",
+                          "LEGACY demo-12 constructed cage: 3d-2.70-2.83-xy-derived-zsep-3.084");
+            ds_set_header(w, "real-filter-geometry",
+                          "demo 12b: PDB 1K4C chain C TVGYG, C4-symmetric, CN=8 at all four sites");
             ds_add_claim(w, "kcsa.antiprism.e_k", k_e3, "eV", "computed");
             ds_add_claim(w, "kcsa.antiprism.e_na", na_e3, "eV", "computed");
             ds_add_claim(w, "kcsa.antiprism.ddg_vacuum", vac_dd, "eV", "computed");
@@ -3989,11 +3995,14 @@ int main(void) {
 
     printf("\n");
     printf("  ╔═══════════════════════════════════════════════════════╗\n");
-    printf("  ║       CARBON VM — CHEMISTRY SIMULATOR   (v9 release)  ║\n");
+    printf("  ║   CARBON VM — CHEMISTRY SIMULATOR   %s / %s    ║\n",
+           S2_VERSION_INTERNAL, S2_VERSION_EXTERNAL);
     printf("  ║       From subatomic to molecular dynamics            ║\n");
     printf("  ╚═══════════════════════════════════════════════════════╝\n");
+    printf("  %s / %s — https://github.com/Shicheng-Zhang-0003/S2_Engine\n",
+           S2_VERSION_INTERNAL, S2_VERSION_EXTERNAL);
     printf("\n  Unit system: Length=Å  Time=fs  Energy=eV  Mass=AMU\n");
-    printf("  Physical constants: 2019 CODATA  |  LJ: UFF defaults + AMBER ff99 overrides  |  Bonds: placed-geometry r0, generic spectroscopic k (audit F2)\n\n");
+    printf("  Physical constants: CODATA  |  LJ: UFF (periodic table, sigma = Rmin/2^(1/6)) + AMBER ff99 (biomolecular)  |  Bonds: placed-geometry r0, generic spectroscopic k (audit F2)\n\n");
 
 #define RUN_DEMO(fn, label) do { demo_clock_start(); fn(); demo_clock_done(label); } while (0)
     RUN_DEMO(demo_quantum, "demo 1 quantum");
