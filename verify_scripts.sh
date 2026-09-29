@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
 # verify_record.sh — read-only record + spec verifier. Run from v9R4/.
-# Checks: baseline SHA match, stderr empty, selftest green,
-# kcsa.cvmds seal + key/unit compliance, cage geometry wiring.
+# Checks: CLEAN build, baseline SHA match, stderr empty, every selftest
+# green, kcsa.cvmds seal + key/unit compliance, cage geometry wiring.
+#
+# AUDIT FIX B1 (the check that was missing): the old script ran a bare
+# `make` to count warnings. This repository TRACKS build/*.o and the
+# carbonsim binary, so an in-place `make` sees up-to-date objects and
+# rebuilds nothing - it reported "0 warnings" on a tree that did not
+# compile at all. The v9R4 audit added static assertions that failed and
+# a subsequent fix dropped a closing brace in forces.c; both left the
+# committed objects stale enough to hide it completely. `make clean`
+# first is the only honest form.
 set -uo pipefail
 ok(){ printf '  %-58s %s\n' "$1" "$2"; }
 fail=0
@@ -14,7 +23,16 @@ EXP=$(cat CURRENT_BASELINE_SHA.txt | tr -d ' \n')
 ACT=$(sha256sum output.txt | cut -d' ' -f1)
 chk "output.txt SHA == CURRENT_BASELINE_SHA.txt" "$EXP" "$ACT"
 chk "stderr.txt empty" "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" "$(sha256sum stderr.txt 2>/dev/null | cut -d' ' -f1 || echo MISSING)"
-chk "build warning-clean" "0" "$(make clean >/dev/null 2>&1; make 2>&1 | grep -c 'warning:')"
+# AUDIT FIX B1: clean first - see the header. A bare `make` is a no-op
+# against the committed objects and cannot fail.
+make clean >/dev/null 2>&1
+if ! make > /tmp/verify_build.log 2>&1; then
+  echo "  FAIL  clean build succeeds"
+  grep -E "error" /tmp/verify_build.log | head -10
+  exit 1
+fi
+echo "  PASS  clean build succeeds"
+chk "build warning-clean" "0" "$(grep -c 'warning:' /tmp/verify_build.log)"
 
 echo; echo "=== kcsa cage wiring (truth fixes) ==="
 ok "KCSA_RING_Z_SEP in main.c" "$(grep -Fc 'KCSA_RING_Z_SEP' src/main.c) (>=6)"
@@ -38,10 +56,17 @@ make selftest >/dev/null 2>&1
 chk "selftest green" "0" "$ST"
 make selftest-forces >/dev/null 2>&1
 ./build/test_forces >/dev/null 2>&1 && FT=0 || FT=1
+make selftest-regression >/dev/null 2>&1
+./build/test_regression > /tmp/verify_regression.log 2>&1 && RT=0 || RT=1
+RT_PASS=$(grep -c '^  PASS' /tmp/verify_regression.log 2>/dev/null || echo 0)
+RT_FAIL=$(grep -c '^  FAIL' /tmp/verify_regression.log 2>/dev/null || echo 0)
 chk "forces selftest green (P2)" "0" "$FT"
 make selftest-fire >/dev/null 2>&1
 ./build/test_fire >/dev/null 2>&1 && FR=0 || FR=1
 chk "fire selftest green" "0" "$FR"
+chk "selftest-regression green" "0" "$RT"
+printf '  ---- audit regression suite: %s checks passed, %s failed ----\n' "$RT_PASS" "$RT_FAIL"
+[ "$RT_FAIL" = "0" ] || grep '^  FAIL' /tmp/verify_regression.log | head -20
 if [ -f kcsa.cvmds ]; then
   ./build/test_datastream >/dev/null 2>&1 # ensures verifier linked; use binary below
   python3 - <<'PY'
