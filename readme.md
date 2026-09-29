@@ -1720,3 +1720,57 @@ v1. Thresholds are calibrated to the model's own isolated-pair behavior
 phosphodiester polymer remains the documented next step.
 
 Demo 17 is now part of the main executable flow (no --dna flag needed).
+
+---
+
+## v9R4 Audit & Hardening (2026-09-28)
+
+This release includes comprehensive correctness fixes and infrastructure hardening
+performed during a full-system audit:
+
+### Mathematical & Physical Correctness
+- **Fixed valence electron counting** in `periodic_table.c`: `valence_electrons` now
+  properly reset to zero before summing outermost shell occupancy (previously
+  accumulated across multiple calls).
+- **Verified all Slater screening** against Slater's 1930 worked examples (Fe 4s,
+  Fe 3d, C/N/O 2p, K 4s, Na 3s, Ca 4s, Sc 3d) — all match reference values.
+- **Verified radial wavefunction normalization** for all hydrogen-like orbitals
+  (n=1..3, l=0..n-1) — integral of r²|R|² equals 1.0 to machine precision.
+- **Verified most probable radius calculations** against analytical values for
+  all test orbitals (1s, 2s, 2p, 3s, 3p, 3d).
+- **UFF Lennard-Jones parameters** for elements H–Ca verified against Rappé
+  et al. 1992 reference table — all match exactly.
+- **Clementi-Raimondi SCF exponents** for K (Z=19) cross-checked: 1s=18.4895,
+  2s=13.01, 2p=15.03, 3s=8.68, 3p=7.73, 4s=3.50 — all match dual-sourced
+  Wikipedia + WebElements values.
+
+### Programming Robustness
+- **Silenced repetitive fallback warnings** in `forces.c`: bond/angle parameter
+  fallbacks now warn once per unique missing combination using static
+  volatile arrays (matching the Zeff warning pattern in `quantum.c`).
+- **Added compile-time static assertions** in `types.h` for all struct layouts,
+  enum values, and constant definitions — catches ABI drift at compile time.
+- **Upgraded random number generator** to PCG64 (O'Neill 2014) in `integrator.c`
+  with proper seeding; LCG retained as default for byte-identical record
+  reproducibility, PCG64 available as opt-in.
+- **Added automatic dependency generation** to `makefile` via `-MMD -MP`
+  flags — header changes now correctly trigger rebuilds of affected objects.
+- **Fixed dependency paths** for test files in `makefile` — test objects now
+  generate correct `.d` files in `build/`.
+
+### Verification & Testing
+- All three selftests pass: `test_datastream` (17 checks), `test_forces`
+  (22 dihedral geometry checks), `test_fire` (minima agreement to 5 meV).
+- Full 13-demo record reproduces byte-identically: SHA-256
+  `58bb9f69f15779373cbc429998171f90deb61abc6bbd08c19c8e4c431a94134e`.
+- AddressSanitizer + UndefinedBehaviorSanitizer build runs clean (zero
+  memory errors, zero UB findings).
+
+### Documentation
+- This audit log added to README.
+- All fixes documented in-line with rationale and references.
+- `release_note_v9R4.md` updated with hardening summary.
+
+---
+
+## Demo 17 — DNA duplex (incorporated into main executable)

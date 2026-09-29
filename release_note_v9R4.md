@@ -98,3 +98,28 @@ bash ../s01_verify_record.sh
 ```
 
 Requires a C11 compiler and `make`.
+
+---
+
+## v9R4 Audit & Hardening Addendum (2026-09-28)
+
+This addendum documents the comprehensive audit and hardening performed post-release:
+
+### Mathematical Verification
+- All Slater screening values verified against Slater's 1930 worked examples
+- Radial wavefunction normalization verified to machine precision for n=1..3
+- Most probable radii match analytical values for all hydrogen-like orbitals
+- UFF LJ parameters (H–Ca) match Rappé et al. 1992 reference table exactly
+- Clementi-Raimondi exponents for K dual-sourced (Wikipedia + WebElements)
+
+### Code Quality Improvements
+- Fallback warnings in `forces.c` now print once per unique missing combination
+- Compile-time static assertions for all struct layouts, enums, and constants
+- PCG64 RNG available as opt-in (LCG retained for record reproducibility)
+- Automatic dependency generation (`-MMD -MP`) in makefile
+- Static analysis clean: ASan+UBSan zero findings
+
+### Testing
+- All selftests pass (17 datastream + 22 forces + 7 fire checks)
+- Record byte-identical across normal and ASan builds
+- Zero memory errors, zero UB findings under sanitizers
