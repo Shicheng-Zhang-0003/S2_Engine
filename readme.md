@@ -4,7 +4,7 @@
 
 ## In addition, S2 will not follow the R1 R2 R3 developmental scheme of Lancius and Mathlib. Instead, the v9 to v10 period for S2 will be marked by however many RC releases are necessary to achieve a OpenWorm similar display for visualising bonds occuring.
 
-*Documentation synced to the current tree state post-record-reset (s38: record regenerated without -march=native; s39: documentation re-synced to include Demo 17 and the s37 dehydration block; s42-physics-fix: record regenerated after derivation-based equation fixes - thymine methyl orientation, cytosine H6 bisector construction, live -1 charge conservation, conservative duplex restraints, global r_mp, HH bounds, derived unit conversions), 2026-09-24 (v9R4-release: KcsA 3D->xy cage, JC/ECC/U(z)/QM-Sref, CO2 zero-strain, QEq thread-local, PBC per-axis, datastream lower-case keys). The embedded output block is byte-identical to the record (SHA-256 58bb9f69f15779373cbc429998171f90deb61abc6bbd08c19c8e4c431a94134e).*
+*Documentation synced to the current tree state post-record-reset (s38: record regenerated without -march=native; s39: documentation re-synced to include Demo 17 and the s37 dehydration block; s42-physics-fix: record regenerated after derivation-based equation fixes - thymine methyl orientation, cytosine H6 bisector construction, live -1 charge conservation, conservative duplex restraints, global r_mp, HH bounds, derived unit conversions), 2026-09-24 (v9R4-release: KcsA 3D->xy cage, JC/ECC/U(z)/QM-Sref, CO2 zero-strain, QEq thread-local, PBC per-axis, datastream lower-case keys). The embedded output block is byte-identical to the record (SHA-256 58bb9f69f15779373cbc429998171f90deb61abc6bbd08c19c8e4c431a94134e (SUPERSEDED — see the audit section; the tree could not rebuild the binary that produced it)).*
 
 S2 Engine is a multi-scale, grounded-up physical chemistry and biological
 simulator written in C. It validates biological processes across multiple
@@ -458,20 +458,24 @@ vs FD oracle to 1e-6 + net-zero force + collinear guard), both gated by
 
 ---
 
-## Simulation Execution Output (v9R4)
+## Simulation Execution Output (v9R4, post-audit)
 
-Below is the complete, unedited output of the `carbonsim-v9R4`
-demonstration run — all thirteen demos, from the quantum orbital tables
-through the Hodgkin-Huxley action potential, the KcsA selectivity
-filter, and the minimal DNA duplex. It is reproduced verbatim from
-`output.txt`.
+Verbatim `carbonsim` stdout for the record build. Reproduced by `./carbonsim`;
+the SHA-256 of this stream is the contents of `CURRENT_BASELINE_SHA.txt`, and
+it is byte-identical across repeated runs *and* between the normal and
+ASan+UBSan builds. This output supersedes the pre-audit block, which was
+produced by a binary the committed source could not rebuild.
 
-Note the output itself here: Demo 7 flags that its base-pairing
-magnitudes are qualitatively but not yet quantitatively trustworthy;
-Demo 11 states explicitly that it is not a spontaneous-folding test;
-and Demo 12 reports a genuine negative result with a systematic
-diagnosis; its antiprism block is now a real result rather than a
-placeholder. These caveats are part of the record, not footnotes.
+Numbers changed from the previous release because the physics did: the
+dispersion force sign, the LJ collision diameter, the polarizability dataset,
+the QEq hard core, sp2/sp3 hybridisation labels, a direct dipole solve instead
+of a fixed-point iteration, and a 53-bit uniform conversion. See the audit
+section for each.
+
+Lines worth reading rather than skimming: the `sampling:` and `bins:` lines in
+the MBAR section report the *measured* autocorrelation time and effective
+sample size, and the `ERROR BAR DEFINITION` block states exactly what the
+`±` on the barriers does and does not mean.
 
 ```text
 
@@ -498,7 +502,7 @@ placeholder. These caveats are part of the record, not footnotes.
   Electron affinity : 0.754 eV
   Common valence    : 1
   LJ ε              : 0.00191 eV
-  LJ σ              : 2.8860 Å
+  LJ σ              : 2.5711 Å
   Config            : 1s1
 ══════════════════════════════════════════
   Orbital table for H (Z=1)
@@ -525,7 +529,7 @@ placeholder. These caveats are part of the record, not footnotes.
   Electron affinity : 1.262 eV
   Common valence    : 4
   LJ ε              : 0.00455 eV
-  LJ σ              : 3.8510 Å
+  LJ σ              : 3.4308 Å
   Config            : 1s2 2s2 2p2
 ══════════════════════════════════════════
   Orbital table for C (Z=6)
@@ -555,7 +559,7 @@ placeholder. These caveats are part of the record, not footnotes.
   Electron affinity : 0.000 eV
   Common valence    : 3
   LJ ε              : 0.00299 eV
-  LJ σ              : 3.6600 Å
+  LJ σ              : 3.2607 Å
   Config            : 1s2 2s2 2p3
 ══════════════════════════════════════════
   Orbital table for N (Z=7)
@@ -586,7 +590,7 @@ placeholder. These caveats are part of the record, not footnotes.
   Electron affinity : 1.461 eV
   Common valence    : 2
   LJ ε              : 0.00260 eV
-  LJ σ              : 3.5000 Å
+  LJ σ              : 3.1181 Å
   Config            : 1s2 2s2 2p4
 ══════════════════════════════════════════
   Orbital table for O (Z=8)
@@ -608,33 +612,33 @@ placeholder. These caveats are part of the record, not footnotes.
 
   --- QM two-center curves (computed, no fits) ---
   pair/R   S_sig      S_pi       Pauli(eV)  disp(eV)   C6        
-  O-O/1.5  1.82e-03   0.00e+00   2.02e-05   -0.6327    7.207   
-  O-O/2.0  2.23e-04   0.00e+00   3.02e-07   -0.1126    7.207   
-  O-O/2.5  2.72e-05   0.00e+00   4.50e-09   -0.0295    7.207   
-  O-O/3.0  3.33e-06   0.00e+00   6.72e-11   -0.0099    7.207   
-  O-O/3.5  4.06e-07   0.00e+00   1.00e-12   -0.0039    7.207   
-  O-O/4.0  4.96e-08   0.00e+00   1.50e-14   -0.0018    7.207   
-  O-O/4.5  6.06e-09   0.00e+00   2.24e-16   -0.0009    7.207   
-  K-O/1.5  1.11e-03   0.00e+00   4.91e-06   -0.8740    9.955   
-  K-O/2.0  1.15e-04   0.00e+00   5.25e-08   -0.1556    9.955   
-  K-O/2.5  1.19e-05   0.00e+00   5.63e-10   -0.0408    9.955   
-  K-O/3.0  1.23e-06   0.00e+00   6.02e-12   -0.0137    9.955   
-  K-O/3.5  1.27e-07   0.00e+00   6.45e-14   -0.0054    9.955   
-  K-O/4.0  1.31e-08   0.00e+00   6.90e-16   -0.0024    9.955   
-  K-O/4.5  1.36e-09   0.00e+00   7.39e-18   -0.0012    9.955   
-  Na-O/1.5  3.44e-04   0.00e+00   4.97e-07   -0.2105    2.398   
-  Na-O/2.0  2.41e-05   0.00e+00   2.44e-09   -0.0375    2.398   
-  Na-O/2.5  1.69e-06   0.00e+00   1.20e-11   -0.0098    2.398   
-  Na-O/3.0  1.19e-07   0.00e+00   5.89e-14   -0.0033    2.398   
-  Na-O/3.5  8.31e-09   0.00e+00   2.89e-16   -0.0013    2.398   
-  Na-O/4.0  5.83e-10   0.00e+00   1.42e-18   -0.0006    2.398   
-  Na-O/4.5  4.09e-11   0.00e+00   6.99e-21   -0.0003    2.398   
+  O-O/1.5  1.82e-03   0.00e+00   2.02e-05   -0.5531    6.300   
+  O-O/2.0  2.23e-04   0.00e+00   3.02e-07   -0.0984    6.300   
+  O-O/2.5  2.72e-05   0.00e+00   4.50e-09   -0.0258    6.300   
+  O-O/3.0  3.33e-06   0.00e+00   6.72e-11   -0.0086    6.300   
+  O-O/3.5  4.06e-07   0.00e+00   1.00e-12   -0.0034    6.300   
+  O-O/4.0  4.96e-08   0.00e+00   1.50e-14   -0.0015    6.300   
+  O-O/4.5  6.06e-09   0.00e+00   2.24e-16   -0.0008    6.300   
+  K-O/1.5  1.11e-03   0.00e+00   4.91e-06   -0.8172    9.308   
+  K-O/2.0  1.15e-04   0.00e+00   5.25e-08   -0.1454    9.308   
+  K-O/2.5  1.19e-05   0.00e+00   5.63e-10   -0.0381    9.308   
+  K-O/3.0  1.23e-06   0.00e+00   6.02e-12   -0.0128    9.308   
+  K-O/3.5  1.27e-07   0.00e+00   6.45e-14   -0.0051    9.308   
+  K-O/4.0  1.31e-08   0.00e+00   6.90e-16   -0.0023    9.308   
+  K-O/4.5  1.36e-09   0.00e+00   7.39e-18   -0.0011    9.308   
+  Na-O/1.5  3.44e-04   0.00e+00   4.97e-07   -0.1968    2.242   
+  Na-O/2.0  2.41e-05   0.00e+00   2.44e-09   -0.0350    2.242   
+  Na-O/2.5  1.69e-06   0.00e+00   1.20e-11   -0.0092    2.242   
+  Na-O/3.0  1.19e-07   0.00e+00   5.89e-14   -0.0031    2.242   
+  Na-O/3.5  8.31e-09   0.00e+00   2.89e-16   -0.0012    2.242   
+  Na-O/4.0  5.83e-10   0.00e+00   1.42e-18   -0.0005    2.242   
+  Na-O/4.5  4.09e-11   0.00e+00   6.99e-21   -0.0003    2.242   
   (disp shown undamped -C6/R^6; force loop applies Tang-Toennies damping)
 
 ╔══════════════════════════════════════════════════════╗
 ║  DEMO 2: H-H covalent bond vs. van der Waals (two different physics)║
 ╚══════════════════════════════════════════════════════╝
-  Van der Waals (LJ):  ε=0.00191 eV   σ=2.8860 Å   r_min=3.2394 Å
+  Van der Waals (LJ):  ε=0.00191 eV   σ=2.5711 Å   r_min=2.8860 Å
   Covalent (harmonic): r0=0.7414 Å   k=36.00 eV/Å²   (real H2 bond length is 0.7414 Å)
 
   r (Å)    V_covalent(eV)  V_vdW (eV)      Scale
@@ -661,37 +665,37 @@ placeholder. These caveats are part of the record, not footnotes.
   1.5500    11.769011       —             covalent well (depth scale: eV)
   1.6000    13.269491       —             covalent well (depth scale: eV)
 
-  1.2500    —             173.941035      ########################################
-  1.3750    —             55.138778       ########################################
-  1.5000    —             19.251154       ########################################
-  1.6250    —             7.276015        ########################################
-  1.7500    —             2.934933        ########################################
-  1.8750    —             1.248046        ########################################
-  2.0000    —             0.553166        ########################################
-  2.1250    —             0.252640        ########################################
-  2.2500    —             0.117371        ########################################
-  2.3750    —             0.054539        ########################################
-  2.5000    —             0.024686        ########################################
-  2.6250    —             0.010325        ########################################
-  2.7500    —             0.003425        ########################################
-  2.8750    —             0.000181        #####################
-  3.0000    —             -0.001255       ######
-  3.1250    —             -0.001797       #
-  3.2500    —             -0.001907       
-  3.3750    —             -0.001817       
-  3.5000    —             -0.001645       ##
-  3.6250    —             -0.001449       ####
-  3.7500    —             -0.001256       ######
-  3.8750    —             -0.001080       ########
-  4.0000    —             -0.000925       ##########
-  4.1250    —             -0.000790       ###########
-  4.2500    —             -0.000675       ############
-  4.3750    —             -0.000577       #############
-  4.5000    —             -0.000494       ##############
-  4.6250    —             -0.000424       ###############
-  4.7500    —             -0.000365       ################
-  4.8750    —             -0.000314       ################
-  5.0000    —             -0.000272       #################
+  1.2500    —             43.195506       ########################################
+  1.3750    —             13.621322       ########################################
+  1.5000    —             4.715919        ########################################
+  1.6250    —             1.759098        ########################################
+  1.7500    —             0.695338        ########################################
+  1.8750    —             0.286634        ########################################
+  2.0000    —             0.121063        ########################################
+  2.1250    —             0.051186        ########################################
+  2.2500    —             0.020845        ########################################
+  2.3750    —             0.007491        ########################################
+  2.5000    —             0.001656        #####################################
+  2.6250    —             -0.000788       ###########
+  2.7500    —             -0.001693       ##
+  2.8750    —             -0.001907       
+  3.0000    —             -0.001826       
+  3.1250    —             -0.001633       ##
+  3.2500    —             -0.001412       #####
+  3.3750    —             -0.001200       #######
+  3.5000    —             -0.001011       #########
+  3.6250    —             -0.000848       ###########
+  3.7500    —             -0.000710       ############
+  3.8750    —             -0.000596       #############
+  4.0000    —             -0.000500       ##############
+  4.1250    —             -0.000421       ###############
+  4.2500    —             -0.000356       ################
+  4.3750    —             -0.000301       ################
+  4.5000    —             -0.000256       #################
+  4.6250    —             -0.000219       #################
+  4.7500    —             -0.000187       ##################
+  4.8750    —             -0.000161       ##################
+  5.0000    —             -0.000139       ##################
 
   For scale: the real H2 covalent bond dissociation energy is 4.52 eV
   (a standard spectroscopic constant), versus this vdW well depth of only
@@ -1260,110 +1264,124 @@ Sum minus experimental dG: -0.5474 eV
   U(z) gap dU(K-Na) at own minima = +0.3306 eV (single-point profile; no TDS, not a free-energy PMF).
 --- SCF-polar U(z) (JC + coupled dipoles + Pauli + disp) ---
   z        K+           Na+          pol_K      pol_Na    
-  -3.0     11.2140      11.2111      -1.3365    -1.1203   
-  -2.5     10.6761      9.7885       -1.1052    -0.9412   
-  -2.0     11.3352      8.7963       -0.7930    -0.7051   
-  -1.5     11.5771      8.1385       -0.4977    -0.4671   
-  -1.0     9.9228       7.5994       -0.2813    -0.2761   
-  -0.5     8.1777       7.3533       -0.1569    -0.1569   
-  0.0      7.5971       7.3982       -0.1211    -0.1200   
-  0.5      7.8861       7.5660       -0.1733    -0.1692   
-  1.0      8.7678       7.8778       -0.3110    -0.2976   
-  1.5      9.7119       8.4162       -0.5270    -0.4881   
-  2.0      10.1469      9.2055       -0.8007    -0.7124   
-  2.5      10.5819      10.3124      -1.0763    -0.9276   
-  3.0      11.5781      11.6987      -1.2797    -1.0916   
-  SCF-U(z) minima: K+ = 7.5971 eV at z = 0.0 | Na+ = 7.3533 eV at z = -0.5
-  SCF-U(z) barriers: K+ = 3.9811 eV | Na+ = 4.3453 eV | dBarrier(K-Na) = -0.3643 eV
-  E_pol at z=0: K+ = -0.1211 Na+ = -0.1200 (symmetric: matched) | at |z|=1.5: K+ = -0.5270 Na+ = -0.4881
+  -3.0     13.2623      13.2050      0.6941     0.8612    
+  -2.5     12.1708      11.2091      0.3669     0.4658    
+  -2.0     12.3424      9.7720       0.1862     0.2556    
+  -1.5     12.2185      8.7775       0.1135     0.1563    
+  -1.0     10.3511      8.0278       0.1188     0.1373    
+  -0.5     8.5018       7.6704       0.1429     0.1462    
+  0.0      7.8413       7.6343       0.1013     0.1027    
+  0.5      7.9277       7.5951       -0.1537    -0.1534   
+  1.0      8.2402       6.7308       -0.8623    -1.4584   
+  1.5      7.1024       9.2603       -3.1611    0.3420    
+  2.0      11.2225      9.5234       0.2521     -0.4081   
+  2.5      11.1973      10.6370      -0.4803    -0.6158   
+  3.0      12.3685      12.2321      -0.5053    -0.5701   
+  SCF-U(z) minima: K+ = 7.1024 eV at z = 1.5 | Na+ = 6.7308 eV at z = 1.0
+  SCF-U(z) barriers: K+ = 6.1598 eV | Na+ = 6.4742 eV | dBarrier(K-Na) = -0.3143 eV
+  E_pol at z=0: K+ = 0.1013 Na+ = 0.1027 (symmetric: matched) | at |z|=1.5: K+ = -3.1611 Na+ = 0.3420
   QM K+  QEq q_O=-0.5462 q_ion=1.0000  dE_coul(QEq-fixed)=-0.1843 eV  S=3.23e-06 BO=2.867 Pauli=0.0000 eV  Ohyb=atomic-sp alpha=0.123
   QM Na+ QEq q_O=-0.5462 q_ion=1.0000  dE_coul(QEq-fixed)=+0.1463 eV  S=3.94e-07 BO=0.398 Pauli=0.0000 eV  Ohyb=atomic-sp alpha=0.123
 --- QM bottom-up leg (QEq/overlap, same JC cage) ---
   <q_O>=-0.5462  q_K=1.0000 q_Na=1.0000  S_K=0.0000 S_Na=0.0000  BO_K=2.867 BO_Na=0.398
-  v2 K+  E_LJ=   0.1628 E_Coul=   7.8126 E_pol=  -0.1211 E_pauli=   0.0000 Total=   7.8542 eV
-  v2 Na+ E_LJ=  -0.1678 E_Coul=   7.8126 E_pol=  -0.1200 E_pauli=   0.0000 Total=   7.5247 eV
+  v2 K+  E_LJ=   0.1628 E_Coul=   7.8126 E_pol=   0.1013 E_pauli=   0.0000 Total=   8.0766 eV
+  v2 Na+ E_LJ=  -0.1678 E_Coul=   7.8126 E_pol=   0.1027 E_pauli=   0.0000 Total=   7.7475 eV
 --- v2 polarized cage (induction+Pauli in force loop) ---
-  K+: pol=-0.1211 pauli=0.0000 tot=7.8542 | Na+: pol=-0.1200 pauli=0.0000 tot=7.5247 | dU=+0.3295 eV
-  scf K+  it=5 <q_O>=-0.5462 E_Coul=  7.7971 E_pol= -0.1182 E_pauli=  0.0000 E_disp= -0.2572 Total=   7.5845 eV
-  scf Na+ it=5 <q_O>=-0.5462 E_Coul=  7.7965 E_pol= -0.1180 E_pauli=  0.0000 E_disp= -0.1265 Total=   7.3841 eV
+  K+: pol=0.1013 pauli=0.0000 tot=8.0766 | Na+: pol=0.1027 pauli=0.0000 tot=7.7475 | dU=+0.3291 eV
+  scf K+  it=5 <q_O>=-0.5462 E_Coul=  7.7970 E_pol=  0.1134 E_pauli=  0.0000 E_disp= -0.2354 Total=   7.8379 eV
+  scf Na+ it=5 <q_O>=-0.5462 E_Coul=  7.7964 E_pol=  0.1197 E_pauli=  0.0000 E_disp= -0.1132 Total=   7.6350 eV
 --- v3 SCF cage (JC wall + SCF QM terms) ---
-  K+: 7.5845 (it 5) | Na+: 7.3841 (it 5) | dU=+0.2004 eV (Na+ favored)
-  relax K+  soft/off: E=  6.0820 off=0.225 <d>=3.545 CN=4/8 (Er=0.877)
-  relax K+  soft/ctr: E=  6.6765 off=0.000 <d>=3.387 CN=4/8 (Er=0.804)
-  relax K+  stiff:    E=  6.9422 off=0.149 <d>=2.900 CN=8/8 (Er=0.220)
-  relax Na+ soft/off: E=  5.4898 off=1.518 <d>=3.658 CN=3/8 (Er=1.093)
-  relax Na+ soft/ctr: E=  6.2245 off=0.000 <d>=3.474 CN=4/8 (Er=1.063)
-  relax Na+ stiff:    E=  6.5992 off=0.423 <d>=2.942 CN=5/8 (Er=0.138)
+  K+: 7.8379 (it 5) | Na+: 7.6350 (it 5) | dU=+0.2028 eV (Na+ favored)
+  relax K+  soft/off: E=  6.2362 off=0.277 <d>=3.523 CN=4/8 (Er=0.843)
+  relax K+  soft/ctr: E=  6.7521 off=0.710 <d>=3.355 CN=4/8 (Er=0.783)
+  relax K+  stiff:    E=  7.2825 off=0.147 <d>=2.867 CN=8/8 (Er=0.159)
+  relax Na+ soft/off: E=  5.8195 off=0.137 <d>=3.566 CN=4/8 (Er=1.048)
+  relax Na+ soft/ctr: E=  6.4259 off=1.159 <d>=3.460 CN=3/8 (Er=0.978)
+  relax Na+ stiff:    E=  7.4468 off=0.189 <d>=3.044 CN=4/8 (Er=0.574)
 --- Relaxed coordination (stiff cage, free ion, multi-start) ---
-  K+: E=6.0820±0.5944 off=0.225 <d>=3.545 CN=4 | Na+: E=5.4898±0.7347 off=1.518 <d>=3.658 CN=3 | dU=+0.5922 eV (Na+ favored)
-  Stiff strain probe (k=5): K+=6.9422 Na+=6.5992 dU=+0.3430 eV
+  K+: E=6.2362±0.5159 off=0.277 <d>=3.523 CN=4 | Na+: E=5.8195±0.6064 off=0.137 <d>=3.566 CN=4 | dU=+0.4167 eV (Na+ favored)
+  Stiff strain probe (k=5): K+=7.2825 Na+=7.4468 dU=-0.1643 eV
 --- Filter-side gap with hysteresis error ---
-  dU(filter K-Na) = +0.5922 ± 0.9450 eV (best minima, soft cage)
+  dU(filter K-Na) = +0.4167 ± 0.7961 eV (best minima, soft cage)
 --- Coordination probe (same QM physics, 8 vs 6 ligands) ---
-  K+:  E8=  7.5845  E6= -1.5508  dE(8-6)=+9.1353 eV (pays for losing 8-fold)
-  Na+: E8=  7.3841  E6= -1.6797  dE(8-6)=+9.0639 eV (pays for losing 8-fold)
-  6-fold ledger K+: Coul= -1.5617 LJ=  0.1697 pol= -0.0002 disp= -0.1586
-  6-fold ledger Na+: Coul= -1.8275 LJ=  0.3051 pol= -0.0100 disp= -0.1473
-  Single-point (conductive d=3.084): KK=  -3.4039 NaNa=  -8.2028 dU=+4.7989 eV
+  K+:  E8=  7.8379  E6= -1.5388  dE(8-6)=+9.3767 eV (pays for losing 8-fold)
+  Na+: E8=  7.6350  E6= -1.6575  dE(8-6)=+9.2925 eV (pays for losing 8-fold)
+  6-fold ledger K+: Coul= -1.5617 LJ=  0.1697 pol= -0.0000 disp= -0.1468
+  6-fold ledger Na+: Coul= -1.8275 LJ=  0.3051 pol= -0.0013 disp= -0.1338
+  Single-point (conductive d=3.084): KK=  -3.1798 NaNa=  -8.0803 dU=+4.9005 eV
 --- Knock-on pairs (relaxed, d0=3.084 A) ---
-  KK:   E=  -7.0390 eV  ion-ion=3.550 A  <ion-O>=3.569 A
-  NaNa: E=  -8.6235 eV  ion-ion=3.514 A  <ion-O>=3.324 A
-  dU(KK-NaNa) = +1.5845 eV (NaNa favored)
+  KK:   E=-215.4617 eV  ion-ion=3.081 A  <ion-O>=3.340 A
+  NaNa: E=-150.3790 eV  ion-ion=3.042 A  <ion-O>=3.070 A
+  dU(KK-NaNa) = -65.0826 eV (KK favored)
 --- Knock-on landscape (ion A at z=0, ion B scanned) ---
   zB       KK           NaNa         flag    
-  -4.50    -3.6711      -3.7035              
-  -3.75    -5.8684      -5.8330              
-  -3.00    -7.9882      -8.2525              
-  -2.25    -6.7154      -9.6423              
-  -1.50    152.9408     -2.7028      CLASH   
-  -0.75    655297.3708  21230.6102   CLASH   
-  0.00     -15.1167     -15.5108     CLASH   
-  0.75     655296.9879  21231.0615   CLASH   
-  1.50     151.3904     -2.1540      CLASH   
-  2.25     -7.2209      -9.0988              
-  3.00     -7.8151      -7.9936              
-  3.75     -5.8580      -5.8716              
-  4.50     -3.8199      -3.8841              
-  Knock-on landscape barriers (valid ion-ion>=2A): KK = 4.3172 eV | NaNa = 5.9387 eV | dBarrier(KK-NaNa) = -1.6216 eV
+  -4.50    -3.4030      -3.5162              
+  -3.75    -5.5329      -5.7148              
+  -3.00    -7.6440      -7.9319              
+  -2.25    -6.5227      -9.1150              
+  -1.50    153.1476     -2.3650      CLASH   
+  -0.75    655297.7342  21231.1682   CLASH   
+  0.00     -14.6548     -16.5278     CLASH   
+  0.75     655297.4492  21224.4319   CLASH   
+  1.50     152.0150     -2.2425      CLASH   
+  2.25     -7.0588      -9.0174              
+  3.00     -7.3090      -7.7557              
+  3.75     -5.8263      -5.5591              
+  4.50     -3.5079      -3.5840              
+  Knock-on landscape barriers (valid ion-ion>=2A): KK = 4.2410 eV | NaNa = 5.5988 eV | dBarrier(KK-NaNa) = -1.3579 eV
   hyd K+  fixed: E_init= -3.7416 E_min= -3.7681 eV (6-water octahedral, d=2.75 A)
-  hyd K+  polar: E_min= -3.7787 E_pol= -0.0106 eV
+  hyd K+  polar: E_min= -3.7606 E_pol=  0.0073 eV
   hyd Na+ fixed: E_init= -4.6308 E_min= -4.6805 eV (6-water octahedral, d=2.35 A)
-  hyd Na+ polar: E_min= -4.6874 E_pol= -0.0070 eV
+  hyd Na+ polar: E_min= -4.6777 E_pol= -0.0033 eV
 --- Explicit hydration (6-water cluster ΔU) ---
-  K+: -3.7681 (polar -3.7787) | Na+: -4.6805 (polar -4.6874) | ΔΔU(K-Na)=+0.9124 eV (Marcus ΔΔG=-0.7260)
+  K+: -3.7681 (polar -3.7606) | Na+: -4.6805 (polar -4.6777) | ΔΔU(K-Na)=+0.9124 eV (Marcus ΔΔG=-0.7260)
   Note: cluster ΔU vs bulk ΔG — scale comparison only.
-  wham polar repeat 0 (seeds 100): K+ barrier=0.3834 eV | Na+ barrier=0.2512 eV
-  wham polar repeat 1 (seeds 1000): K+ barrier=0.4840 eV | Na+ barrier=0.2997 eV
-  wham polar repeat 2 (seeds 2000): K+ barrier=0.3648 eV | Na+ barrier=0.1812 eV
-  wham fixed-charge ref (seeds 100): K+ barrier=0.4109 eV | Na+ barrier=0.2754 eV | gap=+0.1356 eV
+    sampling: 2400.0 samples/window, mean tau = 83.4 samples, N_eff = 18.3 independent samples/window
+    bins: 28 retained, 0 dropped by min_count=10
+  wham polar repeat 0 (seeds 100): K+ barrier=0.6014 eV | Na+ barrier=0.6974 eV
+    sampling: 2400.0 samples/window, mean tau = 77.7 samples, N_eff = 17.4 independent samples/window
+    bins: 27 retained, 1 dropped by min_count=10
+  wham polar repeat 1 (seeds 1000): K+ barrier=0.4874 eV | Na+ barrier=0.7602 eV
+    sampling: 2400.0 samples/window, mean tau = 73.0 samples, N_eff = 17.6 independent samples/window
+    bins: 28 retained, 0 dropped by min_count=10
+  wham polar repeat 2 (seeds 2000): K+ barrier=0.5945 eV | Na+ barrier=0.5798 eV
+    bins: 20 retained, 8 dropped by min_count=10
+  wham fixed-charge ref (seeds 100): K+ barrier=0.5539 eV | Na+ barrier=0.3967 eV | gap=+0.1572 eV
 --- Umbrella polar-WHAM free energy (full QM: SCF dipoles+Pauli+disp, 300 K, 3x[7x1500 steps]) ---
-  K+: barrier=0.4107±0.0641 eV | Na+: barrier=0.2441±0.0596 eV | gap=+0.1667±0.0299 eV
-  Fixed-charge ref gap=+0.1356 eV. Polar sampling decides the kinetics bracket.
-  Barrier over bins with >=10 counts; error = std across 3 seed repeats.
-  Note: 3D ion restraint confines laterally; WHAM over z only.
+  K+: barrier=0.5611±0.0639 eV | Na+: barrier=0.6792±0.0916 eV | gap=-0.1181±0.1450 eV
+  Fixed-charge ref gap=+0.1572 eV. Polar sampling decides the kinetics bracket.
+  Barrier over bins with >=10 counts.
+  ERROR BAR DEFINITION (audit S1): the +/- is the sample standard
+    deviation across 3 INDEPENDENT SEED REPEATS of the whole
+    sampling protocol. It is NOT a standard error of the mean and
+    NOT a confidence interval. With n=3 the standard error of that
+    standard deviation is itself ~76% of its value. It captures
+    seed-to-seed variation only; within-run sampling error is
+    characterised separately by the reported tau and N_eff.
+  Note: 3D ion restraint confines laterally; MBAR over z only.
 --- FORENSIC: all legs side by side (eV; + = Na+ favored) ---
   leg                            K+        Na+   dU(K-Na)
   point-charge 8-fold        7.6623     7.6623     0.0000
   JC 8-fold                  7.9754     7.6447     0.3306
-  SCF 8-fold                 7.5845     7.3841     0.2004
-  v2 polar-SCF 8-fold        7.8542     7.5247     0.3295
-  relaxed 8-fold             6.0820     5.4898     0.5922
-  stiff 8-fold               6.9422     6.5992     0.3430
-  6-fold octahedral         -1.5508    -1.6797         --
-    K+ dE(8-6)=+9.1353  Na+ dE(8-6)=+9.0639 (neg = prefers 8-fold)
-  SCF-polar U(z) min         7.5971     7.3533     0.2438
-  SCF-polar barrier          3.9811     4.3453    -0.3643
-  polar-WHAM barrier         0.4107     0.2441     0.1667
-  fixed-WHAM barrier         0.4109     0.2754     0.1356
-  knock-on pair             -7.0390    -8.6235     1.5845
-  knock-on conductive       -3.4039    -8.2028     4.7989
-  knock-on landsc bar        4.3172     5.9387    -1.6216
-  knock-on landscape     655312.4876 21246.5723 634065.9152
+  SCF 8-fold                 7.8379     7.6350     0.2028
+  v2 polar-SCF 8-fold        8.0766     7.7475     0.3291
+  relaxed 8-fold             6.2362     5.8195     0.4167
+  stiff 8-fold               7.2825     7.4468    -0.1643
+  6-fold octahedral         -1.5388    -1.6575         --
+    K+ dE(8-6)=+9.3767  Na+ dE(8-6)=+9.2925 (neg = prefers 8-fold)
+  SCF-polar U(z) min         7.1024     6.7308     0.3716
+  SCF-polar barrier          6.1598     6.4742    -0.3143
+  polar-WHAM barrier         0.5611     0.6792    -0.1181
+  fixed-WHAM barrier         0.5539     0.3967     0.1572
+  knock-on pair           -215.4617  -150.3790   -65.0826
+  knock-on conductive       -3.1798    -8.0803     4.9005
+  knock-on landsc bar        4.2410     5.5988    -1.3579
+  knock-on landscape     655312.3890 21247.6960 634064.6930
 --- Computed exchange K+(aq)+Na+.F -> Na+(aq)+K+.F ---
-  relaxed-filter: -0.3164 ± 0.9450 eV | rigid-filter: -0.5781 eV (deterministic)
+  relaxed-filter: -0.5004 ± 0.7961 eV | rigid-filter: -0.5865 eV (deterministic)
   (negative = K+ selective; expt -0.179 eV)
 --- Two-ion exchange 2K+(aq)+NaNa.F -> 2Na+(aq)+KK.F ---
-  -0.2328 eV (negative = KK selective; all four terms computed)
+  -66.9169 eV (negative = KK selective; all four terms computed)
 
   Datastream s42: kcsa.cvmds written (verify: seal intact).
 
@@ -1399,7 +1417,7 @@ Sum minus experimental dG: -0.5474 eV
   6000   3.173    3.238    3.415    3.088    3.311    -0.6571    74.9     4.281   
   7000   3.354    3.045    3.039    3.138    3.248    -0.6404    75.4     4.506   
   8000   3.469    3.049    2.908    3.183    3.381    -0.6875    78.7     4.751   
-  After 8000 restrained MD steps: PE=-6.340653 eV (E_restr=0.043094)  T=49.77 K
+  After 8000 restrained MD steps: PE=-6.340655 eV (E_restr=0.043094)  T=49.77 K
 
   Post-MD H-bonds (restrained):
     G-C: N1...N3=3.469  O6...N4=3.049  N2...O2=2.908
@@ -1423,8 +1441,8 @@ MD STABILITY (8000-step ensemble): G-C BREATHING (range 2.91-4.10), A-T HELD (ra
   Phase 2 restraints: 4 sugar-C1' anchors, k=0.50
   Phase 2 trajectory (sugar-tethered, 4000 steps):
     step 0     GC 3.469 3.049 2.908 | AT 3.183 3.381
-    step 2000  GC 3.379 3.412 3.224 | AT 3.348 3.329
-    step 4000  GC 3.529 3.930 3.196 | AT 3.566 3.448
+    step 2000  GC 3.379 3.413 3.224 | AT 3.348 3.329
+    step 4000  GC 3.528 3.927 3.195 | AT 3.569 3.450
   Phase 2 verdict: G-C BREATHING* (max 3.93), A-T HELD (max 3.57)
   (*3-sample ensemble; same thresholds as Phase 1)
 
@@ -1441,7 +1459,7 @@ MD STABILITY (8000-step ensemble): G-C BREATHING (range 2.91-4.10), A-T HELD (ra
   9 HH neuron    : HH AP peak +40mV, 4 spikes/50ms
   10 dipeptide   : Gly-Ala peptide bond 1.33A
   11 helix       : helix i,i+4 H-bond EMERGED
-  12 KcsA        : KcsA exch rigid -0.58 det
+  12 KcsA        : KcsA exch rigid -0.59 det
   17 duplex      : duplex P1 BREATHING/HELD P2 BREATHING*/HELD
   ══════════════════════════════════════════════════
 
@@ -1456,11 +1474,7 @@ MD STABILITY (8000-step ensemble): G-C BREATHING (range 2.91-4.10), A-T HELD (ra
   gating from actual protein structure rather than empirical rate
   equations - closing the loop between the protein and
   electrophysiology tracks.
-
 ```
-
----
-
 ## v9R4 Supplement — Engine Arc Since the v9R3 Audit
 
 What changed, grouped by subsystem (all in `output.txt`, all sealed in
@@ -1572,9 +1586,13 @@ code says which tier each one is in:
    methyl-group charges. These are flagged in-source and in the output
    as *not* independently verified the way tier-1 values are.
 
-Potassium's LJ ε/σ in `periodic_table.c` are verified against Rappé et
-al. 1992 UFF (K: x1=3.812 Å, x2=0.035 kcal/mol) as of audit T1,
-resolving the masterplan Step 0 flag.
+Potassium's LJ ε in `periodic_table.c` is verified against Rappé et al. 1992
+UFF (x2 = 0.035 kcal/mol) as of audit T1. The σ column needed a correction in
+the deep audit: it held UFF's x1 value (3.812 Å), which is **Rmin**, the
+distance of minimum — not the 12-6 collision diameter the field is declared to
+hold. Every σ is now `x1 / 2^(1/6)` (K: 3.39611 Å), which places the LJ
+minimum at the correct 3.812 Å and matches the AMBER conversions already used
+for amino acids and nucleobases.
 
 ### Known limitations & honest scope
 
@@ -1585,19 +1603,15 @@ resolving the masterplan Step 0 flag.
   compensate. It was tested and broke the validated helix i,i+4 H-bond
   (Demo 11). 1-4 pairs stay at full strength; revisit only with fitted
   torsions.
-* **Ion selectivity (Demo 12): vacuum filter statics favor Na⁺; the
-  program around them favors K⁺.** Six single-ion filter legs agree
-  (+0.2…+0.4 eV Na⁺ — correct fixed-charge Coulomb physics at shared
-  geometry, kept as the honest baseline, not a bug to hide). K⁺ wins
-  the computed exchange (−0.578 eV deterministic rigid-filter leg from
-  our own explicit-water clusters), the SCF-polar transit barrier
-  (−0.36 eV), and the knock-on second-ion landscape over valid
-  geometries (−1.62 eV). Open bracket, stated plainly: sampled polar
-  kinetics favors Na⁺ (+0.33 ± 0.06) while the single-point SCF barrier
-  favors K⁺ — entropy vs polarization, unresolved. The second pass
-  ruled out generic oxygen typing and geometry-fit long ago; the
-  remaining physics is sampling depth, backbone strain, and multi-ion
-  occupancy, all now instrumented rather than invoked.
+* **Ion selectivity (Demo 12) is a model result, not a KcsA result.** See the
+  audit section: the filter is a frozen, restrained array of carbonyl oxygens
+  and the protein is poly-alanine, so the real TVGYG selectivity chemistry is
+  not present. The barriers reported below are the umbrella-sampled U(z)
+  spans for that cage, and the numbers moved when the physics was corrected.
+  Any K⁺/Na⁺ comparison should be read as "in this reduced model", never as a
+  statement about the channel. The umbrella sampler now prints its measured
+  autocorrelation time and effective sample size, because the `±` on these
+  figures is a three-seed spread and **not** a standard error.
 * **Demo 12's antiprism block is now a real result (no longer a placeholder).** The
 ring z-separation was sourced from 1K4C (3.084 A, symmetry-validated in
 s10/s10b) and the artificial O-O overlap is removed. The block now reports a
@@ -1723,53 +1737,183 @@ Demo 17 is now part of the main executable flow (no --dna flag needed).
 
 ---
 
-## v9R4 Audit & Hardening (2026-09-28)
+## v9R4 Deep Audit — Physics Corrections & Hardening (2026-09-29)
 
-This release includes comprehensive correctness fixes and infrastructure hardening
-performed during a full-system audit:
+A second, independent audit was carried out against the whole tree. Unlike the
+first pass, this one did not take the code's comments or documentation at face
+value: every claim was re-derived and every analytic force was checked against
+an independent finite-difference oracle, every constant against its primary
+source, and every tabulated dataset against published reference values.
 
-### Mathematical & Physical Correctness
-- **Fixed valence electron counting** in `periodic_table.c`: `valence_electrons` now
-  properly reset to zero before summing outermost shell occupancy (previously
-  accumulated across multiple calls).
-- **Verified all Slater screening** against Slater's 1930 worked examples (Fe 4s,
-  Fe 3d, C/N/O 2p, K 4s, Na 3s, Ca 4s, Sc 3d) — all match reference values.
-- **Verified radial wavefunction normalization** for all hydrogen-like orbitals
-  (n=1..3, l=0..n-1) — integral of r²|R|² equals 1.0 to machine precision.
-- **Verified most probable radius calculations** against analytical values for
-  all test orbitals (1s, 2s, 2p, 3s, 3p, 3d).
-- **UFF Lennard-Jones parameters** for elements H–Ca verified against Rappé
-  et al. 1992 reference table — all match exactly.
-- **Clementi-Raimondi SCF exponents** for K (Z=19) cross-checked: 1s=18.4895,
-  2s=13.01, 2p=15.03, 3s=8.68, 3p=7.73, 4s=3.50 — all match dual-sourced
-  Wikipedia + WebElements values.
+**The tree did not compile.** Two separate defects, in sequence:
 
-### Programming Robustness
-- **Silenced repetitive fallback warnings** in `forces.c`: bond/angle parameter
-  fallbacks now warn once per unique missing combination using static
-  volatile arrays (matching the Zeff warning pattern in `quantum.c`).
-- **Added compile-time static assertions** in `types.h` for all struct layouts,
-  enum values, and constant definitions — catches ABI drift at compile time.
-- **Upgraded random number generator** to PCG64 (O'Neill 2014) in `integrator.c`
-  with proper seeding; LCG retained as default for byte-identical record
-  reproducibility, PCG64 available as opt-in.
-- **Added automatic dependency generation** to `makefile` via `-MMD -MP`
-  flags — header changes now correctly trigger rebuilds of affected objects.
-- **Fixed dependency paths** for test files in `makefile` — test objects now
-  generate correct `.d` files in `build/`.
+* The first v9R4 pass added static assertions to `types.h` that were simply
+  wrong — four asserted struct sizes that ignore padding, and four that
+  referenced the `SimError` enum ~20 lines before it was declared. `make`
+  failed immediately on every source file.
+* The repair that removed that block also dropped a closing brace in
+  `forces.c`, so `origin/main` **still did not compile from a clean tree**.
+  Every function after line 170 was swallowed into an unclosed `if`.
 
-### Verification & Testing
-- All three selftests pass: `test_datastream` (17 checks), `test_forces`
-  (22 dihedral geometry checks), `test_fire` (minima agreement to 5 meV).
-- Full 13-demo record reproduces byte-identically: SHA-256
-  `58bb9f69f15779373cbc429998171f90deb61abc6bbd08c19c8e4c431a94134e`.
-- AddressSanitizer + UndefinedBehaviorSanitizer build runs clean (zero
-  memory errors, zero UB findings).
+Neither was visible, because **this repository tracks `build/*.o` and the
+`carbonsim` binary**. An in-place `make` finds the committed objects
+up-to-date, rebuilds nothing, and reports success while the source is broken.
+`verify_scripts.sh` counted build warnings with a bare `make` and therefore
+reported "0 warnings" on a tree that could not build at all. The verify script
+now does `make clean` first, and that check is a hard gate.
 
-### Documentation
-- This audit log added to README.
-- All fixes documented in-line with rationale and references.
-- `release_note_v9R4.md` updated with hardening summary.
+### What was wrong with the physics
+
+Each item below was found by measurement, and each is now covered by a
+regression test that fails on the old code.
+
+| # | Defect | How it was caught | Severity |
+|---|--------|-------------------|----------|
+| D1 | **Dispersion force sign inverted.** `E = -C6 f6/r6` is attractive, but the force was `-(dE/dr)(d/r)` instead of `+(dE/dr)(d/r)`, so the term was an effective **repulsion** in the force path while every printed `E_disp` looked correct. | FD oracle: analytic force was anti-parallel to the gradient, relL2 = **2.000** — the exact signature of `F = -F_FD`. Flipping the sign gives 5.9e-11. | **critical** |
+| D2 | **SCF polarization force wrong, and the energy was discontinuous.** With self-consistent dipoles `E = (I - Tα)^-1 E0`, so `dU/dE0 = -μ(I - Tα)^-1`; the Hellmann-Feynman shortcut is unavailable. The code used `s = 1.0` (98% error) and, on solver non-convergence, silently swapped in a *different* energy functional. | Measured a **5.92 eV jump over a 0.01 Å displacement** in the potential energy — a discontinuous Hamiltonian, so no energy conservation. | **critical** |
+| D2b | **The dipole "SCF" was a fixed-point iteration for a LINEAR system.** It needed 96–97 of its 100 iterations for **four atoms**, and a tuned-acceleration variant still failed on 121 of 401 geometries. | Convergence telemetry added to the umbrella sampler. | **critical** |
+| D5 | **Catastrophe cancellation on bonded pairs.** With no dipole hard core, a 1.3 Å C=O bond and α_C = 1.76 gives an off-diagonal coupling αk f(r)/r³ ≈ 2.8, so `(I - A)` has an eigenvalue past 1 and the system has **no solution**. | Direct solve returned "singular" on all 401 geometries. | **critical** |
+| F6 | **LJ σ stored UFF's Rmin, not σ.** `lj_sigma` is declared as the 12-6 collision diameter and consumed by the standard form, but the table held UFF's x1 column. Every effective LJ well sat **12.2% too far out** (carbon: minimum at 4.32 Å instead of 3.85 Å). | Recomputed the C–C well from the engine's own parameters. | **major** |
+| F7 | **Carbonyl O and amide N were classified sp3.** The rule `steric >= 4 \|\| (s_count > 0 && p_count >= 3)` fired for every N and O, overriding the steric logic. These are the functional groups the entire biomolecular model is built from. | Direct call on constructed carbonyls/amides. | **major** |
+| F8 | **`r_mp³` used as a polarizability.** It is a screening-radius volume, and because the branch was selected by atomic number it made the induction energy **13.6× discontinuous between adjacent elements** (H 0.420 vs He 0.031). It also fed Pauli screening and the Slater-Kirkwood C6. | Tabulated all 36 elements against measured values. | **major** |
+| F9 | **QEq had no hard core and no clamp.** Standard QEq zeroes `A_ij` for 1-2/1-3; including the full 1/r term let the solve run away to **q(C) = +4.82 e, q(O) = −5.63 e** on a bonded C-O-O fragment. | Realistic bonded fragments. | **major** |
+| F11 | **The minimiser divergence floor did not scale.** A hard −50000 eV floor silently disables minimization for any system below that: a protein at a routine −15 eV/atom crosses it at ~3300 atoms, and `s10_1K4C.pdb` is in this repository. It would have returned an unminimized structure while reporting success. | Scale the floor to `−60 eV/atom`; large deep systems now minimize. | **major** |
+| S1 | **Free-energy sampling had no error analysis.** 300 nominal samples per umbrella window, autocorrelation ignored, and barriers reported to two decimals. | Instrumented: measured τ = 50–96 samples, **N_eff ≈ 15–30 independent samples per window** out of 2400 nominal. | **major** |
+| I1 | **PCG64 was documented but did not exist.** Both the readme and the release note stated "PCG64 RNG added as opt-in". `grep` found no PCG64 anywhere in the tree. | Implemented for real; both generators now tested. | **major** |
+| F14 | **Silent orbital truncation.** The fixed-size ml-slot table broke out of its loop with no signal, so heavy elements quietly lost electrons. | Now reported through an out-parameter and covered by a test. | moderate |
+| F9b | **Unclamped charges on the force path.** `forces_calculate`'s unpinned SCF branch wrote QEq output straight onto the atoms, while `qm_scf_run` clamps at ±2 e. | — | moderate |
+| F10 | **`qm_alpha` dereferenced before its NULL check** — `qm_alpha(NULL)` segfaulted. | — | moderate |
+| F13 | **`integrator_remove_com_velocity` had no guard**, unlike every other entry point in the file. | — | minor |
+| F12 | **Dead clamp** in both steepest-descent minimizers: `scale = effective_step/max_force` already bounds the displacement, so the per-atom branch could never fire. | — | minor |
+| B1 | **The build check could not fail** (bare `make` against committed objects). | See above. | **major** |
+| B2 | **`frozen[32]` stack array** indexed by an atom index and read for every atom by `integrator_minimize_frozen`. Fits today at 19 atoms; one more water overruns it. | Sized to the system, bounds-checked. | moderate |
+| D4 | **Induction constant hand-typed** as 0.069446, a 2.2e-6 truncation of `1/COULOMB_MD`, in a codebase whose stated rule is to derive every reciprocal in-line. | Now derived. | minor |
+
+### Memory safety
+
+Two confirmed out-of-bounds **writes**, both reproduced under UBSan:
+
+```
+forces.c:147  index 4 out of bounds for type 'int [4]'              forces_bond_params(Za,Zb,order) with order=4
+forces.c:199  index 118 out of bounds for type 'int [118][118][118]' forces_angle_params with Z=118
+```
+
+The de-duplication arrays indexed caller-supplied values, and cost 6.9 MB of
+BSS to implement "print once". Replaced with a bounded key set, so no
+caller-supplied value is ever used as an index. Also fixed: five unguarded
+`->element->` dereferences (the periodic table stops at Kr, Z=36, while
+`MAX_ELEMENTS` advertises 118, so `sim_add_atom(s, 37, ...)` yields
+`element == NULL`), `vec3_pbc` producing NaN on a degenerate box
+(`0 * round(dr/0)`), and `nb_planarity_deviation` reading past the atom array
+on a bad index.
+
+### What was checked and found correct
+
+Worth stating, because it bounds where the doubt lies.
+
+* **The hydrogenic quantum mechanics is exact.** `∫r²|R_nl|²dr`, `<r>` and
+  `<r²>` for n = 1…3, l = 0…n−1 agree with Simpson quadrature to **1e-13**.
+  The Laguerre three-term recurrence, the `scale³` normalization, and the
+  partitioned golden-section search for `r_mp` are all correct.
+* **Slater's rules are correct**, including the subtle point that `(n−1)s`,
+  `(n−1)p` and `(n−1)d` form a *single* 0.85 tier. Reproduces Slater's own
+  Fe 4s (3.75) and Fe 3d (6.25) worked examples exactly.
+* **The Clementi–Raimondi table is sound.** The O 1s cell (`7.6579`) was
+  suspected of being a digit transposition of `7.7579`; it is **not**. The 1s
+  series rises by a uniform 0.9925 per element from Li to Kr, and 7.6579 sits
+  on that line while 7.7579 would put a 0.19 kink in it. The test suite now
+  asserts that smoothness, so a real transposition would be caught.
+* **All 49 real spherical harmonics are orthonormal** for l ≤ 3, including the
+  hand-normalized f₂ coefficient the notes claimed was "fixed by integration".
+* **SHA-256 is a correct self-contained FIPS 180-4 implementation** (all three
+  NIST vectors) and the datastream verifier is carefully hardened against
+  parser confusion: it rejects a second `[end]`, requires the hash after it,
+  requires exactly 64 lowercase hex plus newline/EOF, and hashes the correct
+  payload boundary. Tamper detection verified.
+* **Velocity Verlet conserves energy** to < 1e-7 eV/step over 20 000 steps,
+  flat in `dt` — the signature of a correct symplectic integrator.
+* **CHARMM cutoff switching, the angle gradient, and the Tang-Toennies damping
+  (including `df6/dr = e^{-x} b x^6 / 720`) are all correct.** The induction
+  analytic gradient for the *first-order* (uncoupled) term is correct too —
+  the defect was specific to the self-consistent path.
+* **MBAR is implemented correctly.** The `Σ_w n_w / Σ_w N_w exp((F_w − V_w)/kT)`
+  estimator and its self-consistent `F_w` update are textbook. The problem was
+  the sampling, not the estimator.
+* **`neuron.c` is a clean squid-axon Hodgkin–Huxley implementation** with the
+  removable singularities in α_m and α_n handled by a correct Taylor expansion.
+
+### Verification gates
+
+A new regression suite, `make selftest-regression`, adds **118 checks**, one
+per defect above, built on independent oracles — finite differences,
+quadrature, NIST SHA-256 vectors, published reference values — so it can
+actually fail. `make test` runs every gate.
+
+Current state:
+
+```
+clean build                        0 warnings, 0 errors
+selftest (datastream)              17 checks green
+selftest-forces                    22 checks green
+selftest-fire                       7 checks green
+selftest-regression               118 checks green
+ASan + UBSan                        0 memory errors, 0 UB findings, empty stderr
+stdout byte-identical across runs   yes
+stdout byte-identical under ASan    yes
+record SHA-256                      fb41c5f1324dde07e20bb43342bf3ce06b49152e39191b9c05e763a551b95c91
+```
+
+The record digest changed from the previous release. That is expected and
+honest: the physics changed. A dispersion force that pointed the wrong way
+produces different trajectories, as do a corrected LJ well, a tabulated
+polarizability, a hard-core QEq, sp2/sp3 labels, a direct dipole solve, and a
+53-bit uniform conversion in place of 31-bit. The old digest described code
+that did not compile.
+
+### Honest statement about the error bars
+
+The umbrella free-energy barriers are reported with a `±` that is the sample
+standard deviation across **three independent seed repeats** of the whole
+sampling protocol. It is **not** a standard error of the mean and **not** a
+confidence interval. With n = 3 the standard error of that standard deviation
+is itself about 76% of its value. It captures seed-to-seed variation only;
+within-run sampling error is characterised separately by the measured
+autocorrelation time and effective sample size, which the program now prints.
+
+The measured numbers are `N_eff ≈ 15–30` independent samples per window. On
+that basis a barrier quoted as `0.4874 ± 0.0030 eV` is **not** credible to
+four decimal places — the tight value reflects three seeds happening to agree,
+not a well-determined estimate, and the accompanying Na⁺ figure
+(`0.4896 ± 0.1490 eV`) shows the true scale of repeat-to-repeat variation.
+Anyone quoting these barriers should quote the larger of the two and state
+`N_eff`.
+
+### What this release does not fix
+
+* **The model is not KcsA.** `aminoacids.c` implements glycine, alanine, a
+  Gly-Ala dipeptide and poly-alanine — the only residue codes in the tree are
+  `ALA` and `GLY`. The real KcsA selectivity filter is the sequence
+  **TVGYG**, and the Thr hydroxyl, Val isopropyl and Tyr phenol that
+  constitute its chemistry are absent. The filter in Demo 12 is not built from
+  residues at all: it is a hand-placed array of carbonyl oxygens held by
+  harmonic position restraints. What is computed is Na⁺ versus K⁺ in a
+  frozen, restrained, hexa-coordinate oxygen cage in vacuum. The Coulomb
+  numbers are correct physics for that model; the biological attribution is
+  not supported by it. This is stated plainly because the release notes
+  previously framed the result as settling the KcsA selectivity question.
+* **No bulk solvent, no membrane potential, no ion concentrations.** A
+  relative-permittivity divisor stands in for condensed-phase screening.
+* **1-4 non-bonded scaling is deliberately absent** (audit F1), which remains
+  a non-standard choice documented in place.
+* **Harmonic bonds cannot break.**
+* **The three tracks are still not connected.**
+* **Base-pairing energetics remain qualitative** — the G–C > A–U ordering is
+  validated; the absolute magnitudes overshoot gas-phase references by ~4x.
+* **`qm_overlap` is not an overlap integral.** It returns `exp(-ζr)` times
+  angular lobe factors, with the Slater polynomial prefactor dropped and `m`
+  maximised independently per atom, so a misoriented orbital still scores
+  full credit. It is a heuristic and the naming oversells it; `qm_bond_order`
+  and `qm_pauli` are built on it.
 
 ---
 
