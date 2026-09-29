@@ -190,6 +190,33 @@ double quantum_orbital_energy(int Z, int n, int l, const ElectronConfig *cfg) {
  * Fill atom->orbitals[] from its electron configuration
  * ══════════════════════════════════════════════════════════════════════════ */
 void quantum_fill_orbitals(Atom *atom) {
+    int truncated = 0;
+    quantum_fill_orbitals_checked(atom, &truncated);
+}
+
+/* AUDIT FIX F14 (silent orbital truncation).
+ *
+ * The orbital table is a fixed-size array, and the fill loop used to
+ * break out of it silently:
+ *     if (orb_idx >= MAX_ORBITALS) break;
+ * so a heavy element simply lost electrons - num_orbitals was reported
+ * as 32 and the caller had no way to know the census no longer summed
+ * to Z. The cutoff bites in the lanthanides: a fully occupied shell
+ * sequence up to 7p needs 60 ml-slots, so Z >= 57 (where 4f fills)
+ * overflows the 32 slots the Atom carries.
+ *
+ * MAX_ORBITALS is deliberately left at 32 rather than raised to 64:
+ * sizeof(Orbital) is 40 B and the slots are 1280 B of Atom's 1600 B, so
+ * doubling the cap would double a 153 MB array at MAX_ATOMS - for a
+ * limit that is unreachable anyway, since forces_calculate is O(N^2).
+ * 32 comfortably covers the whole tabulated range (Kr needs 18).
+ *
+ * What was wrong was not the size, it was the silence. Truncation is now
+ * reported through the out-parameter, warned about once, and covered by
+ * a selftest.
+ */
+void quantum_fill_orbitals_checked(Atom *atom, int *truncated) {
+    if (truncated) *truncated = 0;
     if (!atom) return;
     static const int MN[] = {1,2,2,3,3,4,3,4,5,4,5,6,4,5,6,7,5,6,7};
     static const int ML[] = {0,0,1,0,1,0,2,1,0,2,1,0,3,2,1,0,3,2,1};
@@ -225,7 +252,19 @@ void quantum_fill_orbitals(Atom *atom) {
 
         for (int m = 0; m < num_ml; m++) {
             if (filled[m] == 0) continue;
-            if (orb_idx >= MAX_ORBITALS) break;
+            if (orb_idx >= MAX_ORBITALS) {
+                if (truncated && !*truncated) {
+                    *truncated = 1;
+                    fprintf(stderr,
+                            "quantum: WARNING: orbital table truncated at "
+                            "MAX_ORBITALS=%d for Z=%d (%s); the ml census no "
+                            "longer sums to Z. Raise MAX_ORBITALS or restrict "
+                            "the element range.\n",
+                            MAX_ORBITALS, atom->Z,
+                            atom->element ? atom->element->symbol : "?");
+                }
+                break;
+            }
 
             Orbital *orb = &atom->orbitals[orb_idx++];
             orb->qn.n    = n;

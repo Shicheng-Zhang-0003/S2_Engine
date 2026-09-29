@@ -64,6 +64,17 @@ double quantum_orbital_energy(int Z, int n, int l, const ElectronConfig *cfg);
  */
 void quantum_fill_orbitals(Atom *atom);
 
+/*
+ * As quantum_fill_orbitals, but reports whether the fixed-size orbital
+ * table TRUNCATED (audit fix F14). The Atom carries MAX_ORBITALS=32
+ * ml-slots, which covers the whole tabulated element range (Kr needs 18)
+ * but not a fully occupied shell sequence up to 7p (60 slots), so the
+ * lanthanides onward would silently lose electrons. The old code broke
+ * out of the loop with no signal at all. *truncated is set to 1 and a
+ * warning is emitted on first truncation.
+ */
+void quantum_fill_orbitals_checked(Atom *atom, int *truncated);
+
 /* ── Hydrogen-like radial wave function ──────────────────────────────────── */
 /*
  * Returns R_nl(r) for a hydrogen-like atom with effective charge Z_eff.
