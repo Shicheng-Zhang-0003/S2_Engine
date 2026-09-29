@@ -1175,13 +1175,13 @@ static double qm_scf_induction_energy(const Simulation *sim, double dielectric,
  * same functional is used either way (last iterate on non-convergence,
  * which is continuous and conservative) and failure is reported.
  */
-double qm_induction_scf_forces(Simulation *sim, double dielectric, int *iters_out) {
+double qm_induction_scf_forces(Simulation *sim, double dielectric, int *rc_out) {
     if (!sim || !sim->atoms || sim->num_atoms < 1) return 0.0;
     int N = sim->num_atoms;
     if (N > 256) return 0.0;
     if (!(dielectric > 1e-9) || !isfinite(dielectric)) dielectric = 1.0;
 
-    double U = qm_scf_induction_energy(sim, dielectric, iters_out);
+    double U = qm_scf_induction_energy(sim, dielectric, rc_out);
 
     const double h = 1e-5; /* Å */
     for (int k = 0; k < N; k++) {
