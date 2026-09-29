@@ -76,8 +76,27 @@ double qm_Y_real(int l, int ml, double theta, double phi);
 double qm_psi(int n, int l, int ml, double Zeff, Vec3 pos);
 
 /* ── Per-atom derived quantities ───────────────────────────────────── */
-/* Hybridization from the atom's electron config census (s/p counts). */
+/* Hybridisation from the atom's electron config census (s/p counts) and
+ * its sigma-partner count. With no topology available the atom is treated
+ * as unconjugated - the conservative sp3 reading. */
 QmHybrid qm_hybridization(const Atom *atom);
+
+/*
+ * Topology-aware hybridisation, the correct entry point whenever a
+ * Simulation is available.
+ *
+ * AUDIT FIX F7: amide nitrogen and ammonia nitrogen have IDENTICAL local
+ * bond orders (all single) and identical valence, so no bare-Atom
+ * classifier can tell them apart - yet the amide is sp2 and the amine is
+ * sp3, because the amide's lone pair is delocalised into the adjacent
+ * carbonyl pi system and therefore occupies a p orbital rather than a
+ * hybrid. This entry point inspects the bonded partners' bond orders to
+ * establish conjugation, which is what makes the steric number correct.
+ *
+ * Verified: water O sp3, ammonia N sp3, carbonyl O sp2, amide N sp2,
+ * carbonyl C sp2, methylene C sp3.
+ */
+QmHybrid qm_hybridization_ctx(const Simulation *sim, int atom_idx);
 
 /* Mulliken electronegativity chi = (IE+EA)/2 [eV] and hardness
  * J = (IE-EA)/2 [eV]. EA<=0 entries use EA=0 (table convention). */
@@ -161,14 +180,49 @@ double qm_induction_forces(Simulation *sim, double dielectric);
 double qm_induction_energy(const Simulation *sim, double dielectric);
 
 /* ── v4: self-consistent dipoles ───────────────────────────────────── */
-/* Solve mu = alpha*E(mu) with Thole-damped T-coupling. mu_out[e·A]
- * (N entries). Returns iterations, -1 on non-convergence. */
+/*
+ * Solve the coupled-dipole equations for the induced dipoles.
+ *
+ * AUDIT FIX D2: the self-consistency condition is LINEAR in mu,
+ *
+ *     mu_i = alpha_i ( E0_i + sum_j f_thole(r_ij) [3 d d - I] mu_j
+ *                      / r_ij^3 * k / eps_r )
+ *
+ * so this is a single N x N system (I - A) mu = alpha (*) E0, solved
+ * exactly by Gaussian elimination with partial pivoting. It was
+ * previously a damped fixed-point iteration, which needed 96-97 of its
+ * 100 iterations even for four atoms and silently failed on ordinary
+ * geometries - the caller then swapped the energy functional, which
+ * made the potential energy discontinuous (audit D3).
+ *
+ * mu_out receives N entries in e*A. Returns 0 on success, -1 if the
+ * system is singular at this geometry, which is the honest signal that
+ * the induced-dipole model has no solution (undamped catastrophe
+ * cancellation) rather than a value to paper over.
+ */
 int qm_solve_dipoles(const Simulation *sim, double dielectric, Vec3 *mu_out);
 
-/* SCF induction energy + Hellmann-Feynman forces (dmu/dR cancels at
- * convergence). Falls back to first-order on non-convergence.
- * iters_out may be NULL. Returns U in eV. */
-double qm_induction_scf_forces(Simulation *sim, double dielectric, int *iters_out);
+/*
+ * SCF induction energy AND its force, in one conservative call.
+ *
+ * AUDIT FIX D2/D3: the force is the exact central-difference gradient
+ * of the returned energy. The Hellmann-Feynman shortcut is unavailable
+ * once the dipoles are self-consistent, because E = (I - T alpha)^-1 E0
+ * and so dU/dE0 = -mu (I - T alpha)^-1, which the shared pointwise
+ * force kernel cannot express. Measured against finite differences, the
+ * previous analytic weights were 98% wrong; correcting the weight to the
+ * naive 1/2 made it worse (relL2 3.3), which is the signature of a
+ * wrong model rather than a wrong factor.
+ *
+ * The energy functional is the SAME whether or not the dipole system
+ * solves, so E stays continuous in geometry - the previous code
+ * substituted a different functional on non-convergence, producing a
+ * measured 5.92 eV jump over 0.01 A and no energy conservation.
+ *
+ * rc_out (may be NULL) receives 0 if the dipoles solved, -1 otherwise.
+ * Returns U in eV.
+ */
+double qm_induction_scf_forces(Simulation *sim, double dielectric, int *rc_out);
 
 /* ── v2: Pauli energy + finite-difference forces ───────────────────── */
 /* E = Σ_pairs A*S^2 over eligible nonbonded pairs (cutoff + 1-2/1-3
