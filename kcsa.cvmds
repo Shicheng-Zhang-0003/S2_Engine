@@ -3,7 +3,7 @@ schema: 1
 demo: kcsa
 build-compiler: unknown
 build-flags: unknown
-wallclock: 2026-09-29T02:52:14Z
+wallclock: 2026-09-29T03:57:02Z
 rng-seed: 7
 source-hash: record-tree-v9R4-fixed-no-vcs
 build-flags-note: record build must not carry -march=native
@@ -130,4 +130,4 @@ kcsa.scfuz.pol_k15 -3.1611359171994358 eV computed-scf-uz
 kcsa.scfuz.pol_na15 0.34198729437521885 eV computed-scf-uz
 
 [end]
-payload-sha256: 6ccb374cdccc333b99b0f6ce2053014c88d5a1470de078907f792fc8dc50e063
+payload-sha256: 434c9dbbe2e73ae52462a1c9a1f088b60e5378d4e698b667cf424d16e4b3d272
