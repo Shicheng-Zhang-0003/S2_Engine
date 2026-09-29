@@ -28,6 +28,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 #include "nucleobases.h"
+#include "kcsa_filter.h"
 
 static int g_pass = 0, g_fail = 0;
 static const char *g_group = "";
@@ -770,6 +771,117 @@ static void test_rng(void) {
     }
 }
 
+static void test_kcsa_filter(void) {
+    grp("KcsA filter is the REAL deposited 1K4C geometry (not a cage)");
+    Simulation *s = sim_create(KCSA_FILTER_ATOMS * 4 + 8,
+                                KCSA_FILTER_BONDS * 4 + 16);
+    int f = kcsa_build_filter(s, vec3(0,0,0), 4);
+    char d[224];
+    ok("filter builds", f == 0, "");
+    ok("41 atoms per subunit x 4 = 164", s->num_atoms - f == 164, "");
+    /* must be neutral, or it binds a cation for a reason unrelated to KcsA */
+    double q = 0.0;
+    for (int i = f; i < s->num_atoms; i++) q += s->atoms[i].partial_charge;
+    snprintf(d, sizeof d, "net filter charge = %+.6e e", q);
+    ok("filter is exactly neutral", fabs(q) < 1e-5, d);
+    /* The five LIGAND oxygens per subunit must hug the pore wall
+     * (deposited r = 2.27-2.64 A). Non-ligand oxygens - the C-terminal
+     * OXT and the Tyr phenol, which points into the wall - sit further
+     * out, so this is measured on the ligands only. */
+    {   /* Exactly 5 ligand oxygens per subunit (20 for the tetramer), all
+         * hugging the wall at the deposited radii. The other oxygens -
+         * GLY79's carbonyl, the Tyr phenol and the C-terminal OXT - sit
+         * much further out, and counting by radius is unambiguous. */
+        double r_min = 1e9, r_max = -1e9; int n = 0;
+        for (int i = f; i < s->num_atoms; i++) {
+            if (s->atoms[i].Z != 8) continue;
+            double r = sqrt(s->atoms[i].position.x*s->atoms[i].position.x +
+                            s->atoms[i].position.y*s->atoms[i].position.y);
+            if (r > 2.7) continue;
+            n++;
+            if (r < r_min) r_min = r;
+            if (r > r_max) r_max = r;
+        }
+        snprintf(d, sizeof d, "%d ligand oxygens (want 5x4=20), radii %.3f-%.3f A (deposited 2.267-2.640)",
+                 n, r_min, r_max);
+        ok("exactly 5 ligand oxygens per subunit, hugging the pore wall",
+           n == 20 && r_min > 2.2 && r_max < 2.7, d);
+    }
+    /* THE decisive check: coordination number 8 at every deposited site.
+     * This is what identifies the C4 symmetry assignment as correct —
+     * a wrong rotation axis gives CN = 2, not 8. */
+    Vec3 sites[4];
+    int ns = kcsa_ion_sites(4, sites);
+    ok("four ion sites recovered", ns == 4, "");
+    static const double want_r[4] = { 2.932, 2.777, 2.773, 2.912 };
+    for (int k = 0; k < ns; k++) {
+        double mr = 0.0;
+        int cn = kcsa_coord_stats(s, f, 4, sites[k], 3.4, &mr);
+        snprintf(d, sizeof d, "site %d: CN=%d <ion-O>=%.3f A (deposited %.3f)",
+                 k+1, cn, mr, want_r[k]);
+        ok("site is 8-coordinate at the deposited distance",
+           cn == 8 && fabs(mr - want_r[k]) < 0.02, d);
+    }
+    /* Thr75 OG1 must be one of the inner-gate ligands: the poly-alanine
+     * model this replaced had no such atom at all. */
+    {   Vec3 inner = sites[3];   /* the innermost site */
+        double best = 1e9; int found = 0;
+        for (int i = f; i < s->num_atoms; i++) {
+            if (s->atoms[i].Z != 8) continue;
+            double dd = vec3_dist(inner, s->atoms[i].position);
+            if (dd < best) best = dd;
+            /* the inner site is 4x OG1 at 2.880 and 4x backbone O at 2.944,
+             * so a 3.4 A coordination shell must contain exactly 8 */
+            if (dd < 3.4) found++;
+        }
+        snprintf(d, sizeof d, "closest ligand to the inner site %.3f A; %d oxygens in the 3.4 A shell (want 8: 4x Thr OG1 + 4x THR backbone O)",
+                 best, found);
+        ok("inner gate is 8-fold including the Thr hydroxyl", found == 8, d);
+    }
+    /* GLY79's oxygen must NOT reach the pore: a hand-built model that put
+     * all five motif carbonyls on the ion path would be wrong. */
+    {   double rmax = 0.0;
+        for (int i = f; i < s->num_atoms; i++)
+            if (s->atoms[i].Z == 8) {
+                double r = sqrt(s->atoms[i].position.x*s->atoms[i].position.x +
+                                s->atoms[i].position.y*s->atoms[i].position.y);
+                if (r > rmax) rmax = r;
+            }
+        snprintf(d, sizeof d, "max oxygen radius from the axis = %.3f A (GLY79 O is 4.82 A)", rmax);
+        ok("the non-ligating motif oxygen stays out of the pore", rmax > 3.5, d);
+    }
+    sim_destroy(s);
+}
+
+static void test_ion_size_and_hydration(void) {
+    grp("Ion size and hydration parameters are sourced, not fitted");
+    /* the K+ contact distance must land on the tabulated ionic radius */
+    Simulation *s = sim_create(KCSA_FILTER_ATOMS * 4 + 8, KCSA_FILTER_BONDS * 4 + 16);
+    kcsa_build_filter(s, vec3(0,0,0), 4);
+    for (int Z = 11; Z <= 19; Z += 8) {
+        int ion = sim_add_ion(s, Z, 1, vec3(0,0,-33.953), 1.0);
+        kcsa_set_ion_radius(s, ion, Z);
+        /* Lorentz-Berthelot ion-O sigma, recovered from the stored values */
+        double sigO = 3.06615;
+        double sig_ionO = 0.5 * (s->atoms[ion].lj_sigma + sigO);
+        double contact = sig_ionO * pow(2.0, 1.0/6.0);
+        double want = kcsa_cation_radius(Z) + 1.40;
+        char d[192];
+        snprintf(d, sizeof d, "Z=%d ion-O minimum %.3f A; target radius sum %.3f A", Z, contact, want);
+        ok("ion-O contact equals r(cation) + r(O)", fabs(contact - want) < 0.01, d);
+    }
+    sim_destroy(s);
+    okrel("K+  cation radius 1.38 A (Pauling/Shannon CN6)", kcsa_cation_radius(19), 1.38, 1e-12);
+    okrel("Na+ cation radius 1.02 A (Pauling/Shannon CN6)", kcsa_cation_radius(11), 1.02, 1e-12);
+    /* hydration free energies, and the K+ advantage they imply */
+    okrel("K+  hydration -322 kJ/mol", kcsa_hydration_free_energy_kJmol(19), -322.0, 1e-12);
+    okrel("Na+ hydration -454 kJ/mol", kcsa_hydration_free_energy_kJmol(11), -454.0, 1e-12);
+    okrel("K+ dehydration cost 3.337 eV", kcsa_dehydration_cost_eV(19), 322.0/96.48533212, 1e-9);
+    okrel("Na+ dehydration cost 4.705 eV", kcsa_dehydration_cost_eV(11), 454.0/96.48533212, 1e-9);
+    okrel("K+ enters 1.368 eV cheaper than Na+",
+          kcsa_dehydration_cost_eV(11) - kcsa_dehydration_cost_eV(19), 1.3680, 2e-3);
+}
+
 int main(void) {
     printf("╔══════════════════════════════════════════════════════════════╗\n");
     printf("║  v9R4 AUDIT REGRESSION SUITE                                 ║\n");
@@ -788,8 +900,12 @@ int main(void) {
     test_nve();
     test_datastream();
     test_rng();
+    test_kcsa_filter();
+    test_ion_size_and_hydration();
     printf("\n══════════════════════════════════════════════════════════════\n");
-    printf("  PASS %d    FAIL %d\n", g_pass, g_fail);
+    /* Not "  PASS n FAIL m": the verify script counts check lines by
+     * that prefix and would count this summary as one of its own checks. */
+    printf("  TOTAL %d passed, %d failed\n", g_pass, g_fail);
     printf("══════════════════════════════════════════════════════════════\n");
     return g_fail ? 1 : 0;
 }
