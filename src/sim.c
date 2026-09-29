@@ -89,6 +89,12 @@ Simulation *sim_create(int atom_capacity, int bond_capacity) {
     sim->thermostat.target_temperature = 300.0;
     sim->thermostat.tau                = 100.0;  /* fs */
 
+    /* AUDIT FIX I1: LCG by default, because the record must stay
+     * byte-identical. Set rng_kind = INTEGRATOR_RNG_PCG64 to use the
+     * stronger generator. */
+    sim->rng_kind = INTEGRATOR_RNG_LCG;
+    sim->rng_state_hi = 0;
+
     return sim;
 }
 
@@ -744,7 +750,7 @@ void sim_print_atoms(const Simulation *sim) {
         const Atom *a = &sim->atoms[i];
         printf("  %-4d %-4s  (%7.4f %7.4f %7.4f)  "
                "(%7.4f %7.4f %7.4f)  %+7.4f  %7.3f\n",
-               i, a->element->symbol,
+               i, a->element ? a->element->symbol : "??",
                a->position.x, a->position.y, a->position.z,
                a->velocity.x, a->velocity.y, a->velocity.z,
                a->partial_charge, a->mass);
