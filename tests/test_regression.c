@@ -29,6 +29,7 @@
 #endif
 #include "nucleobases.h"
 #include "kcsa_filter.h"
+#include "amber_lj.h"
 
 static int g_pass = 0, g_fail = 0;
 static const char *g_group = "";
@@ -861,8 +862,13 @@ static void test_ion_size_and_hydration(void) {
     for (int Z = 11; Z <= 19; Z += 8) {
         int ion = sim_add_ion(s, Z, 1, vec3(0,0,-33.953), 1.0);
         kcsa_set_ion_radius(s, ion, Z);
-        /* Lorentz-Berthelot ion-O sigma, recovered from the stored values */
-        double sigO = 3.06615;
+        /* Lorentz-Berthelot ion-O sigma, recovered from the stored
+         * values. The filter oxygen sigma comes from the shared header -
+         * this test used to hardcode 3.06615, which was the same wrong
+         * literal kcsa_filter.c carried, so both were wrong together and
+         * the consolidating refactor is what exposed it. The AMBER ff99
+         * carbonyl oxygen is AMBER_RSTAR_TO_SIGMA(1.6612) = 2.95992. */
+        double sigO = LJ_AMBER_O_SIGMA;
         double sig_ionO = 0.5 * (s->atoms[ion].lj_sigma + sigO);
         double contact = sig_ionO * pow(2.0, 1.0/6.0);
         double want = kcsa_cation_radius(Z) + 1.40;
