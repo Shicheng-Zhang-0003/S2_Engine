@@ -3,6 +3,7 @@
 #include "../include/nucleobases.h"
 #include "../include/sim.h"
 #include "../include/forces.h"
+#include "../include/amber_lj.h"
 #include "../include/constants.h"
 
 /*
@@ -55,93 +56,7 @@
  * the conversion convention is correct (Rstar/2^(1/6) alone would give
  * half that, 1.5753 A, which is the radius not the diameter).
  * ══════════════════════════════════════════════════════════════════════════ */
-#define AMBER_RSTAR_TO_SIGMA(rstar) ((rstar) * 2.0 / 1.122462048309373)
-
-/* Ring/carbonyl nitrogen: AMBER classes N,NA,NB,NC,N*,N2 (all identical) */
-#define LJ_RING_N_SIGMA   AMBER_RSTAR_TO_SIGMA(1.8240)
-#define LJ_RING_N_EPS     (0.1700 * KCAL_MOL_TO_EV)
-
-/* sp2 ring/carbonyl carbon: AMBER classes C,CA,CB,CM,CK,CQ (all identical) */
-#define LJ_SP2_C_SIGMA    AMBER_RSTAR_TO_SIGMA(1.9080)
-#define LJ_SP2_C_EPS      (0.0860 * KCAL_MOL_TO_EV)
-
-/* Carbonyl oxygen: AMBER class O */
-#define LJ_CARBONYL_O_SIGMA AMBER_RSTAR_TO_SIGMA(1.6612)
-#define LJ_CARBONYL_O_EPS   (0.2100 * KCAL_MOL_TO_EV)
-
-/* Amide/aromatic N-H hydrogen: AMBER class H (attached to any N type) */
-#define LJ_H_ON_N_SIGMA   AMBER_RSTAR_TO_SIGMA(0.6000)
-#define LJ_H_ON_N_EPS     (0.0157 * KCAL_MOL_TO_EV)
-
-/* Aromatic C-H, type HA (e.g. cytosine H5): */
-#define LJ_HA_SIGMA       AMBER_RSTAR_TO_SIGMA(1.4590)
-#define LJ_HA_EPS         (0.0150 * KCAL_MOL_TO_EV)
-
-/* Aromatic C-H, type H4 (heteroatom-adjacent, e.g. uracil/cytosine/thymine H6): */
-#define LJ_H4_SIGMA       AMBER_RSTAR_TO_SIGMA(1.4090)
-#define LJ_H4_EPS         (0.0150 * KCAL_MOL_TO_EV)
-
-/* Aromatic C-H, type H5 (purine H8 and adenine H2 - AMBER's "H5" hydrogen
- * type name is an unrelated coincidental collision with our own "H5" ring
- * position naming in pyrimidines; these are different atoms entirely): */
-#define LJ_PURINE_H_SIGMA AMBER_RSTAR_TO_SIGMA(1.3590)
-#define LJ_PURINE_H_EPS   (0.0150 * KCAL_MOL_TO_EV)
-
-/* sp3 methyl carbon (thymine): AMBER class CT */
-#define LJ_CT_SIGMA       AMBER_RSTAR_TO_SIGMA(1.9080)
-#define LJ_CT_EPS         (0.1094 * KCAL_MOL_TO_EV)
-
-/* Aliphatic methyl hydrogen (thymine): AMBER class HC */
-#define LJ_HC_SIGMA       AMBER_RSTAR_TO_SIGMA(1.4870)
-#define LJ_HC_EPS         (0.0157 * KCAL_MOL_TO_EV)
-
-/* ── Sugar (deoxyribose) AMBER types, added for the sugar-phosphate
- * backbone. Ring/exocyclic sp3 carbons all use CT (same as thymine's
- * methyl carbon above). Ring ether oxygen (O4') uses OS. Hydroxyl
- * oxygens (O1 anomeric/O3'/O5') use OH. Hydroxyl hydrogens use HO -
- * EXACTLY ZERO LJ, the same real AMBER convention already confirmed
- * for TIP3P water's hydrogens (class HW) elsewhere in this codebase;
- * HO is a separate but also-zero AMBER class, confirmed directly from
- * the same source parameter file. Aliphatic ring/chain hydrogens use
- * the generic HC type (a deliberate simplification - real AMBER
- * distinguishes several sub-cases here (H1 vs HC) by electronegative-
- * neighbor proximity; HC is used uniformly since the difference in
- * LJ parameters between these sub-types is small and this is not yet
- * being tested in an energetic comparison the way the aromatic ring
- * atoms were for base pairing). ── */
-#define LJ_OS_SIGMA       AMBER_RSTAR_TO_SIGMA(1.6837)   /* ring ether O */
-#define LJ_OS_EPS         (0.1700 * KCAL_MOL_TO_EV)
-#define LJ_OH_SIGMA       AMBER_RSTAR_TO_SIGMA(1.7210)   /* hydroxyl O */
-#define LJ_OH_EPS         (0.2104 * KCAL_MOL_TO_EV)
-/* Hydroxyl H: small NONZERO stability values, not the technically real
- * AMBER "HO" value of exactly zero. Proactively fixed after the same
- * vulnerability was confirmed dangerous elsewhere (a flexible poly-
- * alanine chain): LJ's geometric-mean combining rule means a zero-
- * epsilon atom poisons any pairwise interaction to exactly zero
- * regardless of the partner's real LJ. */
-#define LJ_HO_SIGMA       0.5
-#define LJ_HO_EPS         0.001
-
-/* ── Phosphate backbone AMBER types. P: class 28. Non-bridging
- * (charged) phosphate oxygen: class 25 "O2", CONFIRMED to share
- * identical LJ parameters with carbonyl O (class 24) in the same
- * source file - not a simplification, this is what AMBER actually
- * specifies. Bridging (ester) oxygen: class 23 "OS", the same type
- * already used for the sugar's ring oxygen O4' above. ── */
-#define LJ_P_SIGMA        AMBER_RSTAR_TO_SIGMA(2.1000)
-#define LJ_P_EPS          (0.2000 * KCAL_MOL_TO_EV)
-#define LJ_O2_SIGMA       AMBER_RSTAR_TO_SIGMA(1.6612)   /* non-bridging, = carbonyl O */
-#define LJ_O2_EPS         (0.2100 * KCAL_MOL_TO_EV)
-
-/* ══════════════════════════════════════════════════════════════════════════
- * Shared placement helper
- *
- * Centers the molecule (by centroid of all given atoms) at `origin`,
- * adds bonds with r0 set to the EXACT distance in the placed geometry
- * (zero initial strain by construction) while keeping the generic
- * single/double-bond force constant from the BOND_TABLE, then builds
- * angles with theta0 derived from the same placed geometry.
- * ══════════════════════════════════════════════════════════════════════════ */
+/* AMBER ff99 LJ types now live in include/amber_lj.h (one copy, not four). */
 static int place_molecule(Simulation *sim, Vec3 origin,
                            const double coords[][3], const int Zs[],
                            const double charges[],
@@ -247,18 +162,18 @@ int sim_place_uracil(Simulation *sim, Vec3 origin) {
      * this file for full sourcing and the (element,hybridization)
      * simplification rationale.
      */
-    sim_set_atom_lj(sim, first+0, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N1 */
-    sim_set_atom_lj(sim, first+1, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C2 */
-    sim_set_atom_lj(sim, first+2, LJ_CARBONYL_O_EPS, LJ_CARBONYL_O_SIGMA); /* O2 */
-    sim_set_atom_lj(sim, first+3, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N3 */
-    sim_set_atom_lj(sim, first+4, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C4 */
-    sim_set_atom_lj(sim, first+5, LJ_CARBONYL_O_EPS, LJ_CARBONYL_O_SIGMA); /* O4 */
-    sim_set_atom_lj(sim, first+6, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C5 */
-    sim_set_atom_lj(sim, first+7, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C6 */
-    sim_set_atom_lj(sim, first+8, LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);      /* HN1 */
-    sim_set_atom_lj(sim, first+9, LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);      /* HN3 */
-    sim_set_atom_lj(sim, first+10, LJ_HA_EPS, LJ_HA_SIGMA);             /* H5 */
-    sim_set_atom_lj(sim, first+11, LJ_H4_EPS, LJ_H4_SIGMA);             /* H6 */
+    sim_set_atom_lj(sim, first+0, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N1 */
+    sim_set_atom_lj(sim, first+1, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C2 */
+    sim_set_atom_lj(sim, first+2, LJ_AMBER_O_EPS, LJ_AMBER_O_SIGMA); /* O2 */
+    sim_set_atom_lj(sim, first+3, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N3 */
+    sim_set_atom_lj(sim, first+4, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C4 */
+    sim_set_atom_lj(sim, first+5, LJ_AMBER_O_EPS, LJ_AMBER_O_SIGMA); /* O4 */
+    sim_set_atom_lj(sim, first+6, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C5 */
+    sim_set_atom_lj(sim, first+7, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C6 */
+    sim_set_atom_lj(sim, first+8, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);      /* HN1 */
+    sim_set_atom_lj(sim, first+9, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);      /* HN3 */
+    sim_set_atom_lj(sim, first+10, LJ_AMBER_HA_EPS, LJ_AMBER_HA_SIGMA);             /* H5 */
+    sim_set_atom_lj(sim, first+11, LJ_AMBER_H4_EPS, LJ_AMBER_H4_SIGMA);             /* H6 */
     return first;
 }
 
@@ -400,19 +315,19 @@ int sim_place_cytosine(Simulation *sim, Vec3 origin) {
      * The new HN1 (post-tautomer-fix, attached to N1=N*) uses the
      * same H_ON_N type as any other ring N-H.
      */
-    sim_set_atom_lj(sim, first+0, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N3 */
-    sim_set_atom_lj(sim, first+1, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C4 */
-    sim_set_atom_lj(sim, first+2, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N1 */
-    sim_set_atom_lj(sim, first+3, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C2 */
-    sim_set_atom_lj(sim, first+4, LJ_CARBONYL_O_EPS, LJ_CARBONYL_O_SIGMA); /* O2 */
-    sim_set_atom_lj(sim, first+5, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N4 */
-    sim_set_atom_lj(sim, first+6, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C5 */
-    sim_set_atom_lj(sim, first+7, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C6 */
-    sim_set_atom_lj(sim, first+8,  LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);     /* HN41 */
-    sim_set_atom_lj(sim, first+9,  LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);     /* HN42 */
-    sim_set_atom_lj(sim, first+10, LJ_HA_EPS, LJ_HA_SIGMA);             /* H5 */
-    sim_set_atom_lj(sim, first+11, LJ_H4_EPS, LJ_H4_SIGMA);             /* H6 */
-    sim_set_atom_lj(sim, first+12, LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);     /* HN1 (new) */
+    sim_set_atom_lj(sim, first+0, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N3 */
+    sim_set_atom_lj(sim, first+1, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C4 */
+    sim_set_atom_lj(sim, first+2, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N1 */
+    sim_set_atom_lj(sim, first+3, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C2 */
+    sim_set_atom_lj(sim, first+4, LJ_AMBER_O_EPS, LJ_AMBER_O_SIGMA); /* O2 */
+    sim_set_atom_lj(sim, first+5, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N4 */
+    sim_set_atom_lj(sim, first+6, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C5 */
+    sim_set_atom_lj(sim, first+7, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C6 */
+    sim_set_atom_lj(sim, first+8,  LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);     /* HN41 */
+    sim_set_atom_lj(sim, first+9,  LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);     /* HN42 */
+    sim_set_atom_lj(sim, first+10, LJ_AMBER_HA_EPS, LJ_AMBER_HA_SIGMA);             /* H5 */
+    sim_set_atom_lj(sim, first+11, LJ_AMBER_H4_EPS, LJ_AMBER_H4_SIGMA);             /* H6 */
+    sim_set_atom_lj(sim, first+12, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);     /* HN1 (new) */
     return first;
 }
 
@@ -492,21 +407,21 @@ int sim_place_adenine(Simulation *sim, Vec3 origin) {
      * a hydrogen-type NAME, unrelated to nucleobase ring position "H5"
      * used in the pyrimidines elsewhere in this file).
      */
-    sim_set_atom_lj(sim, first+0, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N9 */
-    sim_set_atom_lj(sim, first+1, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C8 */
-    sim_set_atom_lj(sim, first+2, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N7 */
-    sim_set_atom_lj(sim, first+3, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C5 */
-    sim_set_atom_lj(sim, first+4, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C6 */
-    sim_set_atom_lj(sim, first+5, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N6 */
-    sim_set_atom_lj(sim, first+6, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N1 */
-    sim_set_atom_lj(sim, first+7, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C2 */
-    sim_set_atom_lj(sim, first+8, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N3 */
-    sim_set_atom_lj(sim, first+9, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C4 */
-    sim_set_atom_lj(sim, first+10, LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);     /* HN9  */
-    sim_set_atom_lj(sim, first+11, LJ_PURINE_H_EPS, LJ_PURINE_H_SIGMA); /* H8 */
-    sim_set_atom_lj(sim, first+12, LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);     /* HN61 */
-    sim_set_atom_lj(sim, first+13, LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);     /* HN62 */
-    sim_set_atom_lj(sim, first+14, LJ_PURINE_H_EPS, LJ_PURINE_H_SIGMA); /* H2 */
+    sim_set_atom_lj(sim, first+0, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N9 */
+    sim_set_atom_lj(sim, first+1, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C8 */
+    sim_set_atom_lj(sim, first+2, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N7 */
+    sim_set_atom_lj(sim, first+3, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C5 */
+    sim_set_atom_lj(sim, first+4, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C6 */
+    sim_set_atom_lj(sim, first+5, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N6 */
+    sim_set_atom_lj(sim, first+6, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N1 */
+    sim_set_atom_lj(sim, first+7, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C2 */
+    sim_set_atom_lj(sim, first+8, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N3 */
+    sim_set_atom_lj(sim, first+9, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C4 */
+    sim_set_atom_lj(sim, first+10, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);     /* HN9  */
+    sim_set_atom_lj(sim, first+11, LJ_AMBER_H5_EPS, LJ_AMBER_H5_SIGMA); /* H8 */
+    sim_set_atom_lj(sim, first+12, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);     /* HN61 */
+    sim_set_atom_lj(sim, first+13, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);     /* HN62 */
+    sim_set_atom_lj(sim, first+14, LJ_AMBER_H5_EPS, LJ_AMBER_H5_SIGMA); /* H2 */
     return first;
 }
 
@@ -584,22 +499,22 @@ int sim_place_guanine(Simulation *sim, Vec3 origin) {
      * N7=NB, C8=CK, N3=NC, C2=CA, N1=NA, C6=C, N2=N2, H21/H22=H,
      * O6=O, H1=H, H8=H5[AMBER type]).
      */
-    sim_set_atom_lj(sim, first+0, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N9 */
-    sim_set_atom_lj(sim, first+1, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C8 */
-    sim_set_atom_lj(sim, first+2, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N7 */
-    sim_set_atom_lj(sim, first+3, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C5 */
-    sim_set_atom_lj(sim, first+4, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C6 */
-    sim_set_atom_lj(sim, first+5, LJ_CARBONYL_O_EPS, LJ_CARBONYL_O_SIGMA); /* O6 */
-    sim_set_atom_lj(sim, first+6, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N1 */
-    sim_set_atom_lj(sim, first+7, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C2 */
-    sim_set_atom_lj(sim, first+8, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N2 */
-    sim_set_atom_lj(sim, first+9, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N3 */
-    sim_set_atom_lj(sim, first+10, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);       /* C4 */
-    sim_set_atom_lj(sim, first+11, LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);     /* HN9  */
-    sim_set_atom_lj(sim, first+12, LJ_PURINE_H_EPS, LJ_PURINE_H_SIGMA); /* H8 */
-    sim_set_atom_lj(sim, first+13, LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);     /* HN1  */
-    sim_set_atom_lj(sim, first+14, LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);     /* HN21 */
-    sim_set_atom_lj(sim, first+15, LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);     /* HN22 */
+    sim_set_atom_lj(sim, first+0, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N9 */
+    sim_set_atom_lj(sim, first+1, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C8 */
+    sim_set_atom_lj(sim, first+2, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N7 */
+    sim_set_atom_lj(sim, first+3, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C5 */
+    sim_set_atom_lj(sim, first+4, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C6 */
+    sim_set_atom_lj(sim, first+5, LJ_AMBER_O_EPS, LJ_AMBER_O_SIGMA); /* O6 */
+    sim_set_atom_lj(sim, first+6, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N1 */
+    sim_set_atom_lj(sim, first+7, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C2 */
+    sim_set_atom_lj(sim, first+8, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N2 */
+    sim_set_atom_lj(sim, first+9, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N3 */
+    sim_set_atom_lj(sim, first+10, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);       /* C4 */
+    sim_set_atom_lj(sim, first+11, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);     /* HN9  */
+    sim_set_atom_lj(sim, first+12, LJ_AMBER_H5_EPS, LJ_AMBER_H5_SIGMA); /* H8 */
+    sim_set_atom_lj(sim, first+13, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);     /* HN1  */
+    sim_set_atom_lj(sim, first+14, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);     /* HN21 */
+    sim_set_atom_lj(sim, first+15, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);     /* HN22 */
     return first;
 }
 
@@ -750,21 +665,21 @@ int sim_place_thymine(Simulation *sim, Vec3 origin) {
      * UFF defaults even after the fix was applied to the other four
      * bases; this closes that gap.
      */
-    sim_set_atom_lj(sim, first+0, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N1 */
-    sim_set_atom_lj(sim, first+1, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C2 */
-    sim_set_atom_lj(sim, first+2, LJ_CARBONYL_O_EPS, LJ_CARBONYL_O_SIGMA); /* O2 */
-    sim_set_atom_lj(sim, first+3, LJ_RING_N_EPS, LJ_RING_N_SIGMA);      /* N3 */
-    sim_set_atom_lj(sim, first+4, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C4 */
-    sim_set_atom_lj(sim, first+5, LJ_CARBONYL_O_EPS, LJ_CARBONYL_O_SIGMA); /* O4 */
-    sim_set_atom_lj(sim, first+6, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C5 */
-    sim_set_atom_lj(sim, first+7, LJ_SP2_C_EPS, LJ_SP2_C_SIGMA);        /* C6 */
-    sim_set_atom_lj(sim, first+8, LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);      /* HN1 */
-    sim_set_atom_lj(sim, first+9, LJ_H_ON_N_EPS, LJ_H_ON_N_SIGMA);      /* HN3 */
-    sim_set_atom_lj(sim, first+10, LJ_H4_EPS, LJ_H4_SIGMA);             /* H6 */
-    sim_set_atom_lj(sim, first+11, LJ_CT_EPS, LJ_CT_SIGMA);             /* CM (methyl C, AMBER type CT) */
-    sim_set_atom_lj(sim, first+12, LJ_HC_EPS, LJ_HC_SIGMA);             /* HM1 */
-    sim_set_atom_lj(sim, first+13, LJ_HC_EPS, LJ_HC_SIGMA);             /* HM2 */
-    sim_set_atom_lj(sim, first+14, LJ_HC_EPS, LJ_HC_SIGMA);             /* HM3 */
+    sim_set_atom_lj(sim, first+0, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N1 */
+    sim_set_atom_lj(sim, first+1, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C2 */
+    sim_set_atom_lj(sim, first+2, LJ_AMBER_O_EPS, LJ_AMBER_O_SIGMA); /* O2 */
+    sim_set_atom_lj(sim, first+3, LJ_AMBER_N_EPS, LJ_AMBER_N_SIGMA);      /* N3 */
+    sim_set_atom_lj(sim, first+4, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C4 */
+    sim_set_atom_lj(sim, first+5, LJ_AMBER_O_EPS, LJ_AMBER_O_SIGMA); /* O4 */
+    sim_set_atom_lj(sim, first+6, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C5 */
+    sim_set_atom_lj(sim, first+7, LJ_AMBER_C2_EPS, LJ_AMBER_C2_SIGMA);        /* C6 */
+    sim_set_atom_lj(sim, first+8, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);      /* HN1 */
+    sim_set_atom_lj(sim, first+9, LJ_AMBER_HN_EPS, LJ_AMBER_HN_SIGMA);      /* HN3 */
+    sim_set_atom_lj(sim, first+10, LJ_AMBER_H4_EPS, LJ_AMBER_H4_SIGMA);             /* H6 */
+    sim_set_atom_lj(sim, first+11, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA);             /* CM (methyl C, AMBER type CT) */
+    sim_set_atom_lj(sim, first+12, LJ_AMBER_HC_EPS, LJ_AMBER_HC_SIGMA);             /* HM1 */
+    sim_set_atom_lj(sim, first+13, LJ_AMBER_HC_EPS, LJ_AMBER_HC_SIGMA);             /* HM2 */
+    sim_set_atom_lj(sim, first+14, LJ_AMBER_HC_EPS, LJ_AMBER_HC_SIGMA);             /* HM3 */
     return first;
 }
 
@@ -854,22 +769,22 @@ int sim_place_deoxyribose(Simulation *sim, Vec3 origin) {
      * sp3 ring/exocyclic carbons -> CT; ring ether O4' -> OS; hydroxyl
      * oxygens -> OH; hydroxyl H's -> HO (zero, confirmed real AMBER
      * value); other aliphatic H's -> generic HC. */
-    sim_set_atom_lj(sim, first+0, LJ_CT_EPS, LJ_CT_SIGMA);   /* C1' */
-    sim_set_atom_lj(sim, first+1, LJ_OS_EPS, LJ_OS_SIGMA);   /* O4' */
-    sim_set_atom_lj(sim, first+2, LJ_CT_EPS, LJ_CT_SIGMA);   /* C2' */
-    sim_set_atom_lj(sim, first+3, LJ_CT_EPS, LJ_CT_SIGMA);   /* C3' */
-    sim_set_atom_lj(sim, first+4, LJ_CT_EPS, LJ_CT_SIGMA);   /* C4' */
-    sim_set_atom_lj(sim, first+5, LJ_CT_EPS, LJ_CT_SIGMA);   /* C5' */
-    sim_set_atom_lj(sim, first+6, LJ_OH_EPS, LJ_OH_SIGMA);   /* O1 (anomeric) */
-    sim_set_atom_lj(sim, first+7, LJ_OH_EPS, LJ_OH_SIGMA);   /* O3' */
-    sim_set_atom_lj(sim, first+8, LJ_OH_EPS, LJ_OH_SIGMA);   /* O5' */
+    sim_set_atom_lj(sim, first+0, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA);   /* C1' */
+    sim_set_atom_lj(sim, first+1, LJ_AMBER_OS_EPS, LJ_AMBER_OS_SIGMA);   /* O4' */
+    sim_set_atom_lj(sim, first+2, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA);   /* C2' */
+    sim_set_atom_lj(sim, first+3, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA);   /* C3' */
+    sim_set_atom_lj(sim, first+4, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA);   /* C4' */
+    sim_set_atom_lj(sim, first+5, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA);   /* C5' */
+    sim_set_atom_lj(sim, first+6, LJ_AMBER_OH_EPS, LJ_AMBER_OH_SIGMA);   /* O1 (anomeric) */
+    sim_set_atom_lj(sim, first+7, LJ_AMBER_OH_EPS, LJ_AMBER_OH_SIGMA);   /* O3' */
+    sim_set_atom_lj(sim, first+8, LJ_AMBER_OH_EPS, LJ_AMBER_OH_SIGMA);   /* O5' */
     for (int i = 9; i <= 13; i++)
-        sim_set_atom_lj(sim, first+i, LJ_HC_EPS, LJ_HC_SIGMA); /* ring/exocyclic H's */
-    sim_set_atom_lj(sim, first+14, LJ_HO_EPS, LJ_HO_SIGMA);  /* HO3' - zero */
-    sim_set_atom_lj(sim, first+15, LJ_HC_EPS, LJ_HC_SIGMA);
-    sim_set_atom_lj(sim, first+16, LJ_HC_EPS, LJ_HC_SIGMA);
-    sim_set_atom_lj(sim, first+17, LJ_HO_EPS, LJ_HO_SIGMA);  /* HO5' - zero */
-    sim_set_atom_lj(sim, first+18, LJ_HO_EPS, LJ_HO_SIGMA);  /* HO1  - zero */
+        sim_set_atom_lj(sim, first+i, LJ_AMBER_HC_EPS, LJ_AMBER_HC_SIGMA); /* ring/exocyclic H's */
+    sim_set_atom_lj(sim, first+14, LJ_AMBER_HO_EPS, LJ_AMBER_HO_SIGMA);  /* HO3' - zero */
+    sim_set_atom_lj(sim, first+15, LJ_AMBER_HC_EPS, LJ_AMBER_HC_SIGMA);
+    sim_set_atom_lj(sim, first+16, LJ_AMBER_HC_EPS, LJ_AMBER_HC_SIGMA);
+    sim_set_atom_lj(sim, first+17, LJ_AMBER_HO_EPS, LJ_AMBER_HO_SIGMA);  /* HO5' - zero */
+    sim_set_atom_lj(sim, first+18, LJ_AMBER_HO_EPS, LJ_AMBER_HO_SIGMA);  /* HO1  - zero */
 
     return first;
 }
@@ -945,20 +860,20 @@ static int place_deoxyribose_open(Simulation *sim, Vec3 origin,
     int first = place_molecule(sim, origin, coords, Zs, charges, 17, bonds, 16);
     sim_add_bond(sim, first+7, first+16, 1);  /* O5'-HO5' */
 
-    sim_set_atom_lj(sim, first+0, LJ_CT_EPS, LJ_CT_SIGMA);
-    sim_set_atom_lj(sim, first+1, LJ_OS_EPS, LJ_OS_SIGMA);
-    sim_set_atom_lj(sim, first+2, LJ_CT_EPS, LJ_CT_SIGMA);
-    sim_set_atom_lj(sim, first+3, LJ_CT_EPS, LJ_CT_SIGMA);
-    sim_set_atom_lj(sim, first+4, LJ_CT_EPS, LJ_CT_SIGMA);
-    sim_set_atom_lj(sim, first+5, LJ_CT_EPS, LJ_CT_SIGMA);
-    sim_set_atom_lj(sim, first+6, LJ_OH_EPS, LJ_OH_SIGMA);
-    sim_set_atom_lj(sim, first+7, LJ_OH_EPS, LJ_OH_SIGMA);
+    sim_set_atom_lj(sim, first+0, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA);
+    sim_set_atom_lj(sim, first+1, LJ_AMBER_OS_EPS, LJ_AMBER_OS_SIGMA);
+    sim_set_atom_lj(sim, first+2, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA);
+    sim_set_atom_lj(sim, first+3, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA);
+    sim_set_atom_lj(sim, first+4, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA);
+    sim_set_atom_lj(sim, first+5, LJ_AMBER_CT_EPS, LJ_AMBER_CT_SIGMA);
+    sim_set_atom_lj(sim, first+6, LJ_AMBER_OH_EPS, LJ_AMBER_OH_SIGMA);
+    sim_set_atom_lj(sim, first+7, LJ_AMBER_OH_EPS, LJ_AMBER_OH_SIGMA);
     for (int i = 8; i <= 12; i++)
-        sim_set_atom_lj(sim, first+i, LJ_HC_EPS, LJ_HC_SIGMA);
-    sim_set_atom_lj(sim, first+13, LJ_HO_EPS, LJ_HO_SIGMA);
-    sim_set_atom_lj(sim, first+14, LJ_HC_EPS, LJ_HC_SIGMA);
-    sim_set_atom_lj(sim, first+15, LJ_HC_EPS, LJ_HC_SIGMA);
-    sim_set_atom_lj(sim, first+16, LJ_HO_EPS, LJ_HO_SIGMA);
+        sim_set_atom_lj(sim, first+i, LJ_AMBER_HC_EPS, LJ_AMBER_HC_SIGMA);
+    sim_set_atom_lj(sim, first+13, LJ_AMBER_HO_EPS, LJ_AMBER_HO_SIGMA);
+    sim_set_atom_lj(sim, first+14, LJ_AMBER_HC_EPS, LJ_AMBER_HC_SIGMA);
+    sim_set_atom_lj(sim, first+15, LJ_AMBER_HC_EPS, LJ_AMBER_HC_SIGMA);
+    sim_set_atom_lj(sim, first+16, LJ_AMBER_HO_EPS, LJ_AMBER_HO_SIGMA);
 
     /* Compute C1's open 4th tetrahedral valence direction: negative
      * sum of its 3 existing bond directions, normalized (same
@@ -1296,7 +1211,7 @@ int sim_place_dinucleotide_TA(Simulation *sim, Vec3 origin, int *out_sugarB_C1) 
     Vec3 P_pos = vec3_add(mid, vec3_scale(perp, h));
 
     int P_idx = sim_add_atom(sim, 15, P_pos, 1.1); /* P, Z=15, approx charge */
-    sim_set_atom_lj(sim, P_idx, LJ_P_EPS, LJ_P_SIGMA);
+    sim_set_atom_lj(sim, P_idx, LJ_AMBER_P_EPS, LJ_AMBER_P_SIGMA);
     sim_add_bond(sim, P_idx, O3_A, 1);
     sim_add_bond(sim, P_idx, O5_B, 1);
 
@@ -1324,8 +1239,8 @@ int sim_place_dinucleotide_TA(Simulation *sim, Vec3 origin, int *out_sugarB_C1) 
 
     int OP1 = sim_add_atom(sim, 8, OP1_pos, -0.75); /* non-bridging, charged */
     int OP2 = sim_add_atom(sim, 8, OP2_pos, -0.75);
-    sim_set_atom_lj(sim, OP1, LJ_O2_EPS, LJ_O2_SIGMA);
-    sim_set_atom_lj(sim, OP2, LJ_O2_EPS, LJ_O2_SIGMA);
+    sim_set_atom_lj(sim, OP1, LJ_AMBER_O_EPS, LJ_AMBER_O_SIGMA);
+    sim_set_atom_lj(sim, OP2, LJ_AMBER_O_EPS, LJ_AMBER_O_SIGMA);
     sim_add_bond(sim, P_idx, OP1, 1);
     sim_add_bond(sim, P_idx, OP2, 1);
 
