@@ -4,7 +4,9 @@
 
 ## In addition, S2 will not follow the R1 R2 R3 developmental scheme of Lancius and Mathlib. Instead, the v9 to v10 period for S2 will be marked by however many RC releases are necessary to achieve a OpenWorm similar display for visualising bonds occuring.
 
-*Documentation synced to the current tree state post-record-reset (s38: record regenerated without -march=native; s39: documentation re-synced to include Demo 17 and the s37 dehydration block; s42-physics-fix: record regenerated after derivation-based equation fixes - thymine methyl orientation, cytosine H6 bisector construction, live -1 charge conservation, conservative duplex restraints, global r_mp, HH bounds, derived unit conversions), 2026-09-24 (v9R4-release: KcsA 3D->xy cage, JC/ECC/U(z)/QM-Sref, CO2 zero-strain, QEq thread-local, PBC per-axis, datastream lower-case keys). The embedded output block is byte-identical to the record (SHA-256 58bb9f69f15779373cbc429998171f90deb61abc6bbd08c19c8e4c431a94134e (SUPERSEDED — see the audit section; the tree could not rebuild the binary that produced it)).*
+*Documentation history: s38 record regenerated without `-march=native`; s39 re-synced to include Demo 17 and the s37 dehydration block; s42-physics-fix record regenerated after derivation-based equation fixes (thymine methyl orientation, cytosine H6 bisector, live −1 charge conservation, conservative duplex restraints, global r_mp, HH bounds, derived unit conversions); 2026-09-24 v9R4-release (KcsA 3D→xy cage, JC/ECC/U(z)/QM-Sref, CO2 zero-strain, QEq thread-local, per-axis PBC, datastream lower-case keys); 2026-09-29 V0.9RC4 — deep audit, physics corrections, the real deposited KcsA filter, and the streamlining pass.*
+
+*Every record digest before `67f9f47e…` was produced by a binary that the committed source could not rebuild. See the audit section: the tree did not compile at any point in the v9R4 cycle, twice over, and the tracked build artifacts concealed it. Treat the earlier digests as history, not as reproducible baselines.*
 
 S2 Engine is a multi-scale, grounded-up physical chemistry and biological
 simulator written in C. It validates biological processes across multiple
@@ -22,6 +24,20 @@ result is qualitative rather than quantitative, or where a demo reports a
 genuine negative result, the output says so explicitly.
 
 ---
+
+## Release identity
+
+| | |
+|---|---|
+| Internal name | `v9R4` |
+| External tag | `V0.9RC4` |
+| Repository | https://github.com/Shicheng-Zhang-0003/S2_Engine |
+
+Both strings are defined once, as `S2_VERSION_INTERNAL` and
+`S2_VERSION_EXTERNAL` in `include/constants.h`, and are used by the program
+banner and the datastream header. The previous release carried a hand-typed
+source string in `main.c` that had been stale for several releases, which is
+the same failure mode the derive-in-line rule for constants exists to prevent.
 
 ## Project Structure & Evolution
 
@@ -480,12 +496,13 @@ sample size, and the `ERROR BAR DEFINITION` block states exactly what the
 ```text
 
   ╔═══════════════════════════════════════════════════════╗
-  ║       CARBON VM — CHEMISTRY SIMULATOR   (v9 release)  ║
+  ║   CARBON VM — CHEMISTRY SIMULATOR   v9R4 / V0.9RC4    ║
   ║       From subatomic to molecular dynamics            ║
   ╚═══════════════════════════════════════════════════════╝
+  v9R4 / V0.9RC4 — https://github.com/Shicheng-Zhang-0003/S2_Engine
 
   Unit system: Length=Å  Time=fs  Energy=eV  Mass=AMU
-  Physical constants: 2019 CODATA  |  LJ: UFF defaults + AMBER ff99 overrides  |  Bonds: placed-geometry r0, generic spectroscopic k (audit F2)
+  Physical constants: CODATA  |  LJ: UFF (periodic table, sigma = Rmin/2^(1/6)) + AMBER ff99 (biomolecular)  |  Bonds: placed-geometry r0, generic spectroscopic k (audit F2)
 
 
 ╔══════════════════════════════════════════════════════╗
@@ -1430,15 +1447,15 @@ Sum minus experimental dG: -0.5474 eV
     dominant contribution.
 
     site   K+ CN/r        Na+ CN/r        E_bind K+ E_bind Na+
-    1      8 / 2.93 A     8 / 2.93 A        -3.6414    -3.6284
-    2      8 / 2.78 A     8 / 2.78 A        -6.4981    -6.4856
-    3      8 / 2.77 A     8 / 2.77 A        -8.3048    -8.2926
-    4      8 / 2.91 A     8 / 2.91 A        -9.0412    -9.0290
+    1      8 / 2.93 A     8 / 2.93 A        -3.6428    -3.6293
+    2      8 / 2.78 A     8 / 2.78 A        -6.4995    -6.4865
+    3      8 / 2.77 A     8 / 2.77 A        -8.3063    -8.2935
+    4      8 / 2.91 A     8 / 2.91 A        -9.0423    -9.0297
 
     interaction (rigid cage, ion radius + Coulomb + LJ):
-      K+  -27.4855 eV      Na+ -27.4357 eV      difference -0.0498 eV
+      K+  -27.4911 eV      Na+ -27.4390 eV      difference -0.0521 eV
     plus the measured dehydration cost:
-      K+  -14.1363 eV      Na+ -8.6142 eV      difference -5.5222 eV
+      K+  -14.1419 eV      Na+ -8.6175 eV      difference -5.5244 eV
 
   --- what this does and does not show ---
     SHOWS: the filter is now the real KcsA TVGYG filter, with the
@@ -1446,7 +1463,7 @@ Sum minus experimental dG: -0.5474 eV
     The K+/Na+ preference in THIS model is carried essentially
     entirely by the measured dehydration free energy (1.368 eV); the
     rigid-cage electrostatics separate the two ions by only
-    0.0125 eV, because a symmetric 8-oxygen cage pulls both cations
+    0.0130 eV, because a symmetric 8-oxygen cage pulls both cations
     to the same axis position.
     DOES NOT SHOW: an absolute selectivity free energy. There is no
     bulk solvent, no membrane potential, no ion concentrations, and
@@ -1588,6 +1605,27 @@ What changed, grouped by subsystem (all in `output.txt`, all sealed in
   version banner; 13-line result recap; three selftests
   (`test_datastream`, `test_forces`, `test_fire`) all gated by
   `verify_scripts.sh` and the s01 record harness.
+
+## Code Organisation
+
+`include/amber_lj.h` holds the AMBER ff99 Lennard-Jones types for every
+biomolecular atom, in one place, together with the `2^(1/6)` conversion that
+turns an AMBER Rstar into a standard 12-6 collision diameter. Before the
+streamlining pass those numbers existed in four private copies:
+`AMBER_RSTAR_TO_SIGMA` in `nucleobases.c`, `AA_RSTAR_TO_SIGMA` in
+`aminoacids.c`, a third set in `kcsa_filter.c`, and the literal
+`1.6612 * 2.0 / 1.122462048309373` written out in **fourteen** places in
+`main.c`. `aminoacids.c` had admitted the duplication in its own comment —
+"duplicated here rather than shared via a header refactor to avoid touching
+already-validated, working code under time pressure" — a debt that was never
+paid. `2^(1/6)` is now written exactly once in the tree.
+
+Consolidating them immediately paid for itself by surfacing a bug: the
+carbonyl-oxygen sigma used by the new KcsA filter module had been hardcoded
+as **3.06615** when the AMBER ff99 value is **2.95992**, and the regression
+test had copied the same wrong literal, so the module and its test agreed
+with each other and both were wrong. The shared constant fixed both, and
+moving the filter energies by ~0.0014 eV is the size of the correction.
 
 ## Verification Discipline & Known Limitations
 
@@ -1932,7 +1970,7 @@ selftest-regression               138 checks green
 ASan + UBSan                        0 memory errors, 0 UB findings, empty stderr
 stdout byte-identical across runs   yes
 stdout byte-identical under ASan    yes
-record SHA-256                      462a7be59ac55d87d0199b75260ee9761d370e9614f66ab3f06014a3d821eafa
+record SHA-256                      67f9f47eb3d3e5b117b5ba8f4c28dfe212caf4ed12323c97246fcf93da9ee72d
 ```
 
 The record digest changed from the previous release. That is expected and
