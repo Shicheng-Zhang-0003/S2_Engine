@@ -1386,6 +1386,78 @@ Sum minus experimental dG: -0.5474 eV
   Datastream s42: kcsa.cvmds written (verify: seal intact).
 
 ╔══════════════════════════════════════════════════════╗
+║  DEMO 12b: the real KcsA filter (PDB 1K4C TVGYG, C4-symmetric)║
+╚══════════════════════════════════════════════════════╝
+
+  Filter built: 164 atoms (41 per subunit x 4), net charge +0.000000 e
+  Sequence: THR75-VAL76-GLY77-TYR78-GLY79  (the TVGYG signature motif)
+  Geometry: deposited 1K4C chain C. The 2001-era structure has no
+    hydrogens, so the five amide H and the C-terminal OXT are
+    constructed on sp2 external bisectors at standard lengths.
+
+  --- recovered coordination geometry (crystallographic) ---
+    site 1  z= -30.553 A   CN = 8   <ion-O> = 2.932 A
+    site 2  z= -33.953 A   CN = 8   <ion-O> = 2.777 A
+    site 3  z= -37.162 A   CN = 8   <ion-O> = 2.773 A
+    site 4  z= -40.505 A   CN = 8   <ion-O> = 2.912 A
+    Every site is 8-coordinate. That is the check that the C4
+    symmetry assignment is right: a wrong axis gives CN = 2.
+
+  --- two structural facts a hand-built cage cannot produce ---
+    1. The innermost gate is the Thr75 SIDE-CHAIN hydroxyl (OG1),
+       not a backbone carbonyl. The old poly-alanine model had no
+       such atom, so the single most important ligand in the real
+       filter was missing entirely.
+    2. GLY79's backbone oxygen sits 4.82 A off the pore axis and
+       coordinates NO ion. GLY79 is part of the motif but is not a
+       filter ligand; assuming all five residues contribute a
+       carbonyl to the ion path would have been wrong.
+    Tyr78's phenol OH is 9.2 A from the nearest ion: it points into
+    the pore WALL. Tyr79 (canonical numbering) is a gating residue,
+    not a selectivity residue.
+
+  --- K+ vs Na+ at each site, rigid deposited filter ---
+    The filter is K+-sized: the deposited contacts (2.77-2.93 A)
+    match K+ (1.38 A radius + 1.40 A oxygen = 2.78 A) and miss Na+
+    (1.02 A + 1.40 A = 2.42 A) by 0.35 A on all eight ligands.
+
+    Dehydration cost to enter the site, from measured single-ion
+    hydration free energies (absolute scale):
+      K+   -322 kJ/mol -> 3.337 eV
+      Na+  -454 kJ/mol -> 4.705 eV
+      K+ therefore enters 1.368 eV cheaper. This is a measured bulk
+    thermodynamic quantity, not a force-field term, and it is the
+    dominant contribution.
+
+    site   K+ CN/r        Na+ CN/r        E_bind K+ E_bind Na+
+    1      8 / 2.93 A     8 / 2.93 A        -3.6414    -3.6284
+    2      8 / 2.78 A     8 / 2.78 A        -6.4981    -6.4856
+    3      8 / 2.77 A     8 / 2.77 A        -8.3048    -8.2926
+    4      8 / 2.91 A     8 / 2.91 A        -9.0412    -9.0290
+
+    interaction (rigid cage, ion radius + Coulomb + LJ):
+      K+  -27.4855 eV      Na+ -27.4357 eV      difference -0.0498 eV
+    plus the measured dehydration cost:
+      K+  -14.1363 eV      Na+ -8.6142 eV      difference -5.5222 eV
+
+  --- what this does and does not show ---
+    SHOWS: the filter is now the real KcsA TVGYG filter, with the
+    real geometry, the real symmetry and the real Thr75 inner gate.
+    The K+/Na+ preference in THIS model is carried essentially
+    entirely by the measured dehydration free energy (1.368 eV); the
+    rigid-cage electrostatics separate the two ions by only
+    0.0125 eV, because a symmetric 8-oxygen cage pulls both cations
+    to the same axis position.
+    DOES NOT SHOW: an absolute selectivity free energy. There is no
+    bulk solvent, no membrane potential, no ion concentrations, and
+    no flexible filter - a flexible-filter calculation was tried
+    and collapses, which kcsa_filter.c documents. A rigid
+    fixed-charge model cannot turn the real 0.35 A geometric
+    mismatch into a binding-energy difference on its own.
+    The previous model's Na+-favouring result was not a KcsA
+    result: it was the electrostatics of a constructed cage.
+
+╔══════════════════════════════════════════════════════╗
 ║  DEMO 17: DNA duplex - minimal G-C and A-T base pair stack║
 ╚══════════════════════════════════════════════════════╝
   Placed: G-C at y=0, A-T at y=3.4 with 36-deg B-DNA twist
@@ -1844,7 +1916,7 @@ Worth stating, because it bounds where the doubt lies.
 
 ### Verification gates
 
-A new regression suite, `make selftest-regression`, adds **118 checks**, one
+A new regression suite, `make selftest-regression`, adds **138 checks**, one
 per defect above, built on independent oracles — finite differences,
 quadrature, NIST SHA-256 vectors, published reference values — so it can
 actually fail. `make test` runs every gate.
@@ -1856,11 +1928,11 @@ clean build                        0 warnings, 0 errors
 selftest (datastream)              17 checks green
 selftest-forces                    22 checks green
 selftest-fire                       7 checks green
-selftest-regression               118 checks green
+selftest-regression               138 checks green
 ASan + UBSan                        0 memory errors, 0 UB findings, empty stderr
 stdout byte-identical across runs   yes
 stdout byte-identical under ASan    yes
-record SHA-256                      fb41c5f1324dde07e20bb43342bf3ce06b49152e39191b9c05e763a551b95c91
+record SHA-256                      462a7be59ac55d87d0199b75260ee9761d370e9614f66ab3f06014a3d821eafa
 ```
 
 The record digest changed from the previous release. That is expected and
@@ -1890,17 +1962,43 @@ Anyone quoting these barriers should quote the larger of the two and state
 
 ### What this release does not fix
 
-* **The model is not KcsA.** `aminoacids.c` implements glycine, alanine, a
-  Gly-Ala dipeptide and poly-alanine — the only residue codes in the tree are
-  `ALA` and `GLY`. The real KcsA selectivity filter is the sequence
-  **TVGYG**, and the Thr hydroxyl, Val isopropyl and Tyr phenol that
-  constitute its chemistry are absent. The filter in Demo 12 is not built from
-  residues at all: it is a hand-placed array of carbonyl oxygens held by
-  harmonic position restraints. What is computed is Na⁺ versus K⁺ in a
-  frozen, restrained, hexa-coordinate oxygen cage in vacuum. The Coulomb
-  numbers are correct physics for that model; the biological attribution is
-  not supported by it. This is stated plainly because the release notes
-  previously framed the result as settling the KcsA selectivity question.
+* **The filter is now the real KcsA filter, and what that does and does not
+  buy.** `src/kcsa_filter.c` builds the TVGYG selectivity filter from
+  **deposited PDB 1K4C coordinates** (chain C, THR75–VAL76–GLY77–TYR78–GLY79),
+  with the other three tetramer subunits generated by the C4 rotation about
+  the pore axis. The symmetry was *derived*, not assumed: only the correct
+  axis reproduces a coordination number of 8 at every deposited K⁺, and a
+  wrong axis gives 2. The build reproduces the deposited geometry exactly —
+  CN = 8 at all four sites, K–O 2.773–2.932 Å, filter charge 1.8e-15 e.
+
+  This replaces the hand-placed restrained oxygen cage and the poly-alanine
+  chain. Two structural facts came out of the coordinates that no hand-built
+  model would have produced, and both are load-bearing:
+
+  * **The innermost gate is the Thr75 side-chain hydroxyl (OG1)**, not a
+    backbone carbonyl. The poly-alanine model had no such atom, so the single
+    most important ligand in the real filter was missing entirely.
+  * **GLY79's backbone oxygen sits 4.82 Å off the pore axis and coordinates
+    no ion.** GLY79 is part of the signature motif but is not a filter
+    ligand. Tyr78's phenol OH is 9.2 Å from the nearest ion — it points into
+    the pore *wall*, not the pore. Tyr79 (canonical numbering) is a gating
+    residue, not a selectivity residue.
+
+  **What the model still cannot do.** The K⁺/Na⁺ preference here is carried
+  essentially entirely by the measured single-ion hydration free energy
+  (K⁺ −322, Na⁺ −454 kJ/mol → K⁺ enters 1.368 eV cheaper). The rigid
+  eight-oxygen cage separates the two ions by only 0.05 eV, because a
+  symmetric cage pulls both cations to the same axis position regardless of
+  radius. The real 0.35 Å geometric mismatch is real and is now measured,
+  but a rigid fixed-charge model in vacuum cannot convert it into a binding
+  free energy on its own — that is what filter *flexibility* and a solvation
+  model are for. A flexible-filter calculation was implemented, found to
+  collapse (the restraints that let the filter respond are far too weak to
+  hold a +1 ion's Coulomb field), and is **not** reported; the collapse is
+  documented in `kcsa_filter.c` rather than tuned away. So: the geometry is
+  now genuinely KcsA, the mechanism is correctly identified, and no
+  quantitative selectivity free energy is claimed.
+
 * **No bulk solvent, no membrane potential, no ion concentrations.** A
   relative-permittivity divisor stands in for condensed-phase screening.
 * **1-4 non-bonded scaling is deliberately absent** (audit F1), which remains
