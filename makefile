@@ -33,7 +33,7 @@ SRCS = $(wildcard $(SRC_DIR)/*.c)
 OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SRCS))
 DEPS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.d, $(SRCS))
 
-.PHONY: all clean run selftest selftest-forces selftest-fire deps
+.PHONY: all clean run selftest selftest-forces selftest-fire selftest-regression test deps
 
 all: $(OBJ_DIR) $(BIN)
 
@@ -79,6 +79,22 @@ selftest-fire: all $(OBJ_DIR)/test_fire.o
 
 $(OBJ_DIR)/test_fire.o: $(TEST_DIR)/test_fire.c
 	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
+
+# audit regression suite: one check per defect found and fixed in the
+# v9R4 audit. Independent oracles (finite differences, quadrature, NIST
+# SHA-256 vectors, published reference values) so it can actually fail.
+selftest-regression: all $(OBJ_DIR)/test_regression.o
+	$(CC) $(CFLAGS) -o $(OBJ_DIR)/test_regression $(OBJ_DIR)/test_regression.o $(filter-out $(OBJ_DIR)/main.o,$(OBJS)) -lm
+
+$(OBJ_DIR)/test_regression.o: $(TEST_DIR)/test_regression.c
+	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
+
+# Run every gate. `make test` is what CI should invoke.
+test: selftest selftest-forces selftest-fire selftest-regression
+	@./$(OBJ_DIR)/test_datastream   > /dev/null && echo "  datastream   OK"
+	@./$(OBJ_DIR)/test_forces      > /dev/null && echo "  forces       OK"
+	@./$(OBJ_DIR)/test_fire        > /dev/null && echo "  fire         OK"
+	@./$(OBJ_DIR)/test_regression  | tail -3
 
 clean:
 	rm -rf $(OBJ_DIR) $(BIN)
