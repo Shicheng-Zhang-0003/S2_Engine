@@ -16,7 +16,14 @@
  * field corresponds to a measurable physical quantity with documented units.
  */
 
-/* ══════════════════════════════════════════════════════════════════════════
+/* Static assertions for compile-time validation */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#define STATIC_ASSERT _Static_assert
+#else
+#define STATIC_ASSERT(cond, msg) typedef char static_assertion_##msg[(cond) ? 1 : -1]
+#endif
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * Quantum layer
  * ══════════════════════════════════════════════════════════════════════════ */
 
