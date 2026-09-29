@@ -991,7 +991,13 @@ int sim_place_deoxyribose_open(Simulation *sim, Vec3 origin) {
  * ══════════════════════════════════════════════════════════════════════════ */
 double nb_planarity_deviation(const Simulation *sim,
                                const int *atom_indices, int n) {
+    if (!sim || !sim->atoms || !atom_indices) return 0.0;
     if (n < 3) return 0.0;
+    /* Reject out-of-range indices: the caller passes a list, and one bad
+     * index used to read off the end of the atom array. */
+    for (int i = 0; i < n; i++)
+        if (atom_indices[i] < 0 || atom_indices[i] >= sim->num_atoms)
+            return 0.0;
 
     Vec3 p0 = sim->atoms[atom_indices[0]].position;
     Vec3 p1 = sim->atoms[atom_indices[1]].position;
