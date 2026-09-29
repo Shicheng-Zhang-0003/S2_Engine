@@ -58,6 +58,9 @@ make selftest-forces >/dev/null 2>&1
 ./build/test_forces >/dev/null 2>&1 && FT=0 || FT=1
 make selftest-regression >/dev/null 2>&1
 ./build/test_regression > /tmp/verify_regression.log 2>&1 && RT=0 || RT=1
+# The suite's own summary line reads "TOTAL", so a plain "  PASS" prefix
+# counts check lines only. (It used to say "PASS n FAIL m" and got counted
+# as one of its own checks.)
 RT_PASS=$(grep -c '^  PASS' /tmp/verify_regression.log 2>/dev/null || echo 0)
 RT_FAIL=$(grep -c '^  FAIL' /tmp/verify_regression.log 2>/dev/null || echo 0)
 chk "forces selftest green (P2)" "0" "$FT"
