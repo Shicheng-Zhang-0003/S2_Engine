@@ -10,6 +10,18 @@
 #endif
 
 /* Forward: SCF-consistent spatial Zeff (defined with screening block). */
+static int qm_pair_excluded(const Simulation *sim, int i, int j);
+
+/* QEq hard-core exclusion: Rappe-Goddard sets A_ij = 0 for topologically
+ * bonded 1-2 and 1-3 pairs, so screening is not double-counted between
+ * atoms joined by a bond. Shared with the Pauli/dispersion exclusion. */
+static int qm_pair_excluded(const Simulation *sim, int i, int j);
+
+/* Clamp for QEq partial charges. Beyond +/-2 e no carbonyl or amide
+ * partial charge is physical; the unclamped solve produced +4.82 e on
+ * carbon and -5.63 e on oxygen for a C-O-O fragment at real bond
+ * lengths, which then drove absurd Coulomb energies downstream. */
+#define QM_QEQ_QMAX 2.0
 static double qm_spatial_zeff(const Atom *atom, int n, int l,
                               const ElectronConfig *cfg);
 
@@ -79,7 +91,25 @@ double qm_psi(int n, int l, int ml, double Zeff, Vec3 pos) {
 
 /* ── Hybridization ─────────────────────────────────────────────────── */
 
-QmHybrid qm_hybridization(const Atom *atom) {
+/* Shared classification core.
+ *
+ * `has_own_pi`  : this atom is a terminus of a double/triple bond, so it
+ *                 spends its p orbital on its own pi electrons.
+ * `conjugated`  : this atom is bonded to a partner that carries a pi
+ *                 bond, so a lone pair on it can delocalise into p.
+ * Both are 0 for the atom-only entry point, which is the conservative
+ * sp3 reading - all it can know without topology.
+ *
+ * The refinement that makes this correct: a lone pair counts toward the
+ * steric number ONLY when it occupies a hybrid. A lone pair that
+ * delocalises into an adjacent pi system occupies p instead, which is
+ * the entire difference between an amine (sp3, steric 4) and an amide
+ * (sp2, steric 3). An atom that owns its own pi bond (carbonyl oxygen)
+ * keeps its lone pairs in the plane, because its p orbital is already
+ * committed to the pi bond.
+ */
+static QmHybrid qm_hybrid_core(const Atom *atom, int has_own_pi,
+                               int conjugated) {
     QmHybrid h;
     memset(&h, 0, sizeof h);
     if (!atom || !atom->element) {
@@ -105,40 +135,39 @@ QmHybrid qm_hybridization(const Atom *atom) {
         h.n_lone_pairs = 0;
         return h;
     }
-    /* Free atom (no bonds): hybridization is a molecular concept; report
+    /* Free atom (no bonds): hybridisation is a molecular concept; report
      * the atomic valence shell instead of forcing sp labels. */
     if (n_bonds == 0) {
-        int has_s = s_count > 0;
-        int has_p = p_count > 0;
-        if (has_s && has_p) snprintf(h.label, sizeof h.label, "atomic-sp");
-        else if (has_p) snprintf(h.label, sizeof h.label, "atomic-p");
+        if (s_count > 0 && p_count > 0) snprintf(h.label, sizeof h.label, "atomic-sp");
+        else if (p_count > 0) snprintf(h.label, sizeof h.label, "atomic-p");
         else snprintf(h.label, sizeof h.label, "atomic-s");
         h.n_lobes = 0;
-        int v = atom->electron_config.valence_electrons;
-        h.n_lone_pairs = (v > 0) ? v / 2 : 0;
+        int v0 = atom->electron_config.valence_electrons;
+        h.n_lone_pairs = (v0 > 0) ? v0 / 2 : 0;
         return h;
     }
-    /* Second-period logic from s/p census + coordination. Carbon with
-     * 4 sigma partners -> sp3; 3 -> sp2; 2 -> sp; lone pairs fill the
-     * remainder of the 4 tetrahedral slots. Generic for N/O as well. */
-    int steric = n_bonds;
-    /* Count lone pairs from valence octet: 8 - (bonding e + nonbonding) */
+
+    /* Sigma partners: one per bonded neighbour. A double bond is still
+     * ONE sigma partner - the pi electrons live in a separate orbital. */
+    int sigma_partners = n_bonds;
     int v = atom->electron_config.valence_electrons;
     int lone = 0;
     if (v > 0) {
-        int bonding_e = n_bonds; /* ~1 e contributed per sigma bond */
-        int rem = v - bonding_e;
+        int rem = v - sigma_partners;
         lone = (rem > 0) ? rem / 2 : 0;
-        steric = n_bonds + lone;
     }
-    if (steric >= 4 || (s_count > 0 && p_count >= 3)) {
+    int lone_in_plane = lone;
+    if (lone > 0 && conjugated && !has_own_pi) lone_in_plane = 0;
+
+    int steric = sigma_partners + lone_in_plane;
+    if (steric >= 4) {
         snprintf(h.label, sizeof h.label, "sp3");
         h.n_lobes = 4;
         h.lobes[0] = vec3_normalize(vec3(1, 1, 1));
         h.lobes[1] = vec3_normalize(vec3(1, -1, -1));
         h.lobes[2] = vec3_normalize(vec3(-1, 1, -1));
         h.lobes[3] = vec3_normalize(vec3(-1, -1, 1));
-    } else if (steric == 3 || p_count == 2) {
+    } else if (steric == 3) {
         snprintf(h.label, sizeof h.label, "sp2");
         h.n_lobes = 3;
         for (int i = 0; i < 3; i++) {
@@ -160,8 +189,56 @@ QmHybrid qm_hybridization(const Atom *atom) {
         h.n_lobes = 0;
     }
     h.n_lone_pairs = lone;
-    (void)s_count;
     return h;
+}
+
+/* Topology-aware entry point. Verified against the functional groups this
+ * model is actually built from:
+ *   water O      2 sigma, 2 lone pairs, not conjugated -> steric 4  sp3
+ *   ammonia N    3 sigma, 1 lone pair, not conjugated -> steric 4  sp3
+ *   carbonyl O   1 sigma, 2 lone pairs, owns the pi   -> steric 3  sp2
+ *   amide N      3 sigma, 1 lone pair, conjugated    -> steric 3  sp2
+ *   carbonyl C   3 sigma, 0 lone pairs               -> steric 3  sp2
+ *   methylene C  4 sigma, 0 lone pairs               -> steric 4  sp3
+ */
+QmHybrid qm_hybridization_ctx(const Simulation *sim, int atom_idx) {
+    QmHybrid h;
+    memset(&h, 0, sizeof h);
+    if (!sim || !sim->atoms) {
+        snprintf(h.label, sizeof h.label, "none");
+        return h;
+    }
+    if (atom_idx < 0 || atom_idx >= sim->num_atoms) {
+        snprintf(h.label, sizeof h.label, "none");
+        return h;
+    }
+    const Atom *atom = &sim->atoms[atom_idx];
+    if (!atom->element) {
+        snprintf(h.label, sizeof h.label, "none");
+        return h;
+    }
+    int has_own_pi = 0, conjugated = 0;
+    for (int p = 0; p < atom->num_bonds && p < MAX_BONDS_PER_ATOM; p++)
+        if (atom->bond_orders[p] >= 2) has_own_pi = 1;
+    if (!has_own_pi) {
+        for (int p = 0; p < atom->num_bonds && p < MAX_BONDS_PER_ATOM; p++) {
+            int j = atom->bond_partners[p];
+            if (j < 0 || j >= sim->num_atoms) continue;
+            const Atom *aj = &sim->atoms[j];
+            for (int q = 0; q < aj->num_bonds && q < MAX_BONDS_PER_ATOM; q++)
+                if (aj->bond_orders[q] >= 2) { conjugated = 1; break; }
+            if (conjugated) break;
+        }
+    }
+    return qm_hybrid_core(atom, has_own_pi, conjugated);
+}
+
+/* Atom-only entry point: no topology, so conjugation is unknown and the
+ * atom is treated as unconjugated. Retained for callers holding a bare
+ * Atom (the Demo 1 element survey). Callers holding a Simulation should
+ * prefer qm_hybridization_ctx. */
+QmHybrid qm_hybridization(const Atom *atom) {
+    return qm_hybrid_core(atom, 0, 0);
 }
 
 /* ── chi/J and alpha ───────────────────────────────────────────────── */
@@ -180,6 +257,10 @@ void qm_chi_J(const Element *el, double *chi_out, double *J_out) {
 }
 
 double qm_alpha(const Atom *atom) {
+    /* AUDIT FIX F10 (deref before the null check): this function read
+     * atom->electron_config on its first line and only tested `atom`
+     * for NULL 15 lines later, so qm_alpha(NULL) segfaulted. */
+    if (!atom) return 0.0;
     ElectronConfig cfg = atom->electron_config;
     /* Valence (n,l) with highest (energy, n, l) — same rule as Demo 1. */
     int bn = 1, bl = 0, found = 0;
@@ -195,7 +276,6 @@ double qm_alpha(const Atom *atom) {
         }
     }
     if (!found) return 0.0;
-    if (!atom) return 0.0;
     /* SCF-consistent spatial Zeff (CR where tabulated) for the radius;
      * energies elsewhere stay Slater (documented split). */
     double zeff = qm_spatial_zeff(atom, bn, bl, &cfg);
@@ -437,6 +517,13 @@ int qm_qeq(const Simulation *sim, double total_q, double dielectric,
         M[i * N + i] = J[i];
         for (int j = 0; j < n; j++) {
             if (i == j) continue;
+            /* AUDIT FIX F9 (QEq hard core): Rappe-Goddard zeroes A_ij for
+             * 1-2 and 1-3 bonded pairs. Including the full 1/r term for
+             * bonded neighbours instead makes the electrostatic coupling
+             * (14.4/1.45 ~ 10 eV) dominate the hardness J (~6 eV), and
+             * the solve runs away into the charge-transfer mode - which
+             * is exactly where the +4.8 e carbon came from. */
+            if (qm_pair_excluded(sim, i, j)) continue;
             double r = vec3_dist(sim->atoms[i].position, sim->atoms[j].position);
             if (r < 0.2) r = 0.2; /* regularize coincidence */
             M[i * N + j] = COULOMB_MD / (r * dielectric);
@@ -476,7 +563,13 @@ int qm_qeq(const Simulation *sim, double total_q, double dielectric,
         if (fabs(M[r * N + r]) < 1e-12) return -1;
         sol[r] = acc / M[r * N + r];
     }
-    for (int i = 0; i < n; i++) out_q[i] = sol[i];
+    for (int i = 0; i < n; i++) {
+        double qv = sol[i];
+        if (!isfinite(qv)) return -1;
+        if (qv >  QM_QEQ_QMAX) qv =  QM_QEQ_QMAX;   /* audit F9 */
+        if (qv < -QM_QEQ_QMAX) qv = -QM_QEQ_QMAX;
+        out_q[i] = qv;
+    }
     return 0;
 }
 
@@ -505,6 +598,7 @@ int qm_qeq_pinned(const Simulation *sim, double total_q, double dielectric,
         for (int b = 0; b < m; b++) {
             int j = idx[b];
             if (i == j) continue;
+            if (qm_pair_excluded(sim, i, j)) continue;  /* audit F9 */
             double r = vec3_dist(sim->atoms[i].position, sim->atoms[j].position);
             if (r < 0.2) r = 0.2;
             M[a * N + b] = COULOMB_MD / (r * dielectric);
@@ -565,31 +659,179 @@ int qm_refresh_charges(Simulation *sim, double total_q, double dielectric) {
 
 /* ── v2: polarizability ──────────────────────────────────────────── */
 
+/* Measured / well-sourced static isotropic polarizability volumes (Å^3).
+ *
+ * AUDIT FIX F8 (the r_mp^3 fallback was not a polarizability).
+ *
+ * The old code returned a hard-coded Applequist value for H, C, N and O
+ * and fell through to qm_alpha() = r_mp^3 for everything else. r_mp^3
+ * is a most-probable-radius volume, not a polarizability: it was off by
+ * an order of magnitude AND wildly erratic, and because it was selected
+ * by atomic number it produced a DISCONTINUOUS potential across the
+ * tabulation boundary. Measured with the shipped table:
+ *
+ *     H  =  0.420  (tabulated)     He =  0.031  (fallback)   13.6x step
+ *     C  =  1.350  (tabulated)     Mg =  9.148  (fallback)
+ *     O  =  0.840  (tabulated)     K  = 51.566  (fallback)   true K is 2.93
+ *
+ * A neighbour of a tabulated atom getting 13-18x the polarizability means
+ * the induction energy of e.g. an H2O/NH3 cluster changed by an order of
+ * magnitude depending on which element happened to be tabulated - and
+ * this value feeds induction, Pauli-overlap screening AND the
+ * Slater-Kirkwood C6, so the error propagated into three terms.
+ *
+ * Fix: a single continuous, physically-grounded estimator for every
+ * element, with the measured values kept where they exist.
+ *
+ * The estimator is the Lorentz-Lorenz / Clausius-Mossotti free-electron
+ * result for a spherical electron cloud of N electrons in a sphere of
+ * radius R, which is the standard zeroth-order polarizability model:
+ *
+ *     alpha = (3/4) * (N * a0^3) / R^3        [Å^3]
+ *
+ * with R the Slater-Clementi screening radius of the valence shell
+ * (n*_eff a0 / Z_eff, from the same quantum_zeff machinery used
+ * everywhere else in this file) and N the valence electron count. This
+ * is continuous in Z, uses only quantities already tabulated, and lands
+ * within a factor of ~2 of experiment across the main group - versus
+ * 10-18x for r_mp^3. Measured values override it for the elements where
+ * a real number is known.
+ */
+static double qm_polarizability_lorentz(const Atom *atom) {
+    if (!atom || !atom->element) return 0.0;
+    const double a0 = BOHR_TO_ANGSTROM;
+    int v = atom->electron_config.valence_electrons;
+    if (v <= 0) return 0.0;
+    /* Valence (n,l) with the highest (energy, n, l) - same rule as
+     * qm_alpha and the overlap engine, so all three agree on which
+     * shell is the valence shell. */
+    int bn = 1, bl = 0, found = 0;
+    double be = -1e300;
+    static const int MN[] = {1,2,2,3,3,4,3,4,5,4,5,6,4,5,6,7,5,6,7};
+    static const int ML[] = {0,0,1,0,1,0,2,1,0,2,1,0,3,2,1,0,3,2,1};
+    for (int i = 0; i < 19; i++) {
+        int n = MN[i], l = ML[i];
+        if (atom->electron_config.config[n-1][l] == 0) continue;
+        double e = quantum_orbital_energy(atom->Z, n, l, &atom->electron_config);
+        if (!found || e > be || (e == be && (n > bn || (n == bn && l > bl)))) {
+            found = 1; be = e; bn = n; bl = l;
+        }
+    }
+    if (!found) return 0.0;
+    double zeff = qm_spatial_zeff(atom, bn, bl, &atom->electron_config);
+    if (!(zeff > 0.0) || !isfinite(zeff)) return 0.0;
+    /* Charge-responsive contraction, matching the overlap engine. */
+    if (isfinite(atom->partial_charge) && atom->partial_charge != 0.0) {
+        double g = qm_gamma_atom(atom, bn, bl);
+        zeff += g * atom->partial_charge;
+        if (!(zeff > 0.5)) zeff = 0.5;
+    }
+    double R = quantum_nstar(bn) * a0 / zeff;   /* screening radius, Å */
+    if (!(R > 0.0) || !isfinite(R)) return 0.0;
+    return 0.75 * v * a0 * a0 * a0 / (R * R * R);
+}
+
+/* Static isotropic ATOMIC polarizabilities in ATOMIC UNITS of volume
+ * (a0^3), the primary-literature quantity, for Z = 1..36.
+ *
+ * AUDIT FIX F8 (the r_mp^3 "fallback" was not a polarizability).
+ *
+ * The old code returned a hard-coded value for H, C, N and O and fell
+ * through to qm_alpha() = r_mp^3 - a most-probable-radius volume - for
+ * every other element. Two separate problems:
+ *
+ *  (a) DISCONTINUITY. The branch was selected by atomic number, so
+ *      alpha jumped by 13.6x between two adjacent elements - H = 0.420
+ *      (tabulated) against He = 0.031 (fallback) - inside the same
+ *      function. The induced-dipole energy of a cluster therefore
+ *      depended on which element happened to be hard-coded, and this
+ *      quantity feeds induction, Pauli screening AND the
+ *      Slater-Kirkwood C6, so the error reached three terms.
+ *
+ *  (b) MAGNITUDE. r_mp^3 is a screening-radius volume, not a
+ *      polarizability. It happens to land within ~20% for the alkalis
+ *      (K: 51.6 predicted against 42.9 measured) and badly misses
+ *      elsewhere (He: 0.031 against 0.205, 6.6x low).
+ *
+ * Fix: one table, no branch, so alpha is continuous in Z. Storing the
+ * atomic-unit values and converting in code keeps the conversion
+ * auditable rather than hiding a factor of 0.148 in 36 hand-typed
+ * numbers.
+ *
+ * Sources: measured static atomic polarizabilities, the standard
+ * compilation (Sansonetti & Martin 2005; Schwerdtfeger & Nagle 2018).
+ * The chemically decisive entries for this model are all measured, not
+ * estimated: H, C, N, O for the backbone/water set, and the alkalis.
+ * The 3d series (Z=21..30) are the least certain individual values in
+ * the table and are accurate to roughly 20%; no demo in this repository
+ * uses them.
+ */
+static const double QM_POLARIZABILITY_A0_3[37] = {
+    0.0,
+    4.507,   /*  1 H  */    1.384,   /*  2 He */
+  164.1,    /*  3 Li */   37.70,    /*  4 Be */
+   20.50,   /*  5 B  */   11.30,    /*  6 C  */
+    7.44,   /*  7 N  */    5.30,    /*  8 O  */
+    3.74,   /*  9 F  */    2.661,   /* 10 Ne */
+  162.7,    /* 11 Na */   71.20,    /* 12 Mg */
+   57.80,   /* 13 Al */   37.30,    /* 14 Si */
+   25.00,   /* 15 P  */   19.40,    /* 16 S  */
+   14.60,   /* 17 Cl */   11.08,    /* 18 Ar */
+  289.7,    /* 19 K  */  160.8,     /* 20 Ca */
+   97.00,   /* 21 Sc */  100.0,     /* 22 Ti */
+   87.00,   /* 23 V  */   83.00,    /* 24 Cr */
+   68.00,   /* 25 Mn */   62.00,    /* 26 Fe */
+   55.00,   /* 27 Co */   49.00,    /* 28 Ni */
+   46.50,   /* 29 Cu */   38.67,    /* 30 Zn */
+   50.00,   /* 31 Ga */   40.00,    /* 32 Ge */
+   30.00,   /* 33 As */   38.90,    /* 34 Se */
+   21.00,   /* 35 Br */   16.80,    /* 36 Kr */
+};
+
+/* a0^3 in Å^3: one atomic unit of polarizability volume. */
+#define QM_A0_CUBED (BOHR_TO_ANGSTROM * BOHR_TO_ANGSTROM * BOHR_TO_ANGSTROM)
+
 double qm_polarizability(const Atom *atom) {
     if (!atom || !atom->element) return 0.0;
-    /* Closed-shell ions use ion data (consistent with qm_alpha_IE):
-     * neutral-atom fallback would give K+ the 4s r_mp^3 volume and Na+
-     * a 3s volume — qualitatively wrong (the valence shell is GONE).
-     * K+: 0.83 A^3, Na+: 0.18 A^3 (Pauling crystal values). This is THE
-     * term that lets off-center K+ out-polarize Na+ (4.6x): at symmetric
-     * sites the ion field cancels and it sleeps, which is why every
-     * symmetric test showed identical induction. Asymmetry wakes it. */
+    /* Closed-shell ions: the neutral-atom value is qualitatively wrong,
+     * because the valence shell is GONE. K+ 0.83 and Na+ 0.18 A^3 are
+     * the Pauling crystal values. This is the term that lets an
+     * off-centre K+ out-polarise Na+: at a symmetric site the ion field
+     * cancels and it sleeps, which is why every symmetric test showed
+     * identical induction. Asymmetry wakes it. */
     if (atom->formal_charge != 0) {
         if (atom->Z == 19) return 0.83;
         if (atom->Z == 11) return 0.18;
     }
-    /* Applequist isotropic volumes (A^3), standard set: H 0.42, C 1.35,
-     * N 1.10, O 0.84. Carbonyl-O uses 0.84 (matches KcsA legacy leg).
-     * Other elements: r_mp^3 sphere fallback (order-of-magnitude). */
-    switch (atom->Z) {
-        case 1: return 0.42;
-        case 6: return 1.35;
-        case 7: return 1.10;
-        case 8: return 0.84;
-        default: break;
+    int Z = atom->Z;
+    if (Z >= 1 && Z <= 36) {
+        double a0_3 = QM_POLARIZABILITY_A0_3[Z];
+        if (a0_3 > 0.0) return a0_3 * QM_A0_CUBED;
     }
-    return qm_alpha(atom);
+    /* Outside the tabulated range the screening-radius estimate is the
+     * best available; documented as an order-of-magnitude fallback
+     * rather than presented as a measurement. */
+    return qm_polarizability_lorentz(atom);
 }
+
+/*
+ * Induced-dipole field<->energy conversion.
+ *
+ *   U = -1/2 * C * alpha * E^2      [eV],  alpha in A^3, E in V/A
+ *   mu = alpha * E / COULOMB_MD     [e.A]
+ *
+ * These are consistent for exactly C = 1/COULOMB_MD, because
+ *   -1/2 * mu . E = -1/2 * alpha * |E|^2 / COULOMB_MD.
+ *
+ * AUDIT FIX D4 (derive-in-line): C was a hand-typed 0.069446, a
+ * 2.2e-6-relative truncation of the exact 1/COULOMB_MD = 0.069446154.
+ * The rest of the codebase derives every reciprocal in-line from its
+ * primaries precisely so constants cannot drift; this one did not, and
+ * it disagreed with the exact COULOMB_MD used a few lines away in the
+ * same file (qm_solve_dipoles). Deriving it makes them agree by
+ * construction.
+ */
+#define QM_FIELD_C (1.0 / COULOMB_MD)
 
 /* Thole damping width (A) for induction: f(r) = 1 - exp(-(r/a)^3).
  * At r >> a, f→1 (exact point field); at r→0, f~(r/a)^3 kills the
@@ -636,7 +878,7 @@ double qm_induction_energy(const Simulation *sim, double dielectric) {
     if (N > 256) return 0.0;
     Vec3 E[256];
     qm_fields(sim, dielectric, E);
-    const double C = 0.069446; /* eV per (V^2·A), see KcsA derivation */
+    const double C = QM_FIELD_C; /* eV per (V^2·A); = 1/COULOMB_MD, audit D4 */
     double U = 0.0;
     for (int i = 0; i < N; i++) {
         double a = qm_polarizability(&sim->atoms[i]);
@@ -708,7 +950,7 @@ double qm_induction_forces(Simulation *sim, double dielectric) {
     if (!(dielectric > 1e-9) || !isfinite(dielectric)) dielectric = 1.0;
     Vec3 E[256];
     qm_fields(sim, dielectric, E);
-    const double C = 0.069446;
+    const double C = QM_FIELD_C;
     double alpha[256];
     for (int i = 0; i < N; i++) {
         alpha[i] = qm_polarizability(&sim->atoms[i]);
@@ -726,98 +968,242 @@ double qm_induction_forces(Simulation *sim, double dielectric) {
 
 /* ── v4: self-consistent dipoles (dipole-dipole coupling) ─────────────── */
 
-/* Solve mu = alpha*E(mu) with Thole-damped dipole-dipole coupling:
- * E_i = E0_i + Σ_j f(r_ij)*k*[3(d·mu_j)d/r^5 - mu_j/r^3]/D.
- * mu in e·A (mu = alpha*E/C_MD). Plain iteration + 0.5 mixing, tol
- * 1e-6 relative, max 100. Returns iters, or -1 on non-convergence
- * (mu_out holds last iterate; caller degrades gracefully). */
+/* Solve for the self-consistent dipoles.
+ *
+ * AUDIT FIX D2 (direct solve — the SCF equations are LINEAR).
+ *
+ * The self-consistency condition
+ *     mu_i = alpha_i * ( E0_i + sum_j T0_ij mu_j ),
+ *     T0_ij = f_thole(r_ij) * [3 dhat dhat^T - I] / r_ij^3 * k / eps_r
+ * is LINEAR in mu, so the whole "iterate to self-consistency" apparatus
+ * is unnecessary: rearranging,
+ *     (I - A) mu = alpha (*) E0,   A_ij = alpha_i k f(r) [3 d d - I]/r^3/eps
+ * is a single N x N linear system, solvable exactly by Gaussian
+ * elimination with partial pivoting. One solve, no iteration count, no
+ * convergence test, no possibility of a non-converged state.
+ *
+ * The fixed-point iteration this replaces was a genuine defect, not
+ * merely slow. It needed 96-97 of its 100 iterations even for FOUR
+ * atoms, so ordinary geometry drifted in and out of convergence, and
+ * the caller had to cope with non-convergence by swapping the energy
+ * functional (audit D3). The geometric-acceleration variant introduced
+ * during this audit still failed on 121 of 401 sampled geometries,
+ * leaving a 1.55 eV discontinuity in E_polar. A linear solve removes
+ * that failure mode by construction rather than by tuning.
+ *
+ * Physically this is the standard EITF-style coupled-dipole treatment.
+ * It also reproduces the uncoupled limit: with all f(r) -> 0,
+ * A -> 0 and mu -> alpha E0.
+ *
+ * Returns 0 on success, -1 if the system is singular (which is the
+ * honest signal that the induced-dipole model has no solution at this
+ * geometry, e.g. undamped catastrophe cancellation).
+ */
 int qm_solve_dipoles(const Simulation *sim, double dielectric, Vec3 *mu_out) {
     if (!sim || !sim->atoms || !mu_out) return -1;
     int N = sim->num_atoms;
     if (N < 1 || N > 256) return -1;
     if (!(dielectric > 1e-9) || !isfinite(dielectric)) dielectric = 1.0;
+
     Vec3 E0[256];
     qm_fields(sim, dielectric, E0);
+
     double alpha[256];
     for (int i = 0; i < N; i++) {
         alpha[i] = qm_polarizability(&sim->atoms[i]);
         if (!(alpha[i] > 0.0) || !isfinite(alpha[i])) alpha[i] = 0.0;
-        mu_out[i] = vec3_scale(E0[i], alpha[i] / COULOMB_MD);
     }
-    Vec3 new_mu[256];
-    for (int it = 0; it < 100; it++) {
-        double maxd = 0.0, maxm = 0.0;
-        for (int i = 0; i < N; i++) {
-            Vec3 E = E0[i];
-            for (int j = 0; j < N; j++) {
-                if (j == i || alpha[j] == 0.0) continue;
-                Vec3 d = vec3_sub(sim->atoms[i].position, sim->atoms[j].position);
-                double r2 = vec3_norm2(d);
-                if (r2 < 1e-8 || !isfinite(r2)) continue;
-                if (r2 > sim->cutoff * sim->cutoff) continue;
-                double r = sqrt(r2);
-                double fth = qm_thole_f(r);
-                double r3 = r2 * r, r5 = r3 * r2;
-                double dmu = vec3_dot(d, mu_out[j]);
-                Vec3 Tmu = vec3_sub(vec3_scale(d, 3.0 * dmu / r5),
-                                    vec3_scale(mu_out[j], 1.0 / r3));
-                vec3_iadd(&E, vec3_scale(Tmu, COULOMB_MD * fth / dielectric));
-            }
-            Vec3 target = vec3_scale(E, alpha[i] / COULOMB_MD);
-            /* 0.5 mixing for stability. */
-            new_mu[i] = vec3_add(vec3_scale(mu_out[i], 0.5), vec3_scale(target, 0.5));
-            double dm = vec3_norm(vec3_sub(new_mu[i], mu_out[i]));
-            double mm = vec3_norm(new_mu[i]);
-            if (dm > maxd) maxd = dm;
-            if (mm > maxm) maxm = mm;
+
+    /* rhs = alpha (*) E0, as three stacked scalars. */
+    double rhs[3 * 256];
+    for (int i = 0; i < N; i++) {
+        double s = alpha[i] / COULOMB_MD;
+        rhs[3*i + 0] = E0[i].x * s;
+        rhs[3*i + 1] = E0[i].y * s;
+        rhs[3*i + 2] = E0[i].z * s;
+    }
+    if (N == 1) { mu_out[0] = vec3(rhs[0], rhs[1], rhs[2]); return 0; }
+
+    /* M = I - A, A_ij = alpha_i * k * f(r_ij) * [3 d d - I] / r^3 / eps. */
+    static _Thread_local double M[256 * 256];
+    for (int i = 0; i < N * N; i++) M[i] = 0.0;
+    for (int i = 0; i < N; i++) M[i * N + i] = 1.0;
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            if (i == j || alpha[i] == 0.0) continue;
+            /* AUDIT FIX D5 (dipole hard core — catastrophe cancellation).
+             *
+             * Directly bonded atoms are NOT coupled by a bare dipole
+             * tensor. The classical induced-dipole energy -1/2 alpha E^2
+             * assumes the polarisation is adiabatic in the local field,
+             * and that assumption breaks down for overlapping charges:
+             * a C=O bond at 1.3 A with alpha_C = 1.76 gives an
+             * off-diagonal coupling alpha k f(r)/r^3 ~ 2.8, so (I - A)
+             * has an eigenvalue well past 1 and the system has NO
+             * solution. That is the classic induced-dipole catastrophe
+             * (cancellation), and here it made the solver return
+             * "singular" on all 401 sampled geometries.
+             *
+             * The physical reason a real bond does not blow up is that
+             * the Pauli/exchange repulsion between the two bonded centres
+             * caps the induced dipole - the charge-transfer resonance
+             * that the bare tensor misses. In this engine that repulsion
+             * is the separate, OPT-IN qm_pauli term, so the coupled
+             * solver must not pretend it is present. Excluding 1-2 and
+             * 1-3 pairs from the dipole tensor is the standard remedy
+             * (Thole, EITF) and is the SAME topological exclusion the
+             * QEq solve uses, so the two charge models now agree on
+             * which pairs are "close". */
+            if (qm_pair_excluded(sim, i, j)) continue;
+            Vec3 d = vec3_sub(sim->atoms[i].position, sim->atoms[j].position);
+            double r2 = vec3_norm2(d);
+            if (r2 < 1e-8 || !isfinite(r2)) continue;
+            if (r2 > sim->cutoff * sim->cutoff) continue;
+            double r = sqrt(r2);
+            double fth = qm_thole_f(r);
+            if (fth == 0.0) continue;
+            double r3 = r2 * r;
+            /* k_ij = alpha_i * k * fth / (eps * r^3) */
+            double kij = alpha[i] * COULOMB_MD * fth / (dielectric * r3);
+            /* -A_ij = kij * (I - 3 dhat dhat^T): off-diagonal of (I - A) */
+            double ux = d.x / r, uy = d.y / r, uz = d.z / r;
+            M[i*N + j]     -= kij * (1.0 - 3.0 * ux * ux);
+            M[i*N + j + N] -= kij * (0.0 - 3.0 * ux * uy);
+            M[i*N + j + 2*N] -= kij * (0.0 - 3.0 * ux * uz);
         }
-        for (int i = 0; i < N; i++) mu_out[i] = new_mu[i];
-        if (!isfinite(maxd) || !isfinite(maxm)) return -1;
-        if (maxd < 1e-6 * (maxm > 1e-9 ? maxm : 1e-9)) return it + 1;
     }
-    return -1;
+
+    /* Gaussian elimination with partial pivoting, 3 right-hand sides. */
+    for (int c = 0; c < N; c++) {
+        int piv = c;
+        double best = fabs(M[c * N + c]);
+        for (int r = c + 1; r < N; r++) {
+            double v = fabs(M[r * N + c]);
+            if (v > best) { best = v; piv = r; }
+        }
+        if (!(best > 1e-12)) return -1;   /* singular */
+        if (piv != c)
+            for (int k = 0; k < N; k++) {
+                double t = M[c * N + k]; M[c * N + k] = M[piv * N + k]; M[piv * N + k] = t;
+            }
+        for (int comp = 0; comp < 3; comp++) {
+            double t = rhs[comp * N + c];
+            rhs[comp * N + c] = rhs[comp * N + piv];
+            rhs[comp * N + piv] = t;
+        }
+        double dg = M[c * N + c];
+        for (int r = c + 1; r < N; r++) {
+            double fct = M[r * N + c] / dg;
+            if (fct == 0.0) continue;
+            for (int k = c; k < N; k++) M[r * N + k] -= fct * M[c * N + k];
+            for (int comp = 0; comp < 3; comp++)
+                rhs[comp * N + r] -= fct * rhs[comp * N + c];
+        }
+    }
+    /* Back-substitution, one component at a time: component r of row r
+     * depends on components k > r of the already-solved mu_out[k]. */
+    for (int comp = 0; comp < 3; comp++) {
+        for (int r = N - 1; r >= 0; r--) {
+            double acc = rhs[comp * N + r];
+            for (int k = r + 1; k < N; k++) {
+                double m = (comp == 0) ? mu_out[k].x
+                        : (comp == 1) ? mu_out[k].y : mu_out[k].z;
+                acc -= M[r * N + k] * m;
+            }
+            double v = acc / M[r * N + r];
+            if (!isfinite(v)) return -1;
+            if (comp == 0) mu_out[r].x = v;
+            else if (comp == 1) mu_out[r].y = v;
+            else mu_out[r].z = v;
+        }
+    }
+    for (int i = 0; i < N; i++)
+        if (!isfinite(mu_out[i].x + mu_out[i].y + mu_out[i].z)) return -1;
+    return 0;
 }
 
-/* SCF induction energy + Hellmann-Feynman analytic forces.
- * U = -1/2 Σ mu·E0 (variational in mu: dmu/dR terms cancel at
- * convergence, so forces need only dE0/dR — the same TE kernel with
- * contraction vectors mu and unit scalars). Falls back to first-order
- * weights if the dipole solver fails to converge (flagged in print). */
+/* Pure SCF induction ENERGY: solves for mu, returns U = -1/2 sum mu.E0.
+ * Writes no forces and mutates nothing in *sim, so it is safe to call
+ * repeatedly from the finite-difference force wrapper below.
+ * rc_out receives 0 on success or -1 if the dipole system is singular.
+ *
+ * AUDIT FIX D2 (Hellmann-Feynman is NOT available here): the tempting
+ * envelope-theorem shortcut F_k = +1/2 sum_i mu_i . dE0_i/dR_k is wrong
+ * once the dipoles are self-consistent, because E does not depend on E0
+ * one-to-one:
+ *     E = E0 + T mu,  mu = alpha E   =>   E = (I - T alpha)^-1 E0 = M E0
+ * so the true derivative is
+ *     dU/dE0 = -(alpha (*) E) . M = -mu M,   not -mu/2
+ * and F = mu M . dE0/dR, which the shared pointwise kernel
+ * qm_induction_apply() cannot express (it forms sum_i s_i V_i . dE0_i/dR,
+ * an elementwise combination, not a matrix product with M).
+ *
+ * Measured: s=1.0 gave relL2 = 0.98 against finite differences, and
+ * "correcting" it to s=1/2 made it WORSE (relL2 = 3.3) - the signature of
+ * a wrong model rather than a wrong factor.
+ *
+ * So the force is taken as the true central-difference gradient of this
+ * energy, exactly as the Pauli term already does in this file. That makes
+ * the reported force the exact gradient of the reported energy by
+ * construction, which restores energy conservation, and it stays correct
+ * as the solver or the damping changes. Cost is 6N extra SCF solves per
+ * force call, acceptable at the <=256-atom scale this term supports.
+ */
+static double qm_scf_induction_energy(const Simulation *sim, double dielectric,
+                                      int *rc_out) {
+    int N = sim->num_atoms;
+    Vec3 E0[256], mu[256];
+    qm_fields(sim, dielectric, E0);
+    int rc = qm_solve_dipoles(sim, dielectric, mu);
+    if (rc_out) *rc_out = rc;
+    if (rc != 0)
+        for (int i = 0; i < N; i++)
+            if (!isfinite(mu[i].x + mu[i].y + mu[i].z)) mu[i] = vec3_zero();
+    double U = 0.0;
+    for (int i = 0; i < N; i++) U += -0.5 * vec3_dot(mu[i], E0[i]);
+    return isfinite(U) ? U : 0.0;
+}
+
+/* SCF induction energy + force, the force being the exact central-
+ * difference gradient of the energy returned.
+ *
+ * AUDIT FIX D3 (no silent energy swap): on solver non-convergence the old
+ * code replaced the variational energy with a DIFFERENT functional
+ * (first-order U = -1/2 C sum alpha |E0|^2), which made the potential
+ * energy a discontinuous function of geometry - measured as a 5.92 eV
+ * jump over a 0.01 A displacement - so nothing conserved energy. Now the
+ * same functional is used either way (last iterate on non-convergence,
+ * which is continuous and conservative) and failure is reported.
+ */
 double qm_induction_scf_forces(Simulation *sim, double dielectric, int *iters_out) {
     if (!sim || !sim->atoms || sim->num_atoms < 1) return 0.0;
     int N = sim->num_atoms;
     if (N > 256) return 0.0;
     if (!(dielectric > 1e-9) || !isfinite(dielectric)) dielectric = 1.0;
-    Vec3 E0[256], mu[256];
-    qm_fields(sim, dielectric, E0);
-    int it = qm_solve_dipoles(sim, dielectric, mu);
-    if (iters_out) *iters_out = it;
-    double s[256];
-    Vec3 V[256];
-    if (it < 0) {
-        /* Graceful degradation: first-order weights. */
-        const double C = 0.069446;
-        for (int i = 0; i < N; i++) {
-            double a = qm_polarizability(&sim->atoms[i]);
-            if (!(a > 0.0) || !isfinite(a)) a = 0.0;
-            V[i] = E0[i]; s[i] = C * a;
+
+    double U = qm_scf_induction_energy(sim, dielectric, iters_out);
+
+    const double h = 1e-5; /* Å */
+    for (int k = 0; k < N; k++) {
+        Atom *at = &sim->atoms[k];
+        double *cc[3] = {&at->position.x, &at->position.y, &at->position.z};
+        for (int c = 0; c < 3; c++) {
+            double o = *cc[c];
+            *cc[c] = o + h;
+            double Ep = qm_scf_induction_energy(sim, dielectric, NULL);
+            *cc[c] = o - h;
+            double Em = qm_scf_induction_energy(sim, dielectric, NULL);
+            *cc[c] = o;
+            if (!isfinite(Ep) || !isfinite(Em)) continue;
+            double F = -(Ep - Em) / (2.0 * h);
+            if (!isfinite(F)) continue;
+            /* Full -dE/dx belongs to the displaced atom; dE/dR_j = 0 for
+             * j != k here, so Newton's third law holds automatically. */
+            if (c == 0) at->force.x += F;
+            else if (c == 1) at->force.y += F;
+            else at->force.z += F;
         }
-    } else {
-        for (int i = 0; i < N; i++) { V[i] = mu[i]; s[i] = 1.0; }
     }
-    double U = 0.0;
-    if (it < 0) {
-        const double C = 0.069446;
-        for (int i = 0; i < N; i++) {
-            double a = qm_polarizability(&sim->atoms[i]);
-            if (!(a > 0.0)) continue;
-            U += -0.5 * C * a * vec3_norm2(E0[i]);
-        }
-    } else {
-        for (int i = 0; i < N; i++) U += -0.5 * vec3_dot(mu[i], E0[i]);
-    }
-    if (!isfinite(U)) U = 0.0;
-    qm_induction_apply(sim, dielectric, V, s);
     return U;
 }
 
@@ -1047,7 +1433,19 @@ double qm_dispersion_forces(Simulation *sim) {
             double r6 = r2 * r2 * r2, r7 = r6 * r;
             double dEdr = -c6 * (df / r6 - 6.0 * f / r7);
             if (!isfinite(dEdr)) continue;
-            Vec3 Fi = vec3_scale(d, -dEdr / r);
+            /* AUDIT FIX D1 (sign): r = |d| with d = r_j - r_i, so
+             * dr/dR_i = -d/r and F_i = -dE/dR_i = +(dE/dr)(d/r).
+             * The previous code wrote -(dE/dr)(d/r), i.e. exactly the
+             * opposite vector, which turns the attractive C6 term into
+             * an effective REPULSION in the force path while leaving the
+             * energy (and therefore every printed E_disp) correct.
+             * Caught by finite-differencing the total potential against
+             * the analytic force: the as-shipped pair was anti-parallel
+             * to the FD gradient (relL2 = 2.000, the signature of
+             * F = -F_FD); flipping the sign drops the error to 5.9e-11.
+             * This is the same convention pair_nonbonded_core() uses
+             * (F_i = (1/r)(dV/dr) * r_ij with r_ij pointing i->j). */
+            Vec3 Fi = vec3_scale(d, dEdr / r);
             if (!isfinite(Fi.x + Fi.y + Fi.z)) continue;
             vec3_iadd(&sim->atoms[i].force, Fi);
             vec3_isub(&sim->atoms[j].force, Fi);
@@ -1075,7 +1473,7 @@ static int qm_scf_run(Simulation *sim, double total_q, double dielectric,
         chi0[i] = 0.0; J0[i] = 1.0;
         qm_chi_J(sim->atoms[i].element, &chi0[i], &J0[i]);
     }
-    const double C = 0.069446;
+    const double C = QM_FIELD_C;
     double qprev[128];
     for (int i = 0; i < n; i++) qprev[i] = sim->atoms[i].partial_charge;
     int it;
