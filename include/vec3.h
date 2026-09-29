@@ -72,12 +72,15 @@ static inline double vec3_dist2(Vec3 a, Vec3 b) {
 
 /* ── Minimum-image convention for periodic boundaries ───────────────────── */
 /* Legacy all-axes wrapper: only correct when all three axes share the
- * same periodicity. Prefer vec3_pbc_box() below for mixed PBC. */
+ * same periodicity. Prefer vec3_pbc_box() below for mixed PBC.
+ * A degenerate (zero or negative) box length is passed through
+ * UNWRAPPED rather than producing NaN: 0 * round(dr/0) = 0 * inf = NaN,
+ * which used to silently poison every coordinate downstream. */
 static inline Vec3 vec3_pbc(Vec3 dr, Vec3 box) {
     Vec3 r;
-    r.x = dr.x - box.x * round(dr.x / box.x);
-    r.y = dr.y - box.y * round(dr.y / box.y);
-    r.z = dr.z - box.z * round(dr.z / box.z);
+    r.x = (box.x > 1e-12) ? dr.x - box.x * round(dr.x / box.x) : dr.x;
+    r.y = (box.y > 1e-12) ? dr.y - box.y * round(dr.y / box.y) : dr.y;
+    r.z = (box.z > 1e-12) ? dr.z - box.z * round(dr.z / box.z) : dr.z;
     return r;
 }
 

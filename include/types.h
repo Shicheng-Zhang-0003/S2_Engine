@@ -189,6 +189,16 @@ typedef struct {
     double delta;               /* phase offset, radians                     */
 } Dihedral;
 
+/* ── Random number generator selection ─────────────────────────────────── */
+/* AUDIT FIX I1. The v9R4 notes claimed PCG64 was "added as opt-in"; no
+ * PCG64 existed in the tree. It is implemented now. The LCG remains the
+ * DEFAULT because the record is a byte-identical artifact and swapping
+ * the default generator would invalidate every recorded digest. */
+typedef enum {
+    INTEGRATOR_RNG_LCG  = 0,  /* Knuth MMIX 64-bit; historical default    */
+    INTEGRATOR_RNG_PCG64 = 1  /* O'Neill 2014, 2^64 period, permuted     */
+} IntegratorRngKind;
+
 /* ══════════════════════════════════════════════════════════════════════════
  * Simulation box
  * ══════════════════════════════════════════════════════════════════════════ */
@@ -351,6 +361,8 @@ typedef struct {
      * RNG stream and there is no hidden global state. Seeded by
      * integrator_maxwell_boltzmann(). */
     uint64_t rng_state;
+    uint64_t rng_state_hi;      /* high word of the 128-bit PCG64 state */
+    int      rng_kind;          /* INTEGRATOR_RNG_* ; LCG is the default  */
 } Simulation;
 
 /* ══════════════════════════════════════════════════════════════════════════
