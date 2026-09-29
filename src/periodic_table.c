@@ -201,6 +201,7 @@ void pt_electron_config_n(int Z, int n_electrons, ElectronConfig *cfg) {
     }
 
     /* Compute valence electrons (outermost shell sum) */
+    cfg->valence_electrons = 0;
     int max_shell = 0;
     for (int s = 0; s < MAX_SHELLS; s++) {
         int shell_count = 0;
