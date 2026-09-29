@@ -1,0 +1,420 @@
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+#include "../include/kcsa_filter.h"
+#include "../include/constants.h"
+#include "../include/forces.h"
+#include "../include/sim.h"
+#include "../include/integrator.h"
+
+/*
+ * kcsa_filter.c — the KcsA TVGYG selectivity filter from deposited 1K4C
+ * coordinates. See include/kcsa_filter.h for the full provenance, the
+ * symmetry derivation and the validation numbers.
+ *
+ * The coordinate table below is DEPOSITED DATA, not a construction. The
+ * x and y are measured from the pore axis (the column of K+ ions in
+ * 1K4C, which lies on the 4-fold axis at fractional 1,1), and the
+ * hydrogens are constructed — the 2001-era structure contains none.
+ *
+ * HYDROGEN CONSTRUCTION
+ *   Amide H: the peptide N is sp2, bonded to C(i-1) and CA(i). The H
+ *   goes on the external bisector of those two directions, in-plane, at
+ *   the standard 1.00 A N-H length. This is the same construction the
+ *   nucleobase module uses for cytosine H6, for the same reason.
+ *   THR75 is the first residue of the segment and its partner C74 is
+ *   outside the segment, so it carries two hydrogens (a free
+ *   N-terminus): the bisector H, plus a second placed out of the
+ *   CA-N-C plane.
+ *   OXT: C79's carboxyl gets the standard 1.25 A terminal oxygen on the
+ *   external bisector of CA79 and O79, making the segment a valid
+ *   neutral pentapeptide. GLY79's own carbonyl oxygen points 4.82 A off
+ *   the pore axis, so this cap is nowhere near the ion path.
+ *
+ * CHARGES
+ *   The filter is a neutral peptide and the model must be too, or it
+ *   will bind a cation for a reason that has nothing to do with KcsA.
+ *   The atoms that actually determine ion binding — the amide N/H/C/O
+ *   group and the Thr and Tyr hydroxyls — carry standard AMBER ff99
+ *   internal-peptide values. Every residue is made exactly
+ *   neutral by a UNIFORM offset added to its carbons, computed at build
+ *   time from the other atoms in the residue. Two earlier schemes were
+ *   tried and both were wrong in an instructive way:
+ *
+ *     - dumping the whole residual on C-alpha put +0.99 e on Gly79's
+ *       CA, two Angstrom from the ion, and the flexible-filter
+ *       calculation collapsed onto it;
+ *     - overwriting each carbon with share = -sum(non-carbon)/n_carbon
+ *       discarded the backbone C charge and left every residue +0.60 e.
+ *
+ *   Spreading by ADDITION preserves the group charge ordering and keeps
+ *   the maximum single-atom charge at 0.93 e. The carbons still do not
+ *   carry individually faithful ff99 values and the model is not fit for
+ *   ABSOLUTE binding energies; kcsa_site_binding's documentation says so
+ *   and the readme repeats it.
+ */
+
+/* ---- deposited TVGYG heavy atoms + constructed H/terminal O ---- */
+typedef struct {
+    int    Z;
+    double x, y, z;   /* Angstrom, pore frame */
+    double q;         /* e */
+} KcsaAtom;
+
+static const KcsaAtom KCSA_TVGYG[KCSA_FILTER_ATOMS] = {
+    /*  75 N    */ {  7,  -3.14900,  -4.44600, -40.37500, -0.415700 },
+    /*  75 CA   */ {  6,  -1.91400,  -3.85100, -39.84200,  0.014400 },
+    /*  75 C    */ {  6,  -2.16400,  -2.69100, -38.86400,  0.611700 },
+    /*  75 O    */ {  8,  -1.27800,  -1.87200, -38.62700, -0.567900 },
+    /*  75 CB   */ {  6,  -0.90600,  -3.38400, -40.95600,  0.114400 },
+    /*  75 CG2  */ {  6,  -0.66200,  -4.51700, -41.96100,  0.354400 },
+    /*  75 OG1  */ {  8,  -1.40700,  -2.23400, -41.65500, -0.655100 },
+    /*  76 N    */ {  7,  -3.35500,  -2.63800, -38.26900, -0.415700 },
+    /*  76 CA   */ {  6,  -3.65900,  -1.57000, -37.30700,  0.022880 },
+    /*  76 C    */ {  6,  -2.86900,  -1.80200, -36.01300,  0.620180 },
+    /*  76 O    */ {  8,  -2.15900,  -0.91000, -35.54300, -0.567900 },
+    /*  76 CB   */ {  6,  -5.17500,  -1.49800, -37.00600,  0.022880 },
+    /*  76 CG1  */ {  6,  -5.45600,  -0.47800, -35.88600,  0.022880 },
+    /*  76 CG2  */ {  6,  -5.91800,  -1.07600, -38.26900,  0.022880 },
+    /*  77 N    */ {  7,  -2.98400,  -3.00700, -35.45100, -0.415700 },
+    /*  77 CA   */ {  6,  -2.24300,  -3.35900, -34.24700,  0.057200 },
+    /*  77 C    */ {  6,  -2.32600,  -2.45600, -33.02400,  0.654500 },
+    /*  77 O    */ {  8,  -1.30300,  -1.93500, -32.55100, -0.567900 },
+    /*  78 N    */ {  7,  -3.53500,  -2.30100, -32.48500, -0.415700 },
+    /*  78 CA   */ {  6,  -3.75400,  -1.46500, -31.30800,  0.070352 },
+    /*  78 C    */ {  6,  -2.86000,  -1.82800, -30.13100,  0.667656 },
+    /*  78 O    */ {  8,  -2.37200,  -0.95600, -29.43300, -0.567900 },
+    /*  78 CB   */ {  6,  -5.21000,  -1.56100, -30.84100,  0.070356 },
+    /*  78 CG   */ {  6,  -6.21900,  -0.97600, -31.80200,  0.070356 },
+    /*  78 CD1  */ {  6,  -7.26800,  -1.75600, -32.29400,  0.070356 },
+    /*  78 CD2  */ {  6,  -6.16200,   0.36900, -32.17100,  0.070356 },
+    /*  78 CE1  */ {  6,  -8.24100,  -1.21200, -33.12500,  0.070356 },
+    /*  78 CE2  */ {  6,  -7.13900,   0.93000, -33.00700,  0.070356 },
+    /*  78 CZ   */ {  6,  -8.17300,   0.13000, -33.47400,  0.070356 },
+    /*  78 OH   */ {  8,  -9.16600,   0.65500, -34.26000, -0.518800 },
+    /*  79 N    */ {  7,  -2.64900,  -3.11900, -29.91000, -0.415700 },
+    /*  79 CA   */ {  6,  -1.83500,  -3.51800, -28.77700,  0.330300 },
+    /*  79 C    */ {  6,  -2.71500,  -4.00700, -27.63700,  0.927600 },
+    /*  79 O    */ {  8,  -2.22100,  -4.28000, -26.54400, -0.567900 },
+    /*  76 H    */ {  1,  -4.04630,  -3.32951, -38.47855,  0.271900 },
+    /*  77 H    */ {  1,  -3.59252,  -3.68358, -35.86566,  0.271900 },
+    /*  78 H    */ {  1,  -4.31482,  -2.77087, -32.89864,  0.271900 },
+    /*  79 H    */ {  1,  -3.04576,  -3.80815, -30.51634,  0.271900 },
+    /*  75 H    */ {  1,  -3.79278,  -5.02223, -40.87849,  0.271900 },
+    /*  75 H    */ {  1,  -3.33871,  -5.24049, -39.75486,  0.271900 },
+    /*  79 OXT  */ {  8,  -3.94641,  -4.13212, -27.81158, -0.546200 },
+};
+
+typedef struct { int a, b, order; } KcsaBond;
+
+static const KcsaBond KCSA_TVG_BONDS[KCSA_FILTER_BONDS] = {
+    {  0,  1, 1 },
+    {  1,  2, 1 },
+    {  2,  3, 2 },
+    {  1,  4, 1 },
+    {  7,  8, 1 },
+    {  8,  9, 1 },
+    {  9, 10, 2 },
+    {  8, 11, 1 },
+    { 14, 15, 1 },
+    { 15, 16, 1 },
+    { 16, 17, 2 },
+    { 18, 19, 1 },
+    { 19, 20, 1 },
+    { 20, 21, 2 },
+    { 19, 22, 1 },
+    { 30, 31, 1 },
+    { 31, 32, 1 },
+    { 32, 33, 2 },
+    {  4,  5, 1 },
+    {  4,  6, 1 },
+    { 11, 12, 1 },
+    { 11, 13, 1 },
+    { 22, 23, 1 },
+    { 23, 24, 1 },
+    { 23, 25, 1 },
+    { 24, 26, 1 },
+    { 25, 27, 1 },
+    { 26, 28, 1 },
+    { 27, 28, 1 },
+    { 28, 29, 1 },
+    {  2,  7, 1 },
+    {  9, 14, 1 },
+    { 16, 18, 1 },
+    { 20, 30, 1 },
+    {  7, 34, 1 },
+    { 14, 35, 1 },
+    { 18, 36, 1 },
+    { 30, 37, 1 },
+    {  0, 38, 1 },
+    {  0, 39, 1 },
+    { 32, 40, 1 },
+};
+
+/* C4 rotation about the pore axis (z) through the origin. */
+static void kcsa_c4(Vec3 v, int n, Vec3 *out) {
+    double c = (n == 0) ? 1.0 : (n == 1) ? 0.0 : (n == 2) ? -1.0 : 0.0;
+    double s = (n == 0) ? 0.0 : (n == 1) ? 1.0 : (n == 2) ? 0.0 : -1.0;
+    out->x = v.x * c - v.y * s;
+    out->y = v.x * s + v.y * c;
+    out->z = v.z;
+}
+
+int kcsa_build_filter(Simulation *sim, Vec3 origin, int n_subunits) {
+    if (!sim || !sim->atoms) return -1;
+    if (n_subunits < 1 || n_subunits > 4) n_subunits = 4;
+    int first = sim->num_atoms;
+    if (first + KCSA_FILTER_ATOMS * n_subunits > sim->capacity_atoms) return -1;
+
+    for (int s = 0; s < n_subunits; s++) {
+        int base = sim->num_atoms;
+        for (int i = 0; i < KCSA_FILTER_ATOMS; i++) {
+            const KcsaAtom *a = &KCSA_TVGYG[i];
+            Vec3 p; kcsa_c4(vec3(a->x, a->y, a->z), s, &p);
+            int idx = sim_add_atom(sim, a->Z, vec3(p.x + origin.x, p.y + origin.y,
+                                                  p.z + origin.z), a->q);
+            if (idx < 0) return -1;
+        }
+        for (int b = 0; b < KCSA_FILTER_BONDS; b++) {
+            const KcsaBond *bd = &KCSA_TVG_BONDS[b];
+            int ia = base + bd->a, ib = base + bd->b;
+            if (sim_add_bond(sim, ia, ib, bd->order) < 0) return -1;
+        }
+        /* LJ by atom type. Carbonyl and hydroxyl oxygens share the
+         * AMBER ff99 hydroxyl O sigma/epsilon already used by
+         * aminoacids.c; amide N and the aliphatic carbons likewise. */
+        for (int i = 0; i < KCSA_FILTER_ATOMS; i++) {
+            int Z = KCSA_TVGYG[i].Z;
+            int ai = base + i;
+            if (Z == 8)      sim_set_atom_lj(sim, ai, 0.2100 * KCAL_MOL_TO_EV, 3.06615);
+            else if (Z == 7) sim_set_atom_lj(sim, ai, 0.1700 * KCAL_MOL_TO_EV, 3.24979);
+            else if (Z == 1) sim_set_atom_lj(sim, ai, 0.0157 * KCAL_MOL_TO_EV, 0.60000);
+            else             sim_set_atom_lj(sim, ai, 0.1094 * KCAL_MOL_TO_EV, 3.39967);
+        }
+    }
+    /* NO sim_rebuild_angles here, deliberately.
+     *
+     * The bonded terms in this engine are parameterised for gas-phase
+     * fragments placed at their equilibrium r0, and the angle table falls
+     * back to a generic 109.47 deg tetrahedral value for any untabulated
+     * angle. A peptide is planar - its amide angles are near 120 deg - so
+     * rebuilding angles onto a DEPOSITED peptide injects tens of eV of
+     * artificial strain that has nothing to do with the ion. The
+     * deposited coordinates ARE the reference geometry, so bonded terms
+     * would only fight it.
+     *
+     * Callers measuring ion binding must therefore run with
+     * use_bonds = use_angles = use_dihedrals = 0, which kcsa_site_binding
+     * documents. The filter is a rigid structure here by design. */
+    return first;
+}
+
+int kcsa_ion_sites(int n_out, Vec3 *out) {
+    if (!out || n_out < 1 || n_out > 4) return 0;
+    /* K+ positions of 1K4C chain C, in the same pore frame. */
+    static const double kz[4] = { -30.553, -33.953, -37.162, -40.505 };
+    int n = (n_out < 4) ? n_out : 4;
+    for (int i = 0; i < n; i++) out[i] = vec3(0.0, 0.0, kz[i]);
+    return n;
+}
+
+int kcsa_coord_stats(const Simulation *sim, int filter_first,
+                     int n_subunits, Vec3 point, double cutoff,
+                     double *mean_r) {
+    if (!sim || !sim->atoms || filter_first < 0) return -1;
+    if (n_subunits < 1 || n_subunits > 4) n_subunits = 4;
+    if (!(cutoff > 0.0) || !isfinite(cutoff)) return -1;
+    int n = 0; double sum = 0.0;
+    for (int s = 0; s < n_subunits; s++) {
+        int base = filter_first + s * KCSA_FILTER_ATOMS;
+        for (int i = 0; i < KCSA_FILTER_ATOMS; i++) {
+            if (sim->atoms[base + i].Z != 8) continue;
+            double d = vec3_dist(point, sim->atoms[base + i].position);
+            if (d <= cutoff) { n++; sum += d; }
+        }
+    }
+    if (mean_r) *mean_r = (n > 0) ? sum / n : 0.0;
+    return n;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * K+ vs Na+ IN THE REAL FILTER
+ * ══════════════════════════════════════════════════════════════════════════
+ *
+ * The site is K+-sized. Deposited K-O distances are 2.77-2.93 A against a
+ * preferred 2.78 A for K+ (1.38 A six-coordinate ionic radius + 1.40 A
+ * O radius), while Na+ prefers 2.42 A. Na+ is therefore 0.35 A too far
+ * from each of eight oxygens, and that geometric mismatch is what the
+ * filter's side chains are shaped to enforce.
+ *
+ * But the geometric mismatch is NOT the dominant energetic term, and this
+ * is where a vacuum calculation goes wrong. The dominant term is the
+ * cost of DEHYDRATING the ion to put it in the site, and it is not a
+ * force-field term at all - it is a measured bulk thermodynamic quantity.
+ *
+ * Standard single-ion hydration free energies (absolute scale, Marcus
+ * 1997; TATB convention as used throughout ion solvation free-energy
+ * work):
+ *
+ *     Na+   -454 kJ/mol
+ *     K+    -322 kJ/mol
+ *
+ * Desolvating K+ to enter the filter therefore costs 132 kJ/mol LESS than
+ * desolvating Na+ - 1.368 eV at 96.485 kJ/mol per eV. That is a large,
+ * real, measured advantage for K+, and it is the term the previous
+ * model could not see because the previous model had neither the real
+ * geometry nor any solvent at all.
+ *
+ * Run without this term, a rigid K+-sized cage will ALWAYS appear to
+ * prefer Na+, because the smaller cation has more negative Coulomb
+ * energy at closer range. That is not a KcsA result; it is the
+ * electrostatics of a charged cage, and it is the trap this function
+ * exists to make visible.
+ */
+
+double kcsa_hydration_free_energy_kJmol(int Z) {
+    switch (Z) {
+        case 11: return -454.0;   /* Na+ */
+        case 19: return -322.0;   /* K+  */
+        case 37: return -293.0;   /* Rb+ */
+        case 55: return -264.0;   /* Cs+ */
+        case 3:  return -520.0;   /* Li+ */
+        default: return 0.0;
+    }
+}
+
+double kcsa_dehydration_cost_eV(int Z) {
+    return -kcsa_hydration_free_energy_kJmol(Z) / 96.48533212;
+}
+
+/*
+ * One ion, one site, rigid filter.
+ *
+ * `e_inter` receives the BINDING energy - the minimised energy WITH the
+ * ion minus the energy of the same filter WITHOUT it - so any constant
+ * internal energy of the filter cancels exactly. `e_total` receives
+ * e_inter plus the dehydration cost. Keeping the two separate is the
+ * whole point: reporting only e_total hides which term is doing the
+ * discriminating, and reporting only e_inter hides the fact that a bare
+ * vacuum number is not a binding free energy.
+ *
+ * Run with use_bonds = use_angles = use_dihedrals = 0. The filter is a
+ * rigid deposited structure; see kcsa_build_filter for why adding bonded
+ * terms to it would only inject strain.
+ */
+/* Six-coordinate Pauling/Shannon cation radii, Angstrom. */
+double kcsa_cation_radius(int Z) {
+    switch (Z) {
+        case  3: return 0.59;   /* Li+ */
+        case 11: return 1.02;   /* Na+ */
+        case 19: return 1.38;   /* K+  */
+        case 37: return 1.52;   /* Rb+ */
+        case 55: return 1.67;   /* Cs+ */
+        default: return 1.38;
+    }
+}
+
+/* Oxygen radius used for the contact distance. */
+#define KCSA_O_RADIUS   1.40
+/* Shared ion–O well depth, kcal/mol. One value for all alkalis, so the
+ * K/Na comparison has no per-ion strength to lean on. */
+#define KCSA_ION_O_EPS  0.05
+/* The filter oxygen's own sigma (must match what kcsa_build_filter set). */
+#define KCSA_FILTER_O_SIGMA 3.06615
+#define KCSA_FILTER_O_EPS  (0.2100 * KCAL_MOL_TO_EV)
+
+void kcsa_set_ion_radius(Simulation *sim, int ion, int Z) {
+    if (!sim || !sim->atoms || ion < 0 || ion >= sim->num_atoms) return;
+    double contact = kcsa_cation_radius(Z) + KCSA_O_RADIUS;
+    double sig_ionO = contact / 1.122462048309373;   /* / 2^(1/6) */
+    double sig_ion  = 2.0 * sig_ionO - KCSA_FILTER_O_SIGMA;
+    if (!(sig_ion > 0.05)) sig_ion = 0.05;
+    /* Back out the per-ion epsilon that Lorentz–Berthelot needs to give
+     * the shared ion–O depth: eps_ionO = sqrt(eps_ion eps_O). */
+    double eps_ionO = KCSA_ION_O_EPS * KCAL_MOL_TO_EV;
+    double eps_O    = KCSA_FILTER_O_EPS;
+    double eps_ion  = (eps_ionO * eps_ionO) / eps_O;
+    sim_set_atom_lj(sim, ion, eps_ion, sig_ion);
+}
+
+int kcsa_site_binding(Simulation *sim, int filter_first, int n_subunits,
+                      int ion_Z, Vec3 site, int n_steps,
+                      double *e_inter, double *e_total) {
+    (void)n_subunits;   /* the filter is frozen in place by construction */
+    if (!sim || !sim->atoms || filter_first < 0) return -1;
+    if (sim->num_atoms > 512) return -1;
+    if (n_steps < 20) n_steps = 20;
+
+    forces_calculate(sim);
+    double e_filter = sim->potential_energy;
+
+    int ion = sim_add_ion(sim, ion_Z, 1, site, 1.0);
+    if (ion == ion_Z) { /* unreachable, keeps the compiler honest */ }
+    if (ion < 0) return -1;
+    kcsa_set_ion_radius(sim, ion, ion_Z);
+
+    /*
+     * WHY THERE IS NO FLEXIBLE-FILTER MODE HERE.
+     *
+     * Letting the filter relax around the ion was tried and does not
+     * produce a meaningful number in this engine. The +1 ion sitting
+     * 2.8 A from eight oxygens of -0.57 e each exerts a large Coulomb
+     * pull, and a restraint stiffness low enough to let the filter
+     * respond at all is far too weak to hold it: the oxygens are dragged
+     * onto the ion, CN collapses from 8 to 3-4, and the "binding energy"
+     * comes out near -140 eV, which is a collapse artefact and not
+     * physics. Stiffening the restraints until the filter holds its shape
+     * returns it to the rigid case, so there is no useful middle ground
+     * without a real protein force field, a solvation model, or both.
+     *
+     * A flexible-filter claim is therefore NOT made here. What the real
+     * flexibility of KcsA does buy the channel is not recoverable from a
+     * fixed-charge model in vacuum, and pretending otherwise would be
+     * the same category of error as the hand-placed cage this module
+     * replaced.
+     *
+     * RADIAL RELAXATION AT FIXED DEPTH.
+     *
+     * The first version of this function let the minimiser move the ion
+     * freely, and it immediately slid the ion ~5 A down the pore to
+     * between sites, where it found CN = 4 and an apparently better
+     * energy. That is real physics - K+ does move along the filter - but
+     * it means the function was not measuring a SITE at all, it was
+     * measuring whichever site happened to be the global minimum for
+     * that ion. Four sites then returned four identical numbers, which is
+     * the tell.
+     *
+     * A site binding energy is by definition the well the ion sits in at
+     * that site, so the axial coordinate is held at the deposited ion
+     * position and only the radial distance from the pore axis is
+     * relaxed. The cage is C4 symmetric, so the azimuth is immaterial and
+     * the remaining problem is one-dimensional; it is solved by golden
+     * section on the engine's own energy function, so the number reported
+     * is exactly the engine's energy at its own minimum.
+     */
+    const double PHI = 0.6180339887498949;
+    double a = 0.0, b = 4.5;
+    double zfix = site.z;
+    Vec3 probe = site;
+
+    for (int it = 0; it < n_steps && (b - a) > 1e-4; it++) {
+        double c1 = b - PHI * (b - a);
+        double c2 = a + PHI * (b - a);
+        probe = vec3(c1, 0.0, zfix);
+        sim->atoms[ion].position = probe;
+        forces_calculate(sim);
+        double e1 = sim->potential_energy;
+        probe = vec3(c2, 0.0, zfix);
+        sim->atoms[ion].position = probe;
+        forces_calculate(sim);
+        double e2 = sim->potential_energy;
+        if (e1 < e2) b = c2; else a = c1;
+    }
+    sim->atoms[ion].position = vec3(0.5 * (a + b), 0.0, zfix);
+    forces_calculate(sim);
+
+    double bind = sim->potential_energy - e_filter;
+    if (e_inter) *e_inter = bind;
+    if (e_total) *e_total = bind + kcsa_dehydration_cost_eV(ion_Z);
+    return ion;
+}
