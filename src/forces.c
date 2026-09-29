@@ -124,9 +124,54 @@ static const int ANGLE_TABLE_LEN =
     (int)(sizeof(ANGLE_TABLE) / sizeof(ANGLE_TABLE[0]));
 
 /* ══════════════════════════════════════════════════════════════════════════
+ * Warn-once key set (audit F9)
+ *
+ * The fallback diagnostics below used to be de-duplicated through
+ * `static volatile int bond_order_warned[118][118][4]` and
+ * `static volatile int angle_warned[118][118][118]`. Both were real
+ * out-of-bounds WRITES reachable from the public API:
+ *   - forces_bond_params(Za, Zb, order) indexed a 4-wide axis with an
+ *     UNVALIDATED `order`; order=4 (or 0 is fine, but 4..INT_MAX is not)
+ *     wrote past the end of each 4-element row.
+ *   - forces_angle_params indexed [118][118][118] with an unvalidated Z;
+ *     Z=118 (which MAX_ELEMENTS advertises as valid) wrote past the end.
+ * Confirmed with UBSan:
+ *     forces.c:147 index 4 out of bounds for type 'int [4]'
+ *     forces.c:199 index 118 out of bounds for type 'int [118][118][118]'
+ * They also cost ~6.9 MB of BSS to implement "print once".
+ *
+ * Replaced by a bounded linear-probe set keyed on a packed integer, so no
+ * caller-supplied value is ever used as an index. Not thread-safe (nor was
+ * the original `static volatile int` version - volatile is not atomic);
+ * the engine is single-threaded, and the QEq buffers in qm.c that DO care
+ * about threads use _Thread_local.
+ * ══════════════════════════════════════════════════════════════════════════ */
+#define WARN_KEYS_MAX 256
+static uint32_t warn_keys[WARN_KEYS_MAX];
+static int      warn_keys_n = 0;
+
+static int warn_once(uint32_t key) {
+    for (int i = 0; i < warn_keys_n; i++)
+        if (warn_keys[i] == key) return 0;
+    if (warn_keys_n < WARN_KEYS_MAX) warn_keys[warn_keys_n++] = key;
+    return 1;
+}
+
+/* 7 bits per atomic number (1..127 fits), 4 bits for bond order. */
+#define BOND_WARN_KEY(za, zb, ord)                                    \
+    ((uint32_t)(((uint32_t)(za) & 0x7fu) |                             \
+                (((uint32_t)(zb) & 0x7fu) << 7) |                      \
+                (((uint32_t)(ord) & 0xfu) << 14)))
+#define ANGLE_WARN_KEY(za, zb, zc)                                    \
+    ((uint32_t)(((uint32_t)(za) & 0x7fu) |                             \
+                (((uint32_t)(zb) & 0x7fu) << 7) |                      \
+                (((uint32_t)(zc) & 0x7fu) << 14)))
+
+/* ══════════════════════════════════════════════════════════════════════════
  * Bond parameter lookup
  * ══════════════════════════════════════════════════════════════════════════ */
 int forces_bond_params(int Za, int Zb, int order, BondParam *out) {
+    if (!out) return 0;
     /* Canonical form: Za <= Zb */
     if (Za > Zb) { int t = Za; Za = Zb; Zb = t; }
 
@@ -143,11 +188,8 @@ int forces_bond_params(int Za, int Zb, int order, BondParam *out) {
         for (int i = 0; i < BOND_TABLE_LEN; i++) {
             const BondParam *p = &BOND_TABLE[i];
             if (p->Za == Za && p->Zb == Zb && p->order == 1) {
-                static volatile int bond_order_warned[118][118][4] = {{0}};
-                if (!bond_order_warned[Za][Zb][order]) {
-                    bond_order_warned[Za][Zb][order] = 1;
+                if (warn_once(BOND_WARN_KEY(Za, Zb, order)))
                     fprintf(stderr, "forces: WARNING (audit fix F3): no BOND_TABLE entry for Z%d-Z%d order %d - falling back to single-bond parameters instead of the requested bond order\n", Za, Zb, order);
-                }
                 *out = *p;
                 return 1;
             }
@@ -158,15 +200,13 @@ int forces_bond_params(int Za, int Zb, int order, BondParam *out) {
     const Element *ea = pt_element(Za);
     const Element *eb = pt_element(Zb);
     if (ea && eb) {
-        static volatile int bond_geom_warned[118][118][4] = {{0}};
-        if (!bond_geom_warned[Za][Zb][order]) {
-            bond_geom_warned[Za][Zb][order] = 1;
+        if (warn_once(BOND_WARN_KEY(Za, Zb, order)))
             fprintf(stderr, "forces: WARNING (audit fix F3): no BOND_TABLE entry for %s(Z%d)-%s(Z%d) order %d - geometric fallback: r0 from covalent-radii sum, generic k = 20 eV/A^2\n", ea->symbol, Za, eb->symbol, Zb, order);
-        }
         out->Za = Za; out->Zb = Zb; out->order = order;
         out->r0 = ea->covalent_radius + eb->covalent_radius;
         out->k  = 20.0;  /* generic, eV/Å² */
         return 1;
+    }
     return 0;
 }
 
@@ -174,6 +214,7 @@ int forces_bond_params(int Za, int Zb, int order, BondParam *out) {
  * Angle parameter lookup
  * ══════════════════════════════════════════════════════════════════════════ */
 int forces_angle_params(int Za, int Zb, int Zc, AngleParam *out) {
+    if (!out) return 0;
     /* Canonical form: Za <= Zc */
     if (Za > Zc) { int t = Za; Za = Zc; Zc = t; }
 
@@ -194,11 +235,8 @@ int forces_angle_params(int Za, int Zb, int Zc, AngleParam *out) {
      * angle type inconsistent, too-soft physics relative to every
      * tabulated entry - using a representative generic AMBER value
      * (40 kcal/mol/rad^2, the CT-CT-CT constant) here instead. */
-    static volatile int angle_warned[118][118][118] = {{0}};
-    if (!angle_warned[Za][Zb][Zc]) {
-        angle_warned[Za][Zb][Zc] = 1;
+    if (warn_once(ANGLE_WARN_KEY(Za, Zb, Zc)))
         fprintf(stderr, "forces: WARNING (audit fix F3): no ANGLE_TABLE entry for angle Z%d-Z%d-Z%d - generic tetrahedral fallback (109.47 deg, k = 3.469 eV/rad^2)\n", Za, Zb, Zc);
-    }
     out->Za = Za; out->Zb = Zb; out->Zc = Zc;
     out->theta0 = DEG2RAD(109.47);
     out->k      = 2.0 * 40.0 * KCAL_MOL_TO_EV;  /* = 3.469 eV/rad^2 */
@@ -632,15 +670,26 @@ void forces_calculate(Simulation *sim) {
     if (!sim->dihedrals && sim->num_dihedrals > 0) return;
     /* v3 SCF: converge charges (with dipole feedback) before forces. */
     if (sim->use_scf) {
-        if (sim->scf_pinned_idx >= 0)
+        if (sim->scf_pinned_idx >= 0) {
             qm_scf_charges(sim, sim->scf_total_q, sim->dielectric,
                            sim->scf_pinned_idx, sim->scf_pinned_q);
-        else {
+        } else {
             double qq[128];
             int nn = sim->num_atoms < 128 ? sim->num_atoms : 128;
             if (qm_qeq(sim, sim->scf_total_q, sim->dielectric, qq) == 0)
-                for (int i = 0; i < nn; i++)
-                    if (isfinite(qq[i])) sim->atoms[i].partial_charge = qq[i];
+                for (int i = 0; i < nn; i++) {
+                    /* AUDIT FIX F9 (clamp on the force path too): the
+                     * unpinned QEq branch wrote its charges straight
+                     * onto the atoms with no bound, while qm_scf_run
+                     * clamps at +/-2 e. An unclamped |q| > 2 on any atom
+                     * is not a partial charge, and it enters the
+                     * Coulomb term at full strength on this very step. */
+                    double qv = qq[i];
+                    if (!isfinite(qv)) continue;
+                    if (qv >  2.0) qv =  2.0;
+                    if (qv < -2.0) qv = -2.0;
+                    sim->atoms[i].partial_charge = qv;
+                }
         }
     }
     int N = sim->num_atoms;
@@ -825,12 +874,15 @@ void forces_calculate(Simulation *sim) {
  * Print force summary
  * ══════════════════════════════════════════════════════════════════════════ */
 void forces_print_summary(const Simulation *sim) {
+    if (!sim || !sim->atoms) return;
     printf("  Force summary (step %llu):\n", (unsigned long long)sim->step);
     for (int i = 0; i < sim->num_atoms; i++) {
         const Atom *a = &sim->atoms[i];
+        /* element is NULL for any Z outside the tabulated range (the
+         * table stops at Kr, Z=36, while MAX_ELEMENTS advertises 118) */
         printf("    Atom %3d %-2s  |F|=%8.4f eV/Å  "
                "F=(%8.4f, %8.4f, %8.4f)\n",
-               i, a->element->symbol,
+               i, a->element ? a->element->symbol : "??",
                vec3_norm(a->force),
                a->force.x, a->force.y, a->force.z);
     }
