@@ -77,6 +77,12 @@ make selftest-forces >/dev/null 2>&1
 ./build/test_forces >/dev/null 2>&1 && FT=0 || FT=1
 make selftest-regression >/dev/null 2>&1
 ./build/test_regression > /tmp/verify_regression.log 2>&1 && RT=0 || RT=1
+# AUDIT FIX E1: the external-source suite. Like the regression suite it must
+# be able to FAIL, so its FAIL lines are counted, not just its exit code.
+make selftest-external >/dev/null 2>&1
+./build/test_external > /tmp/verify_external.log 2>&1 && ET=0 || ET=1
+ET_PASS=$(grep -c '^  PASS' /tmp/verify_external.log 2>/dev/null || echo 0)
+ET_FAIL=$(grep -c '^  FAIL' /tmp/verify_external.log 2>/dev/null || echo 0)
 # The suite's own summary line reads "TOTAL", so a plain "  PASS" prefix
 # counts check lines only. (It used to say "PASS n FAIL m" and got counted
 # as one of its own checks.)
@@ -89,6 +95,9 @@ chk "fire selftest green" "0" "$FR"
 chk "selftest-regression green" "0" "$RT"
 printf '  ---- audit regression suite: %s checks passed, %s failed ----\n' "$RT_PASS" "$RT_FAIL"
 [ "$RT_FAIL" = "0" ] || grep '^  FAIL' /tmp/verify_regression.log | head -20
+chk "selftest-external green" "0" "$ET"
+printf '  ---- external sources: %s checks passed, %s failed ----\n' "$ET_PASS" "$ET_FAIL"
+[ "$ET_FAIL" = "0" ] || grep '^  FAIL' /tmp/verify_external.log | head -20
 if [ -f kcsa.cvmds ]; then
   ./build/test_datastream >/dev/null 2>&1 # ensures verifier linked; use binary below
   python3 - <<'PY'

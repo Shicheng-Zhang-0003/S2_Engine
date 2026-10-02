@@ -2002,6 +2002,58 @@ per defect above, built on independent oracles — finite differences,
 quadrature, NIST SHA-256 vectors, published reference values — so it can
 actually fail. `make test` runs every gate.
 
+### External sources (`make selftest-external`)
+
+`tests/test_regression.c` validates against formulas re-derived inside this
+repository, and against the engine's own behaviour. Both are
+self-referential — a formula can be mis-transcribed into a test as easily as
+into a module, and "the engine agrees with the engine" is not evidence.
+**Six** harness errors of exactly that shape were found while writing the
+external checks, and in all six the engine was right and the check was
+wrong. That ratio is the argument for a separate suite.
+
+`tests/test_external.c` (49 checks) validates against values obtained from
+outside the repository:
+
+| source | what it pins |
+|---|---|
+| NIST CODATA (`physics.nist.gov/cgi-bin/cuu/Value`, retrieved 2026-10-01) | `h`, `e`, `k_B`, `N_A`, `m_u`, `a₀`, `E_h`; `k_e` against `ε₀` |
+| AMBER ff99 `parm99.dat` (archive.ambermd.org, 2026-10-01) | `R*` and `ε` for `O`, `OH`, `OS`, `N`, `C`, `CT`; the `σ = 2R*/2^⅙` conversion; Lorentz–Berthelot |
+| FIPS 180-4 + `hashlib` × `sha256sum` | SHA-256 known-answer vectors and 16 block/padding boundary lengths up to 1000 B |
+| Griffiths, *Introduction to Quantum Mechanics* | hydrogenic `⟨r⟩`, `⟨r²⟩`, `⟨1/r⟩`, `⟨T⟩`, and `r_mp = a₀` |
+| PDB **1K4C** (files.rcsb.org, 2026-10-01) | 24 deposited KcsA heavy atoms, the four modelled ion sites, CN = 8 |
+
+Nothing is fetched at build or test time; the values are transcribed with
+their provenance, because a suite that depends on the network fails for
+reasons unrelated to the engine.
+
+**The external checks are mutation-tested, not just green.** Perturbing
+`LJ_AMBER_O_SIGMA`'s `R*` from 1.6612 to 1.6712 Å fails three checks;
+flipping one hex digit of SHA-256's round constant `H₀` fails ten. A suite
+that has never been observed to fail is not evidence of anything.
+
+Two results worth stating because they *correct* the engine's documentation
+rather than confirm it:
+
+- **`k_e` is the 2018 CODATA edition.** NIST now serves 2022, and
+  `1/(4πε₀)` moved by 6.8 × 10⁻¹⁰ between editions — *larger than `ε₀`'s own
+  1.6 × 10⁻¹⁰ uncertainty*, because a CODATA revision replaces the number
+  rather than perturbing it within an error bar. The check's tolerance is
+  the edition revision, not `ε₀`'s uncertainty; asserting the latter would
+  assert that CODATA never revised `ε₀`, which is false.
+- **The KcsA filter is the deposited structure, to PDB precision.** The
+  pore origin (155.330, 155.330) was fitted from the `K⁺` axis during this
+  audit and reproduces the deposition exactly; all four modelled ion sites
+  are the deposited `K⁺` `z` positions to 3 dp; CN = 8 follows from two
+  deposited oxygens per site × C4.
+
+**One real defect found this way**, in the part of the filter the engine
+*constructs* rather than deposits: **Thr75's two N-terminal hydrogens** are
+placed with H–N–H = **74.87°** and a bond-angle sum of **342°** instead of
+360°, so they are not a plausible amine nitrogen. The nearest is 6.3 Å from
+any modelled ion, so no KcsA number is affected — but the geometry is wrong
+and is recorded rather than quietly left. See `kcsa_filter.c`.
+
 **The suite is only worth what its failures prove.** Every check added during
 the second audit pass was run against a deliberately reverted engine — the
 pre-fix `qm.c` and `integrator.c` compiled from `git show HEAD:` and linked
@@ -2036,6 +2088,7 @@ selftest (datastream)              17 checks green
 selftest-forces                    22 checks green
 selftest-fire                       7 checks green
 selftest-regression               161 checks green
+selftest-external                 49 checks green (NIST/AMBER/FIPS/PDB 1K4C)
 ASan + UBSan                        0 memory errors, 0 UB findings, empty stderr
 stdout byte-identical across runs   yes
 stdout byte-identical under ASan    yes
