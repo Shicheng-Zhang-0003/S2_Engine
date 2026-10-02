@@ -37,10 +37,37 @@
  *   will bind a cation for a reason that has nothing to do with KcsA.
  *   The atoms that actually determine ion binding — the amide N/H/C/O
  *   group and the Thr and Tyr hydroxyls — carry standard AMBER ff99
- *   internal-peptide values. Every residue is made exactly
- *   neutral by a UNIFORM offset added to its carbons, computed at build
- *   time from the other atoms in the residue. Two earlier schemes were
- *   tried and both were wrong in an instructive way:
+ *   internal-peptide values.
+ *
+ *   AUDIT FIX D4: this paragraph used to claim the residues are made
+ *   "exactly neutral by a UNIFORM offset added to its carbons, computed at
+ *   build time from the other atoms in the residue". Measured per residue
+ *   from the KCSA_TVGYG table below:
+ *
+ *       res 75   9 atoms   sum = -0.000000 e
+ *       res 76   8 atoms   sum = -0.000000 e
+ *       res 77   5 atoms   sum = -0.000000 e
+ *       res 78  13 atoms   sum = +0.000000 e
+ *       res 79   6 atoms   sum = -0.000000 e
+ *       TOTAL  41 atoms   sum = -0.000000 e
+ *
+ *   So the neutrality claim is TRUE and the filter really is neutral. The
+ *   mechanism description was false in two ways:
+ *     - nothing is computed at build time. There is no arithmetic in
+ *       kcsa_build_filter() that touches a charge; the neutrality is baked
+ *       into the literal q values in KCSA_TVGYG. `grep -n 'offset\|share'
+ *       src/kcsa_filter.c` matches only this comment.
+ *     - the offset is not uniform. Residue 75's carbons are
+ *       0.0144 / 0.6117 / 0.1144 / 0.3544, which is the deposited ff99 set
+ *       essentially untouched, not a shared shift; residue 78's are
+ *       0.070352 for CA and 0.070356 for the eight side-chain carbons,
+ *       which differ from each other in the fifth decimal.
+ *   The correction matters because "uniform offset" was the stated reason
+ *   the carbons were trustworthy, and for three of the five residues the
+ *   carbons are simply the deposited charges.
+ *
+ *   Two earlier schemes were tried and both were wrong in an instructive
+ *   way:
  *
  *     - dumping the whole residual on C-alpha put +0.99 e on Gly79's
  *       CA, two Angstrom from the ion, and the flexible-filter
@@ -48,11 +75,12 @@
  *     - overwriting each carbon with share = -sum(non-carbon)/n_carbon
  *       discarded the backbone C charge and left every residue +0.60 e.
  *
- *   Spreading by ADDITION preserves the group charge ordering and keeps
- *   the maximum single-atom charge at 0.93 e. The carbons still do not
- *   carry individually faithful ff99 values and the model is not fit for
- *   ABSOLUTE binding energies; kcsa_site_binding's documentation says so
- *   and the readme repeats it.
+ *   The maximum single-atom charge in the table is +0.9276 e (Gly79 C) and
+ *   the minimum is -0.6551 e (Thr75 OG1). The carbons still do not carry
+ *   individually faithful ff99 values and the model is not fit for ABSOLUTE
+ *   binding energies; kcsa_site_binding's documentation says so and the
+ *   readme repeats it. The per-residue neutrality above is asserted in
+ *   tests/test_regression.c.
  */
 
 /* ---- deposited TVGYG heavy atoms + constructed H/terminal O ---- */

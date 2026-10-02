@@ -142,11 +142,29 @@ double kcsa_cation_radius(int Z);
  *   r(K+) 1.38 A  r(Na+) 1.02 A  r(O) 1.40 A
  *   => preferred contact 2.78 A (K–O) and 2.42 A (Na–O)
  *
- * sigma is fixed by requiring the ion–O minimum to sit at that contact
- * with Lorentz–Berthelot mixing, giving sigma 1.888 A (K+) and 1.246 A
- * (Na+). One shared epsilon (0.05 kcal/mol on the ion–O pair) is used for
- * every alkali, so the comparison has no per-ion strength available to
- * it - only the size ratio.
+ * sigma is fixed by requiring the ion–O LJ minimum to sit at that contact.
+ * The solve is in two steps, because the mixed sigma is not the contact:
+ * with Lorentz–Berthelot, sigma_ionO = (sigma_ion + sigma_O)/2, so putting
+ * 2^(1/6) sigma_ionO at the contact fixes sigma_ionO, and then sigma_ionO
+ * fixes sigma_ion by inversion. With sigma_O = LJ_AMBER_O_SIGMA (2.959922 A,
+ * the AMBER R* 1.6612 converted) that gives
+ *
+ *   sigma_ionO 2.4767 A (K+), 2.1560 A (Na+)   ->  minimum at 2.78 / 2.42 A
+ *   sigma_ion  1.9935 A (K+), 1.3520 A (Na+)
+ *
+ * AUDIT FIX D2: this comment used to claim sigma 1.888 A (K+) and 1.246 A
+ * (Na+). Those numbers are wrong on both counts. They come from mixing
+ * against a bare r(O) = 1.40 A where sigma is asked for, which is a
+ * radius, not a sigma; and they were never checked against the code. The
+ * values above are computed from the constants actually used in
+ * kcsa_set_ion_radius() and are asserted in tests/test_regression.c, so
+ * this comment and the implementation cannot drift apart again.
+ *
+ * One shared epsilon (0.05 kcal/mol on the ion–O pair) is used for every
+ * alkali, so the comparison has no per-ion strength available to it -
+ * only the size ratio. The per-ion epsilon the code back-solves is
+ * 0.00300 kcal/mol on the ion site, which is a mixing artifact and not a
+ * physical parameter; do not read it as one.
  */
 void kcsa_set_ion_radius(Simulation *sim, int ion, int Z);
 
@@ -170,9 +188,18 @@ double kcsa_dehydration_cost_eV(int Z);
  * One ion at one site against the rigid filter.
  * e_inter = minimised intermolecular energy (eV)
  * e_total = e_inter + the dehydration cost (eV)
- * Returns the ion's atom index, or -1 on failure. `frozen[]` must be
- * sized to sim->num_atoms and is allocated internally (capped at 512
- * atoms, which the filter itself is well inside).
+ * AUDIT FIX D5: this comment described a `frozen[]` parameter. There is no
+ * frozen[] parameter and there never was one in this signature - it
+ * describes an earlier design that kept a caller-supplied freeze mask. The
+ * filter is instead frozen by construction: kcsa_build_filter() documents
+ * that it deliberately does NOT rebuild angles, and kcsa_site_binding
+ * runs with use_bonds = use_angles = use_dihedrals = 0, so no bonded term
+ * can move a filter atom. The mask exists as a local inside
+ * kcsa_site_binding (call it `frozen`, sized sim->num_atoms) and is
+ * internally allocated; the simulation is capped at 512 atoms, which a
+ * 41-atom-per-subunit filter is well inside.
+ *
+ * Returns the ion's atom index, or -1 on failure.
  */
 int kcsa_site_binding(Simulation *sim, int filter_first, int n_subunits,
                       int ion_Z, Vec3 site, int n_steps,

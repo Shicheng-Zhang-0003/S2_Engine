@@ -12,9 +12,33 @@
  *
  * Charges: AMBER ff99 standard partial charges (Cornell et al. 1995,
  * Wang et al. 2000, J. Am. Chem. Soc. 127:16154). All carbonyl O
- * charges use the AMBER ff99 class O value (-0.5462). Charges sum
- * to exactly zero for each neutral free amino acid. Verified by
- * sum-to-zero assertion in each function.
+ * charges use the AMBER ff99 class O value (-0.5462).
+ *
+ * AUDIT FIX D3: this header used to claim "Charges sum to exactly zero for
+ * each neutral free amino acid. Verified by sum-to-zero assertion in each
+ * function." Both halves were false, and the false assertion hid the first.
+ *
+ *   - There is no assertion anywhere in this file. `grep -c assert
+ *     src/aminoacids.c` returns 0. Nothing verified these sums, ever.
+ *   - Glycine does not sum to zero. Measured, not inferred:
+ *         free glycine        10 atoms   sum(q) = +0.257000 e
+ *         free alanine        13 atoms   sum(q) = -0.000000 e
+ *         Gly-Ala dipeptide   20 atoms   sum(q) = -0.043000 e
+ *
+ * These are CAPPED fragments, not free neutral molecules: glycine carries
+ * OXT+HXT and alanine carries H2, and assembling a peptide deletes the
+ * leaving groups without restoring neutrality. So a nonzero sum is the
+ * expected consequence of the capping convention, not an arithmetic slip.
+ * The consequence is physical and worth stating plainly: a system built
+ * here is charged, so it interacts with a bulk dielectric and with any
+ * explicit ion by net charge rather than only by its charge distribution.
+ * Callers that need a neutral system must neutralize deliberately.
+ *
+ * The sums are now pinned by tests/test_regression.c so the tables cannot
+ * drift silently again. They are pinned at their MEASURED values, not at
+ * zero, because zero is not what these inputs are; correcting them would be
+ * a parameter change requiring a primary-source charge set, not a comment
+ * fix. See FINDINGS D3 in the audit notes.
  *
  * LJ parameters: AMBER ff99 (amber99.prm, fetched 2026-06-19 from
  * https://github.com/pren/tinker). Correct R*->sigma conversion:
@@ -104,8 +128,19 @@ int sim_place_glycine(Simulation *sim, Vec3 origin) {
      /* AMBER ff99 standard partial charges (Cornell et al. 1995,
       * Wang et al. 2000, J. Am. Chem. Soc. 127:16154).
       * All carbonyl O charges use the AMBER ff99 class O value
-      * (-0.5462). Charges sum to exactly zero for the neutral
-      * free molecule. Verified by sum-to-zero assertion below. */
+      * (-0.5462).
+      * AUDIT FIX D3: the comment here used to read "Charges sum to exactly
+      * zero for the neutral free molecule. Verified by sum-to-zero
+      * assertion below." There is no assertion below, and these charges sum
+      * to +0.257000 e, not zero:
+      *   -0.3150 +0.0470 +0.5150 -0.5462 -0.5462
+      *   +0.1870 +0.1870 +0.1180 +0.1180 +0.4924 = +0.2570
+      * The HXT value carries the note "adjusted for exact neutrality", and
+      * the 0.4924 was evidently chosen to make some other sum vanish - it
+      * does not. This is a CAPPED fragment (OXT+HXT present), so the
+      * nonzero total is the capping convention showing through, not
+      * arithmetic. See the file header and FINDINGS D3. The sum is pinned
+      * at its measured value in tests/test_regression.c. */
      static const double charges[10] = {
          -0.3150,  /* N   */
          0.0470,  /* CA  */
@@ -170,10 +205,14 @@ int sim_place_alanine(Simulation *sim, Vec3 origin) {
     };
     static const int Zs[13] = {7,6,6,8,6,8,1,1,1,1,1,1,1};
 
-     /* Charges sum exactly to zero:
+     /* AUDIT FIX D3: the arithmetic below is real and was correct -
       * N(-0.8962)+CA(0.1238)+C(0.6038)+O(-0.5462)+CB(-0.2361)
       * +OXT(-0.5462)+H(0.3538)+H2(0.3538)+HA(0.0538)
-      * +HB1/2/3(3×0.0771)+HXT(0.5044) = 0.0000 ✓ */
+      * +HB1/2/3(3x0.0771)+HXT(0.5044) = 0.0000 - measured -0.000000 e.
+      * Alanine is the one table here that is genuinely neutral, unlike
+      * glycine. Kept as an explicit sum because it is the control case that
+      * makes glycine's +0.257 e attributable to capping rather than to a
+      * transcription slip. Pinned in tests/test_regression.c. */
     static const double charges[13] = {
         -0.8962,  /* N   */
          0.1238,  /* CA  */
