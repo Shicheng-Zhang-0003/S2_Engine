@@ -184,9 +184,14 @@ K+ enters 1.368 eV cheaper
 ```
 
 But the honest result is that the **rigid cage separates the two cations by
-only 0.05 eV**, because a symmetric eight-oxygen cage pulls both onto the
-axis regardless of radius. The K⁺ preference in this model is therefore
+only 0.0130 eV**, because a symmetric eight-oxygen cage pulls both onto the
+axis regardless of radius. The K⁺ preference at the *site* is therefore
 carried essentially entirely by the measured hydration free energy.
+
+*(Audit fix V3: this figure previously read 0.05 eV, which matched neither the
+engine's per-site value nor any per-atom figure — it overstated the cage
+separation by a factor of about four. The engine has always printed
+0.0130 eV here.)*
 
 **No quantitative selectivity free energy is claimed.** Turning that 0.35 Å
 geometric mismatch into a binding free energy requires filter flexibility and
@@ -254,11 +259,11 @@ Equally worth recording, because it bounds where the doubt lies.
 ```
 clean build                          0 errors, 0 warnings
 selftest / forces / fire             17 / 22 / 7 checks green
-selftest-regression                  138 checks green
+selftest-regression                  161 checks green
 ASan + UBSan                         0 memory errors, 0 UB, empty stderr
 stdout byte-identical across runs    yes
 stdout byte-identical under ASan     yes
-record SHA-256                       67f9f47eb3d3e5b117b5ba8f4c28dfe212caf4ed12323c97246fcf93da9ee72d
+record SHA-256                       9eb32e5489e421f89e80f85c439f4e7b5880f83c7b1c3db40c12ce31f9d53ec4
 ```
 
 `kcsa.cvmds` is regenerated with each run and is deliberately **not**
