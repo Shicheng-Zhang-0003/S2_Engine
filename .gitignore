@@ -3,6 +3,9 @@
 # per repo custom (record artifacts, committed with the record).
 build/test_*
 build/selftest*
+# make test writes the suite's output here so the gate can read the
+# binary's real exit status instead of a pipeline's (audit fix M5).
+build/regression.log
 
 # Auto-generated header-dependency files (-MMD -MP). These are pure
 # derived data: a stale one naming a header that no longer exists makes
