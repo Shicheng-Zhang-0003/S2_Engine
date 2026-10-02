@@ -9,8 +9,23 @@
  */
 
 /* ── Fundamental constants (SI) ─────────────────────────────────────────── */
-#define PLANCK_H            6.62607015e-34      /* J·s                       */
-#define PLANCK_HBAR         1.054571817e-34     /* J·s  (h / 2π)             */
+#define PLANCK_H            6.62607015e-34      /* J·s  (exact)              */
+/*
+ * hbar derived, not typed (audit fix M1). The previous literal
+ * 1.054571817e-34 was a 10-digit truncation of the exact h/(2*pi) =
+ * 1.0545718176461563913e-34, a relative error of 6.13e-10 — and it was the
+ * last remaining hand-typed reciprocal of an exactly-known constant in this
+ * file, i.e. precisely the pattern audit fixes C1–C4 removed everywhere
+ * else. Unused by the engine today, which is exactly why it survived: a
+ * constant nothing reads cannot fail a test. Deriving it costs nothing and
+ * closes the class rather than the instance.
+ *
+ * PI is defined once, here, for the same reason.
+ */
+#ifndef S2_PI
+#define S2_PI 3.14159265358979323846
+#endif
+#define PLANCK_HBAR         (PLANCK_H / (2.0 * S2_PI))   /* J·s  (h / 2π) */
 #define SPEED_OF_LIGHT      2.99792458e8        /* m/s  (exact)              */
 #define ELEM_CHARGE         1.602176634e-19     /* C    (exact)              */
 #define ELECTRON_MASS       9.1093837015e-31    /* kg                        */
@@ -50,7 +65,17 @@
  * precision by construction.
  */
 #define EV_TO_HARTREE       (EV_TO_J / HARTREE_ENERGY)   /* eV per Hartree (audit fix C3: derived in-line) */
-#define HARTREE_TO_EV       27.211386245988
+/*
+ * The reciprocal of the line above, and now derived rather than typed
+ * (audit fix M2). The comment on EV_TO_HARTREE said "HARTREE_TO_EV below
+ * stays the CODATA literal; the pair now agrees to floating-point precision by
+ * construction" — but deriving one half of a reciprocal pair while typing the
+ * other is not "by construction", it is a 1.3e-15 disagreement waiting for a
+ * future edit of HARTREE_ENERGY. C1 closed this exact hole for
+ * kcal<->eV; the same reasoning applies here, and the exact value
+ * 27.211386245988 is reproduced to the last representable bit.
+ */
+#define HARTREE_TO_EV       (1.0 / EV_TO_HARTREE)
 /*
  * kcal/mol -> eV, derived in-line (audit fix C1):
  *   1 kcal (thermochemical) = 4184 J exactly

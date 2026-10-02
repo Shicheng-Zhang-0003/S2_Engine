@@ -468,6 +468,14 @@ double integrator_minimize(Simulation *sim, int max_iterations,
             if (f > max_force) max_force = f;
         }
         if (max_force < force_tolerance) break;
+        /* AUDIT FIX M3: guard the division that follows. scale =
+         * effective_step / max_force is NaN or inf when max_force == 0, and
+         * the tolerance check above does not always catch it: a caller
+         * passing force_tolerance == 0 with an already-converged system falls
+         * straight through (0 < 0 is false). integrator_fire has carried this
+         * guard all along; the two steepest-descent variants did not, which is
+         * an asymmetry with no physical justification. */
+        if (!isfinite(max_force) || max_force < 1e-300) break;
 
         for (int i = 0; i < sim->num_atoms; i++)
             saved_positions[i] = sim->atoms[i].position;
@@ -552,6 +560,10 @@ double integrator_minimize_frozen(Simulation *sim, const int *frozen,
             if (f > max_force) max_force = f;
         }
         if (max_force < force_tolerance) break;
+        /* AUDIT FIX M3: same zero-force guard as integrator_minimize and
+         * integrator_fire — see that function for why `max_force < tol` is
+         * not sufficient when tol == 0. */
+        if (!isfinite(max_force) || max_force < 1e-300) break;
 
         for (int i = 0; i < sim->num_atoms; i++)
             saved_positions[i] = sim->atoms[i].position;
