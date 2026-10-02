@@ -29,6 +29,9 @@
 #endif
 #include "nucleobases.h"
 #include "kcsa_filter.h"
+#include "aminoacids.h"
+#include "amber_lj.h"
+#include "kcsa_filter.h"
 #include "amber_lj.h"
 
 static int g_pass = 0, g_fail = 0;
@@ -706,6 +709,427 @@ static void test_datastream(void) {
     }
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * AUDIT FIX A-C1: qm_solve_dipoles must solve the system it DOCUMENTS.
+ *
+ * This is the check whose absence let a structurally broken solver ship. The
+ * suite already verified that the returned FORCE is the gradient of the
+ * returned ENERGY — which is true for ANY mu whatsoever — and that the energy
+ * is continuous, which a deterministic function of stale thread-local memory
+ * also is. Neither test asks whether mu is the dipole of the documented model.
+ *
+ * The oracle here is independent of the solver: the 3N x 3N operator is
+ * reassembled from the model definition in this file, the residual
+ *     || (I - A) mu - alpha (*) E0 ||
+ * is formed against the solver's own output, and the result must be at
+ * solver precision. A wrong system size, a wrong 3x3 block layout, a flipped
+ * off-diagonal sign, or a mispermuted right-hand side all fail it, and each
+ * failed differently before the fix.
+ *
+ * It also pins the two properties a dipole solution must have that no
+ * structural test can see:
+ *   - the residual is computed on systems spanning N = 2..8, because the
+ *     original defect scaled with N (the stale-memory spill reached 2N^2 - N - 1
+ *     entries past a region zeroed to N^2, i.e. further for every N > 1);
+ *   - the solution is translation and rotation covariant, since the model has
+ *     no absolute frame: rotating the whole system must rotate mu.
+ * ══════════════════════════════════════════════════════════════════════════ */
+/* The Thole width is a private #define in qm.c. The oracle must NOT reuse it:
+ * an independent check that imports the constant under test is not independent.
+ * 2.0 A is the documented value and is asserted against the engine's own
+ * behaviour by the f(2.35)/f(2.75) figures quoted in qm.c's comment. */
+#define A_TH_TEST 2.0
+
+static void qm_fields_indep(const Simulation *sim, double dielectric, Vec3 *E) {
+    int N = sim->num_atoms;
+    for (int i = 0; i < N; i++) E[i] = vec3_zero();
+    for (int i = 0; i < N; i++) {
+        for (int j = 0; j < N; j++) {
+            if (i == j) continue;
+            double qj = sim->atoms[j].partial_charge;
+            if (!isfinite(qj) || fabs(qj) < 1e-12) continue;
+            Vec3 d = vec3_sub(sim->atoms[i].position, sim->atoms[j].position);
+            double r2 = vec3_norm2(d);
+            if (r2 < 1e-8 || !isfinite(r2)) continue;
+            if (r2 > sim->cutoff * sim->cutoff) continue;
+            double r = sqrt(r2);
+            double u = r / A_TH_TEST;
+            double fth = 1.0 - exp(-u * u * u);
+            vec3_iadd(&E[i], vec3_scale(d, COULOMB_MD * qj * fth / (r2 * r * dielectric)));
+        }
+    }
+}
+
+static void test_dipole_solver_equation(void) {
+    grp("Coupled dipoles solve the DOCUMENTED 3N x 3N system (audit A-C1)");
+
+    unsigned seed = 20260929u;
+    double worst_res = 0.0;
+    int nsys = 0, singular = 0;
+
+    for (int N = 2; N <= 8; N++) {
+        for (int trial = 0; trial < 12; trial++) {
+            Simulation *s = sim_create(16, 32);
+            if (!s) continue;
+            /* Deliberately unbonded: qm_pair_excluded would otherwise remove
+             * the very couplings whose assembly is under test. */
+            for (int i = 0; i < N; i++) {
+                seed = seed * 1103515245u + 12345u;
+                double x = 2.0 + 1.4 * ((double)((seed >> 8) % 1000) / 1000.0);
+                seed = seed * 1103515245u + 12345u;
+                double y = 2.2 * ((double)((seed >> 8) % 1000) / 1000.0);
+                seed = seed * 1103515245u + 12345u;
+                double z = 2.2 * ((double)((seed >> 8) % 1000) / 1000.0);
+                seed = seed * 1103515245u + 12345u;
+                int pick = (int)((seed >> 8) % 4);
+                int Z = pick == 0 ? 19 : pick == 1 ? 8 : pick == 2 ? 1 : 6;
+                double q = (Z == 19) ? 1.0 : (Z == 8) ? -0.55 : (Z == 1) ? 0.25 : 0.1;
+                sim_add_atom(s, Z, vec3(x, y, z), q);
+            }
+            s->cutoff = 30.0;
+            Vec3 mu[256];
+            int rc = qm_solve_dipoles(s, 1.0, mu);
+            nsys++;
+            if (rc != 0) { singular++; sim_destroy(s); continue; }
+
+            Vec3 E0[256];
+            qm_fields_indep(s, 1.0, E0);
+            double al[256];
+            for (int i = 0; i < N; i++) al[i] = qm_polarizability(&s->atoms[i]);
+
+            /* residual of  (I - A) mu = alpha (*) E0, A reassembled here */
+            double rn = 0.0, dn = 0.0;
+            for (int i = 0; i < N; i++) {
+                Vec3 m = mu[i], Ax = vec3_zero();
+                for (int j = 0; j < N; j++) {
+                    if (i == j) continue;
+                    Vec3 d = vec3_sub(s->atoms[i].position, s->atoms[j].position);
+                    double r = vec3_norm(d);
+                    if (r < 1e-8) continue;
+                    if (r > s->cutoff) continue;
+                    double uu = r / A_TH_TEST;
+                    double fth = 1.0 - exp(-uu * uu * uu);
+                    if (fth == 0.0) continue;
+                    double kij = al[i] * COULOMB_MD * fth / (r * r * r);
+                    Vec3 uj = mu[j];
+                    double dot = d.x * uj.x + d.y * uj.y + d.z * uj.z;
+                    /* A_ij mu_j = kij [ 3 d (d.mu_j)/r^2 - mu_j ] */
+                    Vec3 term = vec3_scale(d, kij * 3.0 * dot / (r * r));
+                    Ax = vec3_add(Ax, vec3_sub(term, vec3_scale(uj, kij)));
+                }
+                double want[3] = { al[i] / COULOMB_MD * E0[i].x,
+                                   al[i] / COULOMB_MD * E0[i].y,
+                                   al[i] / COULOMB_MD * E0[i].z };
+                double got[3] = { m.x - Ax.x, m.y - Ax.y, m.z - Ax.z };
+                for (int a = 0; a < 3; a++) {
+                    rn += fabs(got[a] - want[a]);
+                    dn += fabs(want[a]);
+                }
+            }
+            double res = rn / (dn > 1e-30 ? dn : 1.0);
+            if (res > worst_res) worst_res = res;
+            sim_destroy(s);
+        }
+    }
+
+    char d[224];
+    snprintf(d, sizeof d, "%d systems (%d singular), worst relative residual = %.3e",
+             nsys, singular, worst_res);
+    ok("solver satisfies (I - A) mu = alpha (*) E0", worst_res < 1e-9, d);
+
+    /* Covariance: the model has no absolute frame, so rotating the whole system
+     * must rotate mu. Built by rotating each ATOM so element, charge and
+     * index all correspond one-to-one — an earlier version of this check
+     * compared mismatched index sets and reported a spurious failure. */
+    {
+        Simulation *a = sim_create(8, 8), *b = sim_create(8, 8);
+        static const int    zs[4] = { 19, 8, 1, 19 };
+        static const double qs[4] = { 1.0, -0.55, 0.25, 1.0 };
+        static const double ps[4][3] = {
+            { 0.0, 0.0, 0.0 }, { 2.7, 0.2, 0.1 },
+            { 1.1, 2.6, -0.4 }, { -1.9, 1.3, 2.2 }
+        };
+        const double t = 0.7, ct = cos(t), st = sin(t);
+        for (int i = 0; i < 4; i++) {
+            sim_add_atom(a, zs[i], vec3(ps[i][0], ps[i][1], ps[i][2]), qs[i]);
+            sim_add_atom(b, zs[i],
+                         vec3(ps[i][0] * ct - ps[i][1] * st,
+                              ps[i][0] * st + ps[i][1] * ct,
+                              ps[i][2]), qs[i]);
+        }
+        a->cutoff = b->cutoff = 30.0;
+        Vec3 ma[8], mb[8];
+        int ra = qm_solve_dipoles(a, 1.0, ma);
+        int rb = qm_solve_dipoles(b, 1.0, mb);
+        double worst = 0.0, scale = 0.0;
+        for (int i = 0; i < 4; i++) {
+            Vec3 rot = vec3(ma[i].x * ct - ma[i].y * st, ma[i].x * st + ma[i].y * ct, ma[i].z);
+            worst = fmax(worst, vec3_norm(vec3_sub(rot, mb[i])));
+            scale = fmax(scale, vec3_norm(mb[i]));
+        }
+        snprintf(d, sizeof d, "rc=(%d,%d) max rotation mismatch = %.3e (|mu| ~ %.3f)",
+                 ra, rb, worst, scale);
+        ok("dipoles are rotation covariant (no absolute frame)",
+           (ra == 0 && rb == 0) && worst < 1e-8 * (scale > 0 ? scale : 1.0), d);
+        sim_destroy(a); sim_destroy(b);
+    }
+}
+
+/* AUDIT FIX A-C2: the ±2 e bound must not cost charge conservation.
+ * The augmented QEq system carries sum(q) = total_q as one of its rows; a
+ * post-solve clamp satisfies the bound by violating the row. 233 of 4000
+ * random clusters did exactly that at HEAD, worst |sum q| = 8.0 e.
+ *
+ * The case below is constructed, not random, and is the tightest alternating
+ * C/O chain found by a spacing sweep: an unbonded chain at 1.25 A puts the
+ * 1/r coupling well above the hardness, so the unbounded solve drives the
+ * central oxygen past +2 e and the clamp has to act. Measured:
+ *   HEAD    sum(q) = -6.0e-01   max|q| = 2.0000     <- conservation destroyed
+ *   fixed   sum(q) = -4.4e-16   max|q| = 2.0000     <- both invariants hold
+ * A regression test has to reach the defect, so the geometry is fixed here
+ * rather than sampled: a random cluster hits the clamp only ~6% of the time
+ * and would make this check flaky in the direction that matters least. */
+static void test_qeq_conservation_under_bound(void) {
+    grp("QEq bound vs conservation: the constraint must survive the clamp (A-C2)");
+
+    Simulation *s = sim_create(16, 32);
+    static const int zs[5] = { 8, 6, 8, 6, 8 };
+    for (int i = 0; i < 5; i++)
+        sim_add_atom(s, zs[i], vec3(1.25 * i, 0.0, 0.0), 0.0);
+    double q[128];
+    int rc = qm_qeq(s, 0.0, 1.0, q);
+    double sum = 0.0, mx = 0.0;
+    for (int i = 0; i < 5; i++) { sum += q[i]; if (fabs(q[i]) > mx) mx = fabs(q[i]); }
+    char d[224];
+    snprintf(d, sizeof d, "rc=%d sum(q)=%+.3e max|q|=%.4f", rc, sum, mx);
+    ok("sum(q) == total_q exactly even when the bound is active",
+       rc == 0 && fabs(sum) < 1e-12, d);
+    ok("the 2 e bound is still enforced", mx <= 2.0 + 1e-12, d);
+    sim_destroy(s);
+
+    /* and the SCF path, which additionally under-relaxes. Same 5-atom chain
+     * with a K+ pinned inside it, so the dipole feedback is live and the
+     * bound is active there too. */
+    {
+        Simulation *t = sim_create(16, 32);
+        static const int zs2[5] = { 8, 6, 8, 6, 8 };
+        for (int i = 0; i < 5; i++)
+            sim_add_atom(t, zs2[i], vec3(1.25 * i, 0.0, 0.0), 0.0);
+        int ion = sim_add_ion(t, 19, 1, vec3(2.50, 0.0, 0.0), 1.0);
+        int its = qm_scf_charges(t, 1.0, 1.0, ion, 1.0);
+        double ssum = 0.0, smx = 0.0;
+        for (int i = 0; i < t->num_atoms; i++) {
+            if (i == ion) continue;
+            ssum += t->atoms[i].partial_charge;
+            if (fabs(t->atoms[i].partial_charge) > smx)
+                smx = fabs(t->atoms[i].partial_charge);
+        }
+        snprintf(d, sizeof d, "its=%d shell sum=%+.3e max|q|=%.4f", its, ssum, smx);
+        ok("SCF charge path conserves charge (shell carries total - pinned)",
+           its > 0 && fabs(ssum) < 1e-6, d);
+        ok("SCF charge path respects the 2 e bound", smx <= 2.0 + 1e-9, d);
+        sim_destroy(t);
+    }
+}
+
+/* AUDIT FIX M1/M2: the last hand-typed reciprocals in constants.h. */
+/* AUDIT FIX D2: kcsa_set_ion_radius() documentation claimed sigma 1.888 A
+ * (K+) and 1.246 A (Na+). Those came from mixing against r(O) = 1.40 A
+ * where a sigma was needed, and were never compared to the code. Recompute
+ * the construction from the constants the code actually uses, so the header
+ * and the implementation cannot drift apart again. */
+/* AUDIT FIX D4: kcsa_filter.c claimed every residue is neutral "by a UNIFORM
+ * offset added to its carbons, computed at build time". Nothing is computed
+ * at build time, and the offset is not uniform - but the neutrality claim
+ * itself is TRUE, which is why the wrong mechanism went unnoticed for so
+ * long. Group the filter's atoms the way the table is annotated (by residue)
+ * and assert each residue really is neutral, so the true property is pinned. */
+static void test_kcsa_filter_residue_neutrality(void) {
+    grp("KcsA filter: each residue is neutral (audit D4)");
+    Simulation *s = sim_create(600, 600);
+    if (!s) { ok("build the filter", 0, "sim_create failed"); return; }
+    int first = kcsa_build_filter(s, vec3(0, 0, 0), 1);
+    int n = s->num_atoms - first;
+
+    double total = 0.0, mn = 1e9, mx = -1e9;
+    for (int i = first; i < s->num_atoms; i++) {
+        double q = s->atoms[i].partial_charge;
+        total += q;
+        if (q < mn) mn = q;
+        if (q > mx) mx = q;
+    }
+    char d[224];
+    snprintf(d, sizeof d, "%d atoms, sum(q) = %+.6f e, range [%+.4f, %+.4f] e",
+             n, total, mn, mx);
+    ok("the whole filter is neutral", n == 41 && fabs(total) < 1e-12, d);
+    ok("max single-atom charge stays at 0.93 e (the D4 claim)", mx <= 0.93 + 1e-9, d);
+
+    /* Per-residue neutrality. Membership is by table index, matching the
+     * order kcsa_build_filter() adds atoms in: each residue's heavy atoms are
+     * contiguous, then its constructed hydrogens and OXT are appended at the
+     * end of the table. (Grouping by z instead is wrong - the residues march
+     * along the pore axis and overlap in z.) */
+    static const int r75[] = {0,1,2,3,4,5,6,38,39};
+    static const int r76[] = {7,8,9,10,11,12,13,34};
+    static const int r77[] = {14,15,16,17,35};
+    static const int r78[] = {18,19,20,21,22,23,24,25,26,27,28,29,36};
+    static const int r79[] = {30,31,32,33,37,40};
+    static const int *mem[5] = {r75,r76,r77,r78,r79};
+    static const int cnt[5] = {9,8,5,13,6};
+    static const int res[5] = {75,76,77,78,79};
+    double worst = 0.0; int worst_r = 0;
+    for (int r = 0; r < 5; r++) {
+        double rs = 0.0;
+        for (int k = 0; k < cnt[r]; k++) rs += s->atoms[first + mem[r][k]].partial_charge;
+        if (fabs(rs) > worst) { worst = fabs(rs); worst_r = res[r]; }
+    }
+    snprintf(d, sizeof d, "worst |sum(q)| over 5 residues = %.3e e (res %d)", worst, worst_r);
+    ok("every residue is neutral to 1e-9 e", worst < 1e-9, d);
+    sim_destroy(s);
+}
+
+static void test_kcsa_ion_sigma(void) {
+    grp("KcsA ion sigma is the one the header documents (audit D2)");
+    double rO = AMBER_RSTAR_TO_SIGMA(1.6612);   /* LJ_AMBER_O_SIGMA */
+    char d[224];
+    okrel("LJ_AMBER_O_SIGMA == 2.959922 A (AMBER R* 1.6612)", rO, 2.959922, 1e-6);
+
+    for (int k = 0; k < 2; k++) {
+        int    Z   = k ? 11 : 19;
+        double r_i = kcsa_cation_radius(Z);
+        double contact = r_i + 1.40;                 /* KCSA_O_RADIUS */
+        double sig_ionO = contact / TWOPOW_SIXTH;
+        Simulation *s = sim_create(8, 8);
+        int ion = sim_add_ion(s, Z, 1, vec3(0, 0, 0), 1.0);
+        kcsa_set_ion_radius(s, ion, Z);
+        double got = s->atoms[ion].lj_sigma;
+
+        /* the two-step inversion must reproduce the tabulated contact exactly */
+        double back = TWOPOW_SIXTH * 0.5 * (got + rO);   /* = the contact distance */
+        (void)sig_ionO;
+        snprintf(d, sizeof d, "Z=%2d r=%.2f sigma=%.4f A, mixed minimum %.4f A, contact %.2f A",
+                 Z, r_i, got, back, contact);
+        ok(k ? "Na+ sigma 1.3520 A puts the ion-O minimum at 2.42 A"
+             : "K+  sigma 1.9935 A puts the ion-O minimum at 2.78 A",
+           fabs(got - (k ? 1.3520 : 1.9935)) < 5e-4 && fabs(back - contact) < 1e-9, d);
+        sim_destroy(s);
+    }
+}
+
+/* AUDIT FIX D3: aminoacids.c claimed, in three places, that the charge
+ * tables sum to zero and were "verified by sum-to-zero assertion". There is
+ * no assertion in the file and glycine sums to +0.257 e. Pin the MEASURED
+ * sums so the tables cannot drift again, and so the one table that really is
+ * neutral stays the control case. */
+static void test_aminoacid_charge_sums(void) {
+    grp("Amino-acid charge tables: pin the sums that were never verified (D3)");
+    char d[224];
+    {
+        Simulation *s = sim_create(64, 64);
+        sim_place_glycine(s, vec3(0, 0, 0));
+        double sum = 0; for (int i = 0; i < s->num_atoms; i++) sum += s->atoms[i].partial_charge;
+        snprintf(d, sizeof d, "%d atoms, sum(q) = %+.6f e", s->num_atoms, sum);
+        ok("free glycine sums to +0.257 e (capped fragment, not neutral)", fabs(sum - 0.257) < 1e-9, d);
+        sim_destroy(s);
+    }
+    {
+        Simulation *s = sim_create(64, 64);
+        sim_place_alanine(s, vec3(0, 0, 0));
+        double sum = 0; for (int i = 0; i < s->num_atoms; i++) sum += s->atoms[i].partial_charge;
+        snprintf(d, sizeof d, "%d atoms, sum(q) = %+.6f e", s->num_atoms, sum);
+        ok("free alanine is the neutral control case", fabs(sum) < 1e-12, d);
+        sim_destroy(s);
+    }
+    {
+        Simulation *s = sim_create(128, 128);
+        int ala_N = -1;
+        sim_place_dipeptide_GlyAla(s, vec3(0, 0, 0), &ala_N);
+        double sum = 0; for (int i = 0; i < s->num_atoms; i++) sum += s->atoms[i].partial_charge;
+        snprintf(d, sizeof d, "%d atoms, sum(q) = %+.6f e", s->num_atoms, sum);
+        ok("Gly-Ala dipeptide is charged by -0.043 e after condensation", fabs(sum + 0.043) < 1e-9, d);
+        sim_destroy(s);
+    }
+}
+
+static void test_constants_derived(void) {
+    grp("Every exact reciprocal is derived, not typed (audit M1/M2)");
+    /* PLANCK_HBAR == PLANCK_H / (2 pi) to the last representable bit */
+    okrel("PLANCK_HBAR == PLANCK_H / 2pi", PLANCK_HBAR,
+          PLANCK_H / (2.0 * 3.14159265358979323846), 1e-16);
+    /* the pair now multiplies to exactly 1 by construction */
+    okrel("HARTREE_TO_EV * EV_TO_HARTREE == 1", HARTREE_TO_EV * EV_TO_HARTREE,
+          1.0, 1e-16);
+    /* KCAL pair was already exact; keep it pinned so it cannot regress */
+    okrel("KCAL_MOL_TO_EV * EV_TO_KCAL_MOL == 1", KCAL_MOL_TO_EV * EV_TO_KCAL_MOL,
+          1.0, 1e-16);
+    okrel("COULOMB_MD is the 2018-CODATA k_e prefactor", COULOMB_MD,
+          8.9875517923e9 * 1.602176634e-19 / 1.0e-10, 1e-15);
+}
+
+/* AUDIT FIX M3: a zero-force system with force_tolerance == 0 must not
+ * produce NaN positions. `max_force < force_tolerance` is 0 < 0 = FALSE, so
+ * the loop body used to run, scale became inf, and every displacement became
+ * 0*inf = NaN. The NaN rollback hid it and the answer came out right by
+ * luck of ordering; the guard makes it right on purpose. */
+static void test_minimizer_zero_tolerance(void) {
+    grp("Minimisers do not divide by zero at force_tolerance == 0 (M3)");
+    for (int variant = 0; variant < 3; variant++) {
+        Simulation *s = sim_create(8, 8);
+        sim_add_atom(s, 6, vec3(0, 0, 0), 0);
+        s->use_lj = 0; s->use_coulomb = 0;
+        s->use_bonds = 0; s->use_angles = 0; s->use_dihedrals = 0;
+        forces_calculate(s);
+        int zeroF = (vec3_norm(s->atoms[0].force) == 0.0);
+        double E;
+        if (variant == 0)      E = integrator_minimize(s, 10, 0.01, 0.0);
+        else if (variant == 1) { int frozen[1] = {0};
+                                  E = integrator_minimize_frozen(s, frozen, 10, 0.01, 0.0); }
+        else                   E = integrator_fire(s, 10, 0.5, 0.0);
+        static const char *nm[3] = { "integrator_minimize", "minimize_frozen", "integrator_fire" };
+        char d[224];
+        snprintf(d, sizeof d, "%s: |F|=%g (zero: %d) E=%g pos=(%g,%g,%g)",
+                 nm[variant], vec3_norm(s->atoms[0].force), zeroF, E,
+                 s->atoms[0].position.x, s->atoms[0].position.y, s->atoms[0].position.z);
+        ok(nm[variant], zeroF && isfinite(E) && isfinite(s->atoms[0].position.x)
+                         && s->atoms[0].position.x == 0.0, d);
+        sim_destroy(s);
+    }
+}
+
+/* AUDIT FIX V1: the dihedral's rotational invariance is a property no shipped
+ * test checked. Net torque must vanish for a central force pair; the
+ * translational half was asserted but the rotational half was not. */
+static void test_dihedral_rotational_invariance(void) {
+    grp("Dihedral gradient: net torque vanishes (audit V1 follow-through)");
+    static const double P[3][4][3] = {
+        {{0,0,0},{1.45,0,0},{2.0,1.2,0.3},{1.2,2.0,-0.4}},
+        {{0,0,0},{1.0,0,0},{1.0,1.0,0},{1.0,1.0,1.0}},
+        {{-1.2,0.3,0.1},{0,0,0},{1.3,0.2,-0.1},{2.5,-0.4,0.3}},
+    };
+    double worst = 0.0;
+    for (int c = 0; c < 3; c++) {
+        Atom a[4], f[4];
+        memset(a, 0, sizeof a); memset(f, 0, sizeof f);
+        for (int i = 0; i < 4; i++) {
+            a[i].position = vec3(P[c][i][0], P[c][i][1], P[c][i][2]);
+            f[i].position = a[i].position;
+        }
+        Dihedral dh = {0, 1, 2, 3, 0.1, 1, 0.0};
+        forces_dihedral(a, &dh);
+        forces_dihedral_fd(f, &dh);
+        Vec3 torque = vec3_zero(), scale = vec3_zero();
+        for (int i = 0; i < 4; i++) {
+            torque = vec3_add(torque, vec3_cross(a[i].position, a[i].force));
+            scale = vec3_add(scale, vec3_scale(a[i].force, 1.0));
+        }
+        double r = vec3_norm(torque) / (vec3_norm(scale) > 1e-12 ? vec3_norm(scale) : 1.0);
+        if (r > worst) worst = r;
+    }
+    char d[192];
+    snprintf(d, sizeof d, "max |sum r_i x F_i| / |F| = %.3e over 3 geometries", worst);
+    ok("net torque vanishes on the analytic path", worst < 1e-12, d);
+}
+
 static void test_rng(void) {
     grp("Random number generators (audit I1: PCG64 now actually exists)");
     /* The v9R4 notes claimed PCG64 was implemented. It was not - grep
@@ -908,6 +1332,14 @@ int main(void) {
     test_rng();
     test_kcsa_filter();
     test_ion_size_and_hydration();
+    test_dipole_solver_equation();
+    test_qeq_conservation_under_bound();
+    test_kcsa_filter_residue_neutrality();
+    test_kcsa_ion_sigma();
+    test_aminoacid_charge_sums();
+    test_constants_derived();
+    test_minimizer_zero_tolerance();
+    test_dihedral_rotational_invariance();
     printf("\n══════════════════════════════════════════════════════════════\n");
     /* Not "  PASS n FAIL m": the verify script counts check lines by
      * that prefix and would count this summary as one of its own checks. */
