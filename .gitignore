@@ -16,3 +16,9 @@ build/*.d
 # run's is a verification byproduct and is expected to be empty.
 stderr_asan.txt
 output.asan.txt
+
+# ./run writes candidate records here instead of overwriting output.txt
+# (audit fix M6). A candidate run is not a record until it is promoted with
+# ./run --accept, so keeping the staging area out of the tree is what stops
+# an unreviewed run from being committed alongside a record change.
+runs/
