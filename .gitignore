@@ -25,3 +25,4 @@ output.asan.txt
 # ./run --accept, so keeping the staging area out of the tree is what stops
 # an unreviewed run from being committed alongside a record change.
 runs/
+build/*.log

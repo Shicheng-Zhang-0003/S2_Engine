@@ -27,6 +27,34 @@
  *   outside the segment, so it carries two hydrogens (a free
  *   N-terminus): the bisector H, plus a second placed out of the
  *   CA-N-C plane.
+ *
+ *   AUDIT FIX D6 - the Thr75 N-terminal pair is WRONG, and this comment
+ *   previously described it as correct. Measured against the deposited
+ *   1K4C coordinates (external validation, see tests/test_external.c):
+ *
+ *       N-H(A) = 1.0000 A      angle CA-N-H(A) = 162.96 deg
+ *       N-H(B) = 1.0256 A      angle CA-N-H(B) = 104.45 deg
+ *       H(A)-N-H(B)          =  74.87 deg
+ *       sum of the three angles at N    = 342.29 deg   (should be 360)
+ *
+ *   A neutral amine nitrogen has three bonds summing to 360 deg with all
+ *   three angles near 107-110 deg. 74.87 deg between the two hydrogens is
+ *   not an amine. The amide hydrogens on residues 76-79 are correct by
+ *   contrast: N-H = 1.0000 A exactly with C(prev)-N-H = CA-N-H = 119.04 to
+ *   120.43 deg, which is the external bisector of an sp2 nitrogen.
+ *
+ *   Impact: none on any number in the record. The nearest of the two
+ *   hydrogens to any modelled K+ site is 6.259 A (site z = -40.505), which
+ *   is outside every interaction the site legs sum over - those are built
+ *   from the eight coordinating oxygens at 2.699-3.071 A. So the KcsA
+ *   energetics are unaffected and the record does not change.
+ *
+ *   Why it is recorded rather than fixed here: the correction needs a
+ *   choice of nitrogen geometry, and Thr75's real partner C74 is outside
+ *   the segment, so the correct construction depends on whether the
+ *   missing carbonyl is modelled. That is a modelling decision about the
+ *   N-terminus, not a transcription slip, and it belongs with whoever
+ *   decides whether this segment should be capped at N as well as at C.
  *   OXT: C79's carboxyl gets the standard 1.25 A terminal oxygen on the
  *   external bisector of CA79 and O79, making the segment a valid
  *   neutral pentapeptide. GLY79's own carbonyl oxygen points 4.82 A off

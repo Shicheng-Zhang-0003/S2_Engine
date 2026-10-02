@@ -33,7 +33,8 @@ SRCS = $(wildcard $(SRC_DIR)/*.c)
 OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SRCS))
 DEPS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.d, $(SRCS))
 
-.PHONY: all clean run selftest selftest-forces selftest-fire selftest-regression test deps
+.PHONY: all clean run selftest selftest-forces selftest-fire selftest-regression \
+        selftest-external test deps
 
 all: $(OBJ_DIR) $(BIN)
 
@@ -89,6 +90,19 @@ selftest-regression: all $(OBJ_DIR)/test_regression.o
 $(OBJ_DIR)/test_regression.o: $(TEST_DIR)/test_regression.c
 	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
 
+# external validation suite (audit fix E1): checks the engine against values
+# obtained from OUTSIDE this repository - NIST CODATA, the original AMBER
+# ff99 parm99.dat, FIPS 180-4 SHA-256 vectors, Griffiths' closed forms, and
+# the deposited PDB 1K4C entry. test_regression.c re-derives its own
+# oracles, which is self-referential: an AMBER R* compared as a sigma and a
+# FIPS digest transcribed with one wrong character were both harness errors
+# during this audit, and in both cases the engine was right.
+selftest-external: all $(OBJ_DIR)/test_external.o
+	$(CC) $(CFLAGS) -o $(OBJ_DIR)/test_external $(OBJ_DIR)/test_external.o $(filter-out $(OBJ_DIR)/main.o,$(OBJS)) -lm
+
+$(OBJ_DIR)/test_external.o: $(TEST_DIR)/test_external.c
+	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
+
 # Run every gate. `make test` is what CI should invoke.
 # AUDIT FIX M5: the regression line used to be
 #     @./build/test_regression | tail -3
@@ -98,10 +112,18 @@ $(OBJ_DIR)/test_regression.o: $(TEST_DIR)/test_regression.c
 # The log is now written to a file so the binary's own exit status reaches
 # make unmasked, and the FAIL lines are grepped as well so the gate fails even
 # if a future change to the suite decouples its exit code from its verdicts.
-test: selftest selftest-forces selftest-fire selftest-regression
+test: selftest selftest-forces selftest-fire selftest-regression selftest-external
 	@./$(OBJ_DIR)/test_datastream   > /dev/null && echo "  datastream   OK"
 	@./$(OBJ_DIR)/test_forces      > /dev/null && echo "  forces       OK"
 	@./$(OBJ_DIR)/test_fire        > /dev/null && echo "  fire         OK"
+	@./$(OBJ_DIR)/test_external    > $(OBJ_DIR)/external.log 2>&1; \
+	  ex=$$?; tail -3 $(OBJ_DIR)/external.log; \
+	  if [ $$ex -ne 0 ] || grep -q '^  FAIL' $(OBJ_DIR)/external.log; then \
+	    echo "  external     FAILED (rc=$$ex)"; grep '^  FAIL' $(OBJ_DIR)/external.log | head -20; \
+	    exit 1; \
+	  else \
+	    echo "  external     OK ($$(grep -c '^  PASS' $(OBJ_DIR)/external.log) vs outside references)"; \
+	  fi
 	@./$(OBJ_DIR)/test_regression  > $(OBJ_DIR)/regression.log; \
 	  rc=$$?; tail -3 $(OBJ_DIR)/regression.log; \
 	  if [ $$rc -ne 0 ] || grep -q '^  FAIL' $(OBJ_DIR)/regression.log; then \
