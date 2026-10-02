@@ -28,11 +28,20 @@ static void demo_clock_done(const char *name) {
 }
 
 /* Verdict ledger: one deterministic line per demo for the final recap
- * table (stdout, record-safe: formatted from in-scope locals only). */
-static char g_verdict[13][128];
+ * table (stdout, record-safe: formatted from in-scope locals only).
+ *
+ * AUDIT FIX V2: this was char g_verdict[13][128] with a 13-entry names[]
+ * table, while 14 demos print a banner (demo 12b added a fourteenth and
+ * nobody grew either array). Demo 12b's verdict therefore had nowhere to go:
+ * set_verdict would have written out of bounds had anything tried, and the
+ * recap silently skipped a demo that had run. Both arrays are now sized by
+ * the demo count and the guard bounds-checks against that, so the next demo
+ * added cannot quietly disappear from the recap. */
+#define DEMO_VERDICT_COUNT 14
+static char g_verdict[DEMO_VERDICT_COUNT][128];
 static void set_verdict(int i, const char *fmt, ...) {
     va_list ap;
-    if (i < 0 || i >= 13) return;
+    if (i < 0 || i >= DEMO_VERDICT_COUNT) return;
     va_start(ap, fmt);
     vsnprintf(g_verdict[i], sizeof g_verdict[i], fmt, ap);
     va_end(ap);
@@ -3099,8 +3108,21 @@ static void demo_kcsa_filter(void) {
         printf("  %-22s %10.4f %10.4f %10.4f\n", "knock-on conductive", pair_sp_kk, pair_sp_nana, pair_sp_kk - pair_sp_nana);
         printf("  %-22s %10.4f %10.4f %10.4f\n", "knock-on landsc bar", kn_k_max_v - kn_k_min_v, kn_na_max_v - kn_na_min_v,
                (kn_k_max_v - kn_k_min_v) - (kn_na_max_v - kn_na_min_v));
-        printf("  %-22s %10.4f %10.4f %10.4f\n", "knock-on landscape", kn_k_max - kn_k_min, kn_na_max - kn_na_min,
+        /* AUDIT FIX V1: the raw landscape row printed a meaningless number.
+         * kn_k_max/kn_min are taken over ALL scanned z INCLUDING the rows the
+         * scan itself flags CLASH, where the two cations are driven to
+         * sub-Angstrom separation and the Coulomb term reaches 6.5e5 eV.
+         * The row printed above it is the barrier over the valid subset; this
+         * one printed the invalid-subset version and was ~5 orders of
+         * magnitude larger than any other row in the table, which is exactly
+         * the kind of number that gets quoted out of context. It is now
+         * labelled as what it is — the raw scan extent, reported so the
+         * CLASH rows are visible rather than hidden — instead of sitting in
+         * a column of dU(K−Na) values as though it were one. */
+        printf("  %-22s %10.4f %10.4f %10.4f\n", "knock-on landscape RAW", kn_k_max - kn_k_min, kn_na_max - kn_na_min,
                (kn_k_max - kn_k_min) - (kn_na_max - kn_na_min));
+        printf("    (RAW row includes the CLASH-flagged z where the ions are driven to\n");
+        printf("     sub-Angstrom separation; not a barrier. Use the valid-subset row above.)\n");
     }
 
     /* == s42 datastream consumer (DATASTREAM_SPEC.md schema 1) ==
@@ -3141,6 +3163,21 @@ static void demo_kcsa_filter(void) {
         printf("  (negative = K+ selective; expt -0.179 eV)\n");
         printf("--- Two-ion exchange 2K+(aq)+NaNa.F -> 2Na+(aq)+KK.F ---\n");
         printf("  %+.4f eV (negative = KK selective; all four terms computed)\n", exch2);
+        /* AUDIT FIX V2: this number needs the caveat its one-ion sibling has.
+         * exch2 is a sum of four rigid-cage single-point/relaxed terms plus
+         * two explicit-6-water cluster energies. None of those is a free
+         * energy: no solvent, no membrane potential, no concentrations, and a
+         * fixed-charge cage. The previous release printed it bare beside
+         * "expt -0.179 eV" and it came out at -66.9 eV — a number that is
+         * arithmetic on model terms, not a prediction. After the dipole-solver
+         * fix it is -0.27 eV, which is at least on the experimental scale,
+         * but the SCALE agreement is the only thing being claimed: the sign is
+         * a property of the model, and the magnitude has no uncertainty bar
+         * attached because there is nothing to attach one to. */
+        printf("  SCOPE: a sum of rigid-cage and 6-water-cluster model terms, not a\n");
+        printf("    free energy. Sign is a model statement; magnitude has NO uncertainty\n");
+        printf("    bar because there is no solvent model to put an error on. Compare\n");
+        printf("    only with expt ~-0.18 eV for scale, never as a prediction.\n");
         (void)fe_k_min; (void)fe_na_min; (void)fe_gap;
         DSWriter *w = ds_open("kcsa.cvmds", "kcsa");
         if (w) {
@@ -3330,6 +3367,11 @@ static void demo_kcsa_real_filter(void) {
     int f = kcsa_build_filter(sim, vec3(0, 0, 0), 4);
     if (f < 0) { printf("  filter build failed\n"); sim_destroy(sim); return; }
 
+    /* Captured before any later block rebinds these names: the demo runs
+     * many sub-simulations further down and reuses `sim`/`f` for them, so
+     * reading them at the end of the function reports the LAST sub-run
+     * rather than the filter. */
+    const int filter_atoms = sim->num_atoms - f;
     double qtot = 0.0;
     for (int i = f; i < sim->num_atoms; i++) qtot += sim->atoms[i].partial_charge;
     printf("\n  Filter built: %d atoms (%d per subunit x 4), net charge %+.6f e\n",
@@ -3437,6 +3479,9 @@ static void demo_kcsa_real_filter(void) {
     printf("    mismatch into a binding-energy difference on its own.\n");
     printf("    The previous model's Na+-favouring result was not a KcsA\n");
     printf("    result: it was the electrostatics of a constructed cage.\n");
+    /* AUDIT FIX V2: demo 12b had no verdict slot, so the recap table omitted
+     * a demo that had run. Recorded from locals already in scope. */
+    set_verdict(12, "filter %d atoms, net %+.3fe", filter_atoms, qtot);
 }
 
 static void demo_dna_duplex(void) {
@@ -3822,7 +3867,7 @@ double fin_gc = traj_gc1[DUP_NSAMP-1]; if (traj_gc2[DUP_NSAMP-1] > fin_gc) { fin
 double fin_at = traj_at1[DUP_NSAMP-1] > traj_at2[DUP_NSAMP-1] ? traj_at1[DUP_NSAMP-1] : traj_at2[DUP_NSAMP-1];
 const char *v_gc = (mx_gc < 3.6) ? "HELD" : (mx_gc < 4.2 && fin_gc < 3.6) ? "BREATHING" : "drifted";
 const char *v_at = (mx_at < 3.6) ? "HELD" : (mx_at < 4.2 && fin_at < 3.6) ? "BREATHING" : "drifted";
-set_verdict(12, "duplex G-C %s, A-T %s", v_gc, v_at);
+set_verdict(13, "duplex G-C %s, A-T %s", v_gc, v_at);
 
 printf("\nPLACEMENT VERDICT:  G-C %s, A-T %s\n",
        pm_gc_ok?"PAIRED":"NOT PAIRED", pm_at_ok?"PAIRED":"NOT PAIRED");
@@ -3984,7 +4029,7 @@ if (pm_gc_ok && pm_at_ok && v_gc[0] != 'd' && v_at[0] != 'd') {
         printf("  Phase 2 verdict: G-C %s (max %.2f), A-T %s (max %.2f)\n",
                w2gc, m2gc, w2at, m2at);
         printf("  (*3-sample ensemble; same thresholds as Phase 1)\n");
-        set_verdict(12, "duplex P1 %s/%s P2 %s/%s", v_gc, v_at, w2gc, w2at);
+        set_verdict(13, "duplex P1 %s/%s P2 %s/%s", v_gc, v_at, w2gc, w2at);
     }
 }
 
@@ -4024,13 +4069,14 @@ int main(void) {
     /* Result recap: one deterministic line per demo (see set_verdict
      * sites). Static text + computed values only — record-safe. */
     {
-        static const char *names[13] = {
+        static const char *names[DEMO_VERDICT_COUNT] = {
             "1 quantum", "2 bond curve", "3 water MD", "4 trimer",
             "5 methane", "6 nucleobases", "7 pairing", "8 dinucleotide",
-            "9 HH neuron", "10 dipeptide", "11 helix", "12 KcsA", "17 duplex"};
+            "9 HH neuron", "10 dipeptide", "11 helix", "12 KcsA",
+            "12b real KcsA filter", "17 duplex"};
         printf("\n  ══════════════════════════════════════════════════\n");
         printf("  RESULT RECAP\n");
-        for (int i = 0; i < 13; i++)
+        for (int i = 0; i < DEMO_VERDICT_COUNT; i++)
             printf("  %-14s : %s\n", names[i],
                    g_verdict[i][0] ? g_verdict[i] : "(no verdict recorded)");
         printf("  ══════════════════════════════════════════════════\n");
