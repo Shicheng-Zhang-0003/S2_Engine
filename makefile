@@ -90,11 +90,24 @@ $(OBJ_DIR)/test_regression.o: $(TEST_DIR)/test_regression.c
 	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
 
 # Run every gate. `make test` is what CI should invoke.
+# AUDIT FIX M5: the regression line used to be
+#     @./build/test_regression | tail -3
+# A pipeline reports the exit status of its LAST command, so make saw tail's 0
+# and reported success on a red suite. Confirmed against the pre-fix solver:
+# test_regression reported 4 FAIL lines and that recipe still exited 0.
+# The log is now written to a file so the binary's own exit status reaches
+# make unmasked, and the FAIL lines are grepped as well so the gate fails even
+# if a future change to the suite decouples its exit code from its verdicts.
 test: selftest selftest-forces selftest-fire selftest-regression
 	@./$(OBJ_DIR)/test_datastream   > /dev/null && echo "  datastream   OK"
 	@./$(OBJ_DIR)/test_forces      > /dev/null && echo "  forces       OK"
 	@./$(OBJ_DIR)/test_fire        > /dev/null && echo "  fire         OK"
-	@./$(OBJ_DIR)/test_regression  | tail -3
+	@./$(OBJ_DIR)/test_regression  > $(OBJ_DIR)/regression.log; \
+	  rc=$$?; tail -3 $(OBJ_DIR)/regression.log; \
+	  if [ $$rc -ne 0 ] || grep -q '^  FAIL' $(OBJ_DIR)/regression.log; then \
+	    echo "  regression  FAILED (rc=$$rc)"; grep '^  FAIL' $(OBJ_DIR)/regression.log | head -20; \
+	    exit 1; \
+	  else echo "  regression  OK"; fi
 
 clean:
 	rm -rf $(OBJ_DIR) $(BIN)

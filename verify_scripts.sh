@@ -12,7 +12,26 @@
 # committed objects stale enough to hide it completely. `make clean`
 # first is the only honest form.
 set -uo pipefail
-ok(){ printf '  %-58s %s\n' "$1" "$2"; }
+# AUDIT FIX M4. The old helper was:
+#
+#     ok(){ printf '  %-58s %s\n' "$1" "$2"; }
+#
+# It printed a label and a grep count and returned 0, and it never touched
+# `fail`. So all thirteen "kcsa cage wiring (truth fixes)" checks were
+# decoration: the script printed VERIFY PASSED no matter what the counts were,
+# and the thresholds lived in the printed LABEL ("... (>=6)") where nothing
+# compared against them. The count could have been 0 and the gate would still
+# have passed. `ok` is deleted rather than repaired because every call site was
+# a lower bound, not an equality, so there is no correct `ok` — only at_least.
+#
+# at_least NAME COUNT MIN — the wiring checks are lower bounds by nature
+# (they assert a pattern is present at least N times, not exactly N times),
+# so a numeric comparison against a bound is the honest form.
+at_least(){ if [ "${2:-0}" -ge "$3" ] 2>/dev/null; then
+               printf '  PASS  %-56s %s (>=%s)\n' "$1" "${2:-0}" "$3"
+           else
+               printf '  FAIL  %-56s %s, want >=%s\n' "$1" "${2:-0}" "$3"; fail=1
+           fi; }
 fail=0
 chk(){ if [ "$2" = "$3" ]; then printf '  PASS  %s\n' "$1"; else printf '  FAIL  %s (want %s, got %s)\n' "$1" "$2" "$3"; fail=1; fi; }
 
@@ -35,20 +54,20 @@ echo "  PASS  clean build succeeds"
 chk "build warning-clean" "0" "$(grep -c 'warning:' /tmp/verify_build.log)"
 
 echo; echo "=== kcsa cage wiring (truth fixes) ==="
-ok "KCSA_RING_Z_SEP in main.c" "$(grep -Fc 'KCSA_RING_Z_SEP' src/main.c) (>=6)"
-ok "3D->xy derivation sqrt(d^2-half^2)" "$(grep -Fc 'sqrt(d_inner' src/main.c) (>=1)"
-ok "r_inner/r_outer in JC+UZ+QM legs" "$(grep -Fc 'r_inner * cos' src/main.c) (>=3)"
-ok "qm_overlap_ref used (no 1.5A Sref)" "$(grep -Fc 'qm_overlap_ref' src/main.c) (>=1)"
-ok "COULOMB_MD in induction (no hardcoded 14.399)" "$(grep -Fc 'COULOMB_MD * fabs' src/main.c) (>=1)"
-ok "ECC computed leg E_ecc" "$(grep -Fc 'jc_ecc_k' src/main.c) (>=3)"
-ok "U(z) label (not PMF-as-free-energy)" "$(grep -Fci 'free-energy PMF' src/main.c) (>=2)"
-ok "side-effect-free forces_nonbonded_energy" "$(grep -Fc 'forces_nonbonded_energy' src/main.c) (>=1)"
-ok "v2 induction+Pauli in force loop" "$(grep -Fc 'use_polar' src/forces.c) (>=2)"
-ok "v3 dispersion + SCF driver" "$(grep -Fc 'qm_scf_charges' src/qm.c) (>=2)"
-ok "relaxed coordination leg" "$(grep -Fc 'rel_cn_k' src/main.c) (>=2)"
-ok "Thole damping" "$(grep -Fci 'thole' src/qm.c) (>=3)"
-ok "explicit hydration legs" "$(grep -Fc 'hyd_k' src/main.c) (>=3)"
-ok "WHAM free energy" "$(grep -Fc 'WHAM' src/main.c) (>=2)"
+at_least "KCSA_RING_Z_SEP in main.c"        "$(grep -Fc 'KCSA_RING_Z_SEP'   src/main.c)" 6
+at_least "3D->xy derivation sqrt(d^2-half^2)" "$(grep -Fc 'sqrt(d_inner'    src/main.c)" 1
+at_least "r_inner/r_outer in JC+UZ+QM legs"  "$(grep -Fc 'r_inner * cos'    src/main.c)" 3
+at_least "qm_overlap_ref used (no 1.5A Sref)" "$(grep -Fc 'qm_overlap_ref'   src/main.c)" 1
+at_least "COULOMB_MD in induction (no hardcoded 14.399)" "$(grep -Fc 'COULOMB_MD * fabs' src/main.c)" 1
+at_least "ECC computed leg E_ecc"            "$(grep -Fc 'jc_ecc_k'         src/main.c)" 3
+at_least "U(z) label (not PMF-as-free-energy)" "$(grep -Fci 'free-energy PMF' src/main.c)" 2
+at_least "side-effect-free forces_nonbonded_energy" "$(grep -Fc 'forces_nonbonded_energy' src/main.c)" 1
+at_least "v2 induction+Pauli in force loop"  "$(grep -Fc 'use_polar'         src/forces.c)" 2
+at_least "v3 dispersion + SCF driver"        "$(grep -Fc 'qm_scf_charges'    src/qm.c)" 2
+at_least "relaxed coordination leg"          "$(grep -Fc 'rel_cn_k'          src/main.c)" 2
+at_least "Thole damping"                     "$(grep -Fci 'thole'            src/qm.c)" 3
+at_least "explicit hydration legs"           "$(grep -Fc 'hyd_k'            src/main.c)" 3
+at_least "WHAM free energy"                  "$(grep -Fc 'WHAM'             src/main.c)" 2
 
 echo; echo "=== datastream ==="
 make selftest >/dev/null 2>&1
