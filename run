@@ -1,1 +1,91 @@
-./carbonsim > output.txt
+#!/usr/bin/env bash
+#
+# run — build the engine, run it, and refuse to destroy the record silently.
+#
+# AUDIT FIX M6: this used to be one line,
+#     ./carbonsim > output.txt
+# which overwrote the committed record with whatever the current tree
+# happened to produce and told you nothing. Because output.txt and
+# CURRENT_BASELINE_SHA.txt are both tracked and together are the project's
+# provenance claim, a single stray ./run destroyed the ability to tell an
+# intended record update from an accidental one: `git diff` afterwards showed
+# only a changed output.txt, with no marker of whether the new values were
+# wanted. Every later verification script then reported "record not intact",
+# which reads as an engine defect and is really just the overwrite.
+#
+# The record is now regenerated deliberately and never in place:
+#   1. output goes to a timestamped file under the caller, never to output.txt;
+#   2. the previous digest is reported before and after, side by side;
+#   3. promoting the new run to output.txt + CURRENT_BASELINE_SHA.txt is an
+#      explicit second step, so the diff a reviewer sees is the record change
+#      itself and nothing else.
+#
+# Usage:
+#   ./run                 run, write runs/<stamp>.txt, print digests
+#   ./run --accept        ...and also promote the result to the record
+#   ./run --help
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE"
+
+RECORD=output.txt
+LEDGER=CURRENT_BASELINE_SHA.txt
+RUNS_DIR=runs
+
+usage() { sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; }
+
+sha() { [ -f "$1" ] && sha256sum "$1" | cut -d' ' -f1 || echo "(absent)"; }
+
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then usage; exit 0; fi
+
+case "${1:-}" in
+  "")         ACCEPT=0 ;;
+  --accept)   ACCEPT=1 ;;
+  *)          echo "run: unknown argument '$1' (try --help)" >&2; exit 2 ;;
+esac
+
+command -v sha256sum >/dev/null || { echo "run: sha256sum not found" >&2; exit 2; }
+
+printf 'run: building\n' >&2
+make >/dev/null
+
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "$RUNS_DIR"
+OUT="$RUNS_DIR/$STAMP.txt"
+ERR="$RUNS_DIR/$STAMP.stderr.txt"
+
+printf 'run: executing (about two minutes)\n' >&2
+./carbonsim > "$OUT" 2> "$ERR"
+
+if [ -s "$ERR" ]; then
+  echo "run: engine wrote to stderr; not promoting a run whose stderr is not empty" >&2
+  sed -n '1,20p' "$ERR" >&2
+fi
+
+NEW="$(sha "$OUT")"
+OLD="$(sha "$RECORD")"
+
+echo
+echo "  recorded record : $OLD"
+echo "  this run         : $NEW   ($OUT)"
+echo "  recorded ledger  : $(cat "$LEDGER" 2>/dev/null | tr -d ' \n' || echo '(absent)')"
+
+if [ -z "$(cat "$ERR")" ] && [ "$OLD" = "$NEW" ]; then
+  echo "  verdict          : identical to the record; nothing to promote"
+  exit 0
+fi
+
+if [ "$ACCEPT" -eq 1 ] && [ -z "$(cat "$ERR")" ]; then
+  cp "$OUT" "$RECORD"
+  printf '%s\n' "$NEW" > "$LEDGER"
+  echo "  verdict          : PROMOTED to $RECORD and $LEDGER"
+  echo "                    review 'git diff $RECORD' before committing"
+  exit 0
+fi
+
+echo "  verdict          : differs from the record, left unpromoted"
+echo "                    inspect 'git diff --no-index $RECORD $OUT', then"
+echo "                    re-run as './run --accept' to promote it"
+[ "$ACCEPT" -eq 1 ] && exit 1
+exit 0
