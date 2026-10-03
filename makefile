@@ -34,7 +34,7 @@ OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SRCS))
 DEPS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.d, $(SRCS))
 
 .PHONY: all clean run selftest selftest-forces selftest-fire selftest-regression \
-        selftest-external test deps
+        selftest-external test deps audit audit-revert
 
 all: $(OBJ_DIR) $(BIN)
 
@@ -131,8 +131,19 @@ test: selftest selftest-forces selftest-fire selftest-regression selftest-extern
 	    exit 1; \
 	  else echo "  regression  OK"; fi
 
+# The v9R4 audit's own working material: independent mathematical oracles,
+# C harnesses linked against the engine objects, external-source checks, and
+# -- with audit-revert -- the same regression suite linked against the
+# PRE-FIX engine to prove it still catches the defects it claims to.
+# Not part of `make test`: this is evidence, not a product gate.
+audit:
+	@./audit/run_audit.sh
+
+audit-revert:
+	@./audit/run_audit.sh --revert
+
 clean:
-	rm -rf $(OBJ_DIR) $(BIN)
+	rm -rf $(OBJ_DIR) $(BIN) audit/build
 
 # Print dependency info for debugging
 deps:

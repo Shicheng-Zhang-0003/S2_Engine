@@ -1051,6 +1051,117 @@ static void test_aminoacid_charge_sums(void) {
     }
 }
 
+static void test_qeq_nonzero_total_charge(void) {
+    grp("QEq: conservation must not depend on total_q being zero (A-C2b/A-C2c)");
+
+    /* AUDIT FIX A-C2b. The first version of the A-C2 fix scaled the solved
+     * vector about ZERO to impose the bound:
+     *
+     *     shrink = QMAX / max|q|;   q <- q * shrink
+     *
+     * which preserves sum(q) only when total_q is 0, because it maps
+     * sum(q) = total_q to total_q * shrink. The regression test that verified
+     * the fix sampled total_q = 0 only, so it passed and the property was
+     * reported as fixed. It was not: 31 of 400 random clusters over
+     * total_q in [-1, +1] violated sum(q) = total_q, worst error 0.79 e.
+     * qm_qeq takes total_q as a parameter; testing it only at zero did not
+     * test it.
+     *
+     * The bound must be imposed by contracting the deviation FROM THE MEAN,
+     * which leaves the sum at m*mean = total_q exactly. Swept over total_q
+     * rather than pinned at a value, because the value is the thing that
+     * decides whether the bug is visible. */
+    {
+        unsigned seed = 12345u;
+        int nbad = 0, nsys = 0, over = 0;
+        double worst = 0.0, worst_tot = 0.0;
+        for (int t = 0; t < 400; t++) {
+            int N = 2 + (int)((seed >> 8) % 6);
+            seed = seed * 1103515245u + 12345u;
+            double tot = -1.0 + 2.0 * ((double)((seed >> 8) % 1000) / 1000.0);
+            Simulation *s = sim_create(16, 32);
+            for (int i = 0; i < N; i++) {
+                seed = seed * 1103515245u + 12345u;
+                double x = 1.0 + 1.2 * ((double)((seed >> 8) % 1000) / 1000.0);
+                seed = seed * 1103515245u + 12345u;
+                double y = 1.2 * ((double)((seed >> 8) % 1000) / 1000.0);
+                seed = seed * 1103515245u + 12345u;
+                double z = 1.2 * ((double)((seed >> 8) % 1000) / 1000.0);
+                seed = seed * 1103515245u + 12345u;
+                int pick = (int)((seed >> 8) % 3);
+                sim_add_atom(s, pick == 0 ? 8 : (pick == 1 ? 6 : 19), vec3(x, y, z), 0.0);
+            }
+            double q[64];
+            if (qm_qeq(s, tot, 1.0, q) == 0) {
+                double sum = 0, mx = 0;
+                for (int i = 0; i < N; i++) { sum += q[i]; if (fabs(q[i]) > mx) mx = fabs(q[i]); }
+                double err = fabs(sum - tot);
+                if (err > worst) { worst = err; worst_tot = tot; }
+                if (err > 1e-9) nbad++;
+                if (mx > 2.0 + 1e-12) over++;
+                nsys++;
+            }
+            sim_destroy(s);
+        }
+        char dd[224];
+        snprintf(dd, sizeof dd, "%d systems, worst |sum-total_q| = %.3e at total_q=%+.3f",
+                 nsys, worst, worst_tot);
+        ok("sum(q) == total_q for nonzero total_q (not just zero)", nbad == 0, dd);
+        snprintf(dd, sizeof dd, "%d of %d exceeded the 2 e bound", over, nsys);
+        ok("the 2 e bound still holds at nonzero total_q", over == 0, dd);
+    }
+
+    /* AUDIT FIX A-C2c: qm_qeq_pinned enforced NO bound at all. Every other
+     * entry point applies the +/-2 e limit, so a pinned-atom system - exactly
+     * what the engine uses for an ion in a cage - could return charges of any
+     * magnitude while its unpinned twin could not. The invariant here is over
+     * the FREE atoms: sum(free) = total_q - pinned_q, and the pinned charge is
+     * an input, not a variable to be scaled. */
+    {
+        unsigned seed = 99u;
+        int nbad = 0, nbound = 0, nsys = 0, pinmoved = 0;
+        double worst = 0.0;
+        for (int t = 0; t < 300; t++) {
+            int N = 3 + (int)((seed >> 8) % 5);
+            seed = seed * 1103515245u + 12345u;
+            double tot = -1.5 + 3.0 * ((double)((seed >> 8) % 1000) / 1000.0);
+            const double pin = 1.0;
+            Simulation *s = sim_create(16, 32);
+            sim_add_atom(s, 19, vec3(0, 0, 0), pin);   /* index 0, pinned */
+            for (int i = 1; i < N; i++) {
+                seed = seed * 1103515245u + 12345u;
+                double x = 0.9 + 1.1 * ((double)((seed >> 8) % 1000) / 1000.0);
+                seed = seed * 1103515245u + 12345u;
+                double y = 1.1 * ((double)((seed >> 8) % 1000) / 1000.0);
+                seed = seed * 1103515245u + 12345u;
+                double z = 1.1 * ((double)((seed >> 8) % 1000) / 1000.0);
+                seed = seed * 1103515245u + 12345u;
+                sim_add_atom(s, ((seed >> 8) % 2) ? 6 : 8, vec3(x, y, z), 0.0);
+            }
+            double q[64];
+            if (qm_qeq_pinned(s, tot, 1.0, 0, pin, q) == 0) {
+                double sum = 0, mx = 0;
+                for (int i = 1; i < N; i++) { sum += q[i]; if (fabs(q[i]) > mx) mx = fabs(q[i]); }
+                double err = fabs(sum - (tot - pin));
+                if (err > worst) worst = err;
+                if (err > 1e-9) nbad++;
+                if (mx > 2.0 + 1e-12) nbound++;
+                if (fabs(q[0] - pin) > 1e-12) pinmoved++;
+                nsys++;
+            }
+            sim_destroy(s);
+        }
+        char dd[224];
+        snprintf(dd, sizeof dd, "%d systems, worst |sum(free)-(total_q-pinned_q)| = %.3e",
+                 nsys, worst);
+        ok("pinned path conserves total_q - pinned_q", nbad == 0, dd);
+        snprintf(dd, sizeof dd, "%d of %d exceeded the bound; %d pinned charges altered",
+                 nbound, nsys, pinmoved);
+        ok("pinned path applies the bound and leaves the pinned charge alone",
+           nbound == 0 && pinmoved == 0, dd);
+    }
+}
+
 static void test_constants_derived(void) {
     grp("Every exact reciprocal is derived, not typed (audit M1/M2)");
     /* PLANCK_HBAR == PLANCK_H / (2 pi) to the last representable bit */
@@ -1334,6 +1445,7 @@ int main(void) {
     test_ion_size_and_hydration();
     test_dipole_solver_equation();
     test_qeq_conservation_under_bound();
+    test_qeq_nonzero_total_charge();
     test_kcsa_filter_residue_neutrality();
     test_kcsa_ion_sigma();
     test_aminoacid_charge_sums();

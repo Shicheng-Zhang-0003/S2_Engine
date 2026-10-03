@@ -1,0 +1,133 @@
+[header]
+schema: 1
+demo: kcsa
+build-compiler: gcc 13.3.0
+build-flags: -O3 -g -Wall -Wextra -std=c11 -Iinclude
+wallclock: 2026-09-28T19:09:49Z
+rng-seed: 7
+source-hash: record-tree-v9R4-fixed-no-vcs
+build-flags-note: record build must not carry -march=native
+cage-geometry: 3d-2.70-2.83-xy-derived-zsep-3.084
+
+[claims]
+# key value unit provenance
+kcsa.antiprism.e_k 7.6622918303931531 eV computed
+kcsa.antiprism.e_na 7.6622918303931531 eV computed
+kcsa.antiprism.ddg_vacuum 0 eV computed
+kcsa.dehyd.k 3.0569999999999999 eV Marcus1991
+kcsa.dehyd.na 3.7829999999999999 eV Marcus1991
+kcsa.ddg_corrected -0.72599999999999998 eV computed
+kcsa.ddg_experimental -0.17857928799699513 eV expt-1000:1@300K
+kcsa.ddg_deviation -0.54742071200300479 eV computed
+kcsa.jc.e_k 7.9753516314254496 eV computed-jc2008-params
+kcsa.jc.e_na 7.6447455085649993 eV computed-jc2008-params
+kcsa.jc.ddu_vacuum 0.33060612286045021 eV computed-jc2008-params
+kcsa.jc.ddu_corrected -0.39539387713954977 eV computed-jc2008-params
+kcsa.pol.e_k -0.71485363572839677 eV computed
+kcsa.pol.e_na -0.71485363572839677 eV computed
+kcsa.ecc.scale 0.75 dimensionless computed
+kcsa.ecc.coulomb_factor 0.5625 dimensionless computed
+kcsa.ecc.e_k 4.5573415275141471 eV computed-ecc-scaled
+kcsa.ecc.e_na 4.2267354046536969 eV computed-ecc-scaled
+kcsa.ecc.ddu_vacuum 0.33060612286045021 eV computed-ecc-scaled
+kcsa.ecc.ddu_corrected -0.39539387713954977 eV computed-ecc-scaled
+kcsa.pmf.e_k_min 7.9753516314254496 eV computed
+kcsa.pmf.e_na_min 7.6447455085649993 eV computed
+kcsa.pmf.z_k_min 0 A computed
+kcsa.pmf.z_na_min 0 A computed
+kcsa.qm.q_o_mean -0.54620000000000002 e computed
+kcsa.qm.q_k 1 e computed
+kcsa.qm.q_na 1 e computed
+kcsa.qm.de_k -0.18434256706507846 eV computed
+kcsa.qm.de_na 0.14626355579537176 eV computed
+kcsa.qm.s_k 3.2303858816145367e-06 dimensionless computed
+kcsa.qm.s_na 3.9440376123515548e-07 dimensionless computed
+kcsa.qm.bo_k 2.8669338506388553 dimensionless computed
+kcsa.qm.bo_na 0.39796486559679634 dimensionless computed
+kcsa.qm.alpha_o 0.12277571060942007 A^3 computed
+kcsa.v2.pol_k -0.1211079979788505 eV computed-v2-induction
+kcsa.v2.pol_na -0.12001613064466556 eV computed-v2-induction
+kcsa.v2.pauli_k 3.4247014673328835e-10 eV computed-v2-pauli
+kcsa.v2.pauli_na 1.2644390424742912e-10 eV computed-v2-pauli
+kcsa.v2.e_k 7.8542436337890695 eV computed-v2
+kcsa.v2.e_na 7.5247293780467777 eV computed-v2
+kcsa.v2.ddu_vacuum 0.32951425574229187 eV computed-v2
+kcsa.v2.ddu_corrected -0.39648574425770811 eV computed-v2
+kcsa.hyd.e_k -3.7681344614602144 eV computed-explicit-6water
+kcsa.hyd.e_na -4.6805201936244734 eV computed-explicit-6water
+kcsa.hyd.e_k_polar -3.7787430410697551 eV computed-explicit-6water-polar
+kcsa.hyd.e_na_polar -4.6874314853196921 eV computed-explicit-6water-polar
+kcsa.hyd.ddu 0.912385732164259 eV computed-explicit-6water
+kcsa.fe.barrier_k 0.41071660329545345 eV computed-polar-wham-300k
+kcsa.fe.barrier_na 0.24405297333417697 eV computed-polar-wham-300k
+kcsa.fe.barrier_gap 0.16666362996127648 eV computed-polar-wham-300k
+kcsa.fe.barrier_gap_err 0.029867183285591965 eV computed-polar-wham-300k
+kcsa.fe.fixed_k 0.41094004107460352 eV computed-wham-300k
+kcsa.fe.fixed_na 0.27536044305748536 eV computed-wham-300k
+kcsa.fe.fixed_gap 0.13557959801711816 eV computed-wham-300k
+kcsa.scf.e_k 7.5844921786098629 eV computed-scf-qm
+kcsa.scf.e_na 7.3841329101492423 eV computed-scf-qm
+kcsa.scf.ddu_vacuum 0.20035926846062058 eV computed-scf-qm
+kcsa.scf.ddu_corrected -0.5256407315393794 eV computed-scf-qm
+kcsa.scf.qsh_k -0.54619999999999991 e computed-scf-qm
+kcsa.scf.qsh_na -0.54619999999999991 e computed-scf-qm
+kcsa.scf.pol_k -0.11822019108507763 eV computed-scf-qm
+kcsa.scf.pol_na -0.11795867970237175 eV computed-scf-qm
+kcsa.scf.pauli_k 3.3913887075832983e-10 eV computed-scf-qm
+kcsa.scf.pauli_na 1.2579277134062105e-10 eV computed-scf-qm
+kcsa.scf.disp_k -0.25716989520679473 eV computed-scf-qm
+kcsa.scf.disp_na -0.12651583348386453 eV computed-scf-qm
+kcsa.scf.it_k 5 dimensionless computed-scf-qm
+kcsa.scf.it_na 5 dimensionless computed-scf-qm
+kcsa.relax.e_k 6.0820491090950624 eV computed-relaxed-scf
+kcsa.relax.e_na 5.4898090432970905 eV computed-relaxed-scf
+kcsa.relax.ddu 0.59224006579797184 eV computed-relaxed-scf
+kcsa.relax.off_k 0.22451641869135425 A computed-relaxed-scf
+kcsa.relax.off_na 1.5175288656823702 A computed-relaxed-scf
+kcsa.relax.d_k 3.544950361103735 A computed-relaxed-scf
+kcsa.relax.d_na 3.6583286204239305 A computed-relaxed-scf
+kcsa.relax.cn_k 4 dimensionless computed-relaxed-scf
+kcsa.relax.cn_na 3 dimensionless computed-relaxed-scf
+kcsa.relax.hyst_k 0.5944140432852123 eV computed-relaxed-scf
+kcsa.relax.hyst_na 0.73469568190229229 eV computed-relaxed-scf
+kcsa.strain.e_k 6.9421836590114747 eV computed-stiff-scaffold
+kcsa.strain.e_na 6.5992260879966578 eV computed-stiff-scaffold
+kcsa.strain.ddu 0.34295757101481694 eV computed-stiff-scaffold
+kcsa.cn.e6_k -1.550789723805801 eV computed-6fold
+kcsa.cn.e6_na -1.6797353557458075 eV computed-6fold
+kcsa.cn.pref_k 9.1352819024156631 eV computed-6fold
+kcsa.cn.pref_na 9.0638682658950493 eV computed-6fold
+kcsa.exchange.ddg -0.31644837845196516 eV computed-exchange
+kcsa.exchange.err 0.94504275028199036 eV computed-exchange
+kcsa.exchange.rigid_ddg -0.57808232138948679 eV computed-exchange
+kcsa.pair.e_kk -7.0389847012303033 eV computed-knockon
+kcsa.pair.e_nana -8.6235327136225894 eV computed-knockon
+kcsa.pair.dii_kk 3.5500178966861196 A computed-knockon
+kcsa.pair.dii_nana 3.5138584554271874 A computed-knockon
+kcsa.pair.dio_kk 3.5693765832636659 A computed-knockon
+kcsa.pair.dio_nana 3.3244426486464658 A computed-knockon
+kcsa.pair.ddu 1.5845480123922862 eV computed-knockon
+kcsa.pair.sp_kk -3.4039485272315488 eV computed-knockon
+kcsa.pair.sp_nana -8.202840910846966 eV computed-knockon
+kcsa.pair.sp_ddu 4.7988923836154171 eV computed-knockon
+kcsa.knock.min_kk -7.9882142930848934 eV computed-knockon
+kcsa.knock.min_nana -9.6422553438677223 eV computed-knockon
+kcsa.knock.bar_kk 4.3171576851587048 eV computed-knockon
+kcsa.knock.bar_nana 5.9387280922017274 eV computed-knockon
+kcsa.knock.dbar -1.6215704070430226 eV computed-knockon
+kcsa.exchange2.ddg -0.23282887610758962 eV computed-exchange
+kcsa.exchange2.rigid_ddg -0.23282887610758962 eV computed-exchange
+kcsa.scfuz.e_k_min 7.5970867485761184 eV computed-scf-uz
+kcsa.scfuz.e_na_min 7.353330646664177 eV computed-scf-uz
+kcsa.scfuz.z_k_min 0 A computed-scf-uz
+kcsa.scfuz.z_na_min -0.5 A computed-scf-uz
+kcsa.scfuz.bar_k 3.9810599854764677 eV computed-scf-uz
+kcsa.scfuz.bar_na 4.3453398446527709 eV computed-scf-uz
+kcsa.scfuz.dbar -0.36427985917630323 eV computed-scf-uz
+kcsa.scfuz.pol_k0 -0.1211079979788505 eV computed-scf-uz
+kcsa.scfuz.pol_na0 -0.12001613064466556 eV computed-scf-uz
+kcsa.scfuz.pol_k15 -0.5270478786202476 eV computed-scf-uz
+kcsa.scfuz.pol_na15 -0.48808618295899259 eV computed-scf-uz
+
+[end]
+payload-sha256: b1fbeeb5cfe4af502bea599aef79be1aedabcc41f2a53235a9a8e12347948caa

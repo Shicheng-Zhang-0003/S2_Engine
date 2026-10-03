@@ -259,7 +259,7 @@ Equally worth recording, because it bounds where the doubt lies.
 ```
 clean build                          0 errors, 0 warnings
 selftest / forces / fire             17 / 22 / 7 checks green
-selftest-regression                  161 checks green
+selftest-regression                  165 checks green
 ASan + UBSan                         0 memory errors, 0 UB, empty stderr
 stdout byte-identical across runs    yes
 stdout byte-identical under ASan     yes

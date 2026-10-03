@@ -480,7 +480,7 @@ note: the archived `output.after-fix09.txt` in this tree predates the
 Demo 12 caveat strengthening and the banner-line update now in
 `src/main.c`; the block below matches the current source.)
 
-**Debug build**: the makefile carries a commented alternate `CFLAGS` line enabling AddressSanitizer and UndefinedBehaviorSanitizer. As of audit fix B1, the link rule passes `$(CFLAGS)`, so uncommenting that line produces a working sanitised build through make. `s01_verify_record.sh` is the harness that actually does this: it builds normally, runs, builds with `-fsanitize=address,undefined`, runs, and asserts both runs reproduce the recorded SHA with empty stderr. Use it rather than the makefile comment — it also leaves the tree clean.
+**Debug build**: the makefile carries a commented alternate `CFLAGS` line enabling AddressSanitizer and UndefinedBehaviorSanitizer. As of audit fix B1, the link rule passes `$(CFLAGS)`, so uncommenting that line produces a working sanitised build through make. `s01_verify_record.sh` (in this directory) is the harness that actually does this: it builds normally, runs, builds with `-fsanitize=address,undefined`, runs, and asserts both runs reproduce the recorded SHA with empty stderr. Use it rather than the makefile comment — it also leaves the tree clean.
 
 *Audit fix M8*: this paragraph previously claimed the ASan run produced SHA `8e8836a04bb3…`, a digest from several releases ago, alongside the claim that it ran a "13-demo suite". 14 demos print a banner (demo 12b was added without updating either the count or the digest), and the archived `output.asan.txt` it referred to was itself a stale artifact that had to be refreshed in lockstep with every record change — it is now untracked and ignored, and `s01` verifies the ASan build against `CURRENT_BASELINE_SHA.txt` and against the normal build's output directly. The current digest is the one in `CURRENT_BASELINE_SHA.txt`; the number is not repeated here so this paragraph cannot rot.
 
@@ -1995,12 +1995,67 @@ Worth stating, because it bounds where the doubt lies.
 * **`neuron.c` is a clean squid-axon Hodgkin–Huxley implementation** with the
   removable singularities in α_m and α_n handled by a correct Taylor expansion.
 
+**Two further QEq defects, found while relocating the audit tree.** The
+first A-C2 fix scaled the solved charge vector about **zero** to impose the
+±2 e bound:
+
+```
+shrink = QMAX / max|q|;   q ← q · shrink
+```
+
+which preserves `sum(q)` only when `total_q` is 0, because it maps
+`sum(q) = total_q` to `total_q · shrink`. The regression test that verified
+the fix sampled `total_q = 0` only, so it passed, and the property was
+reported as fixed. It was not: **31 of 400** random clusters over
+`total_q ∈ [−1, +1]` violated `sum(q) = total_q`, worst error **0.79 e**. The
+bound must be imposed by contracting the *deviation from the mean*, which
+leaves the sum at `m·mean = total_q` exactly. Separately, `qm_qeq_pinned`
+enforced **no bound at all**, while every other entry point did — so a
+pinned-atom system, which is exactly what the engine uses for an ion in a
+cage, could return charges of any magnitude while its unpinned twin could
+not. Both are fixed and both are now gated by tests that **sweep** `total_q`
+rather than pinning it at the one value that hides the bug.
+
+Neither changes the record: the record's pinned call passes
+`total_q = 8·q_O + 1` with the ion pinned at +1, so the free-atom mean is
+exactly `q_O` and all free atoms are the same element — the bound never
+activates. The digest legitimately does not move.
+
 ### Verification gates
 
-A new regression suite, `make selftest-regression`, adds **161 checks**, one
+A new regression suite, `make selftest-regression`, adds **165 checks**, one
 per defect above, built on independent oracles — finite differences,
 quadrature, NIST SHA-256 vectors, published reference values — so it can
 actually fail. `make test` runs every gate.
+
+### The audit's own tree (`make audit`, `make audit-revert`)
+
+`audit/` holds everything that used to live outside `v9R4/`: the
+mathematical oracles, the C harnesses linked against the engine objects, the
+external-source checks, verbatim copies of the **pre-fix** `qm.c` /
+`integrator.c` / `constants.h`, the historical one-off fix scripts, and the
+findings log. It is all inside the repository now, with every path relative to
+the tree root, so the audit is reproducible from a fresh clone rather than
+only on the machine that produced it. `audit/README.md` documents the layout.
+
+```bash
+make audit         # every oracle and harness
+make audit-revert  # ...and the regression suite against the PRE-FIX engine
+```
+
+`make audit-revert` is the interesting half. It compiles `audit/orig/*` and
+links `tests/test_regression.c` against *those* instead of the fixed engine,
+then reports which checks go red. **Six do** — the coupled-dipole residual,
+dipole rotation covariance, QEq conservation under the bound, SCF charge
+conservation, QEq conservation at nonzero `total_q`, and the pinned path's
+missing bound. If that number ever reaches zero, the regression suite has
+stopped being evidence of anything.
+
+Two scripts in `audit/math/` are classified **forensic, not gated**:
+`a05_induction.py` contains a pure-Python reimplementation of the *pre-fix*
+`qm_solve_dipoles` and never links the engine, so it still reports a large
+dipole residual — that failure is its output, and calling it a gate failure
+would be exactly backwards.
 
 ### External sources (`make selftest-external`)
 
@@ -2058,27 +2113,33 @@ and is recorded rather than quietly left. See `kcsa_filter.c`.
 the second audit pass was run against a deliberately reverted engine — the
 pre-fix `qm.c` and `integrator.c` compiled from `git show HEAD:` and linked
 against the current suite — to confirm it goes red on the defect it claims to
-catch. Four do, and only four:
+catch. `make audit-revert` reproduces this on demand. Six do, and only six:
 
 ```
   FAIL  solver satisfies (I - A) mu = alpha (*) E0   worst rel. residual = 1.361e+03
   FAIL  dipoles are rotation covariant               mismatch 2.151e+00 (|mu| ~ 0.433)
   FAIL  sum(q) == total_q even when the bound is active   sum(q) = -6.012e-01
   FAIL  SCF charge path conserves charge             shell sum = -1.664e+00
+  FAIL  sum(q) == total_q for nonzero total_q        worst |sum-total_q| = 4.405e+00
+  FAIL  pinned path applies the bound and leaves the pinned charge alone
+                                                     43 of 300 exceeded the bound
 ```
 
 The remaining checks are guards against regression, not reproductions of a
 specific historical failure; they pass on both engines. Saying so is more
-useful than presenting 161 green checks as 161 catches.
+useful than presenting 165 green checks as 165 catches.
 
-Two checks failed on the *new* suite rather than the old engine before being
-fixed, which is also worth recording: the rotation-covariance check compared
-mismatched atom index sets and reported a spurious 0.216 mismatch, and the
-finite-difference pair check applied `-dV/dr` to a force convention that is
-`(dV/dr)(r_ij/r)`. Both were harness errors that would have shipped as
-"verified". The dipole residual oracle also had to be taught not to import
-the Thole width from `qm.c`, since a check that shares a constant with the
-code under test cannot detect that constant being wrong.
+Four checks failed on the *new* suite rather than the old engine before being
+fixed, and the fifth and sixth defects existed precisely because a check
+passed for the wrong reason. The rotation-covariance check compared mismatched
+atom index sets and reported a spurious 0.216 mismatch; the finite-difference
+pair check applied `-dV/dr` to a force convention that is `(dV/dr)(r_ij/r)`;
+the dipole residual oracle had to be taught not to import the Thole width from
+`qm.c`, since a check sharing a constant with the code under test cannot detect
+that constant being wrong; and the QEq conservation check sampled `total_q = 0`
+only, which is the single value at which the scale-about-zero bug is invisible.
+A check that passes for the wrong reason is worse than no check, because it
+converts an untested property into a tested one.
 
 Current state:
 
@@ -2087,7 +2148,7 @@ clean build                        0 warnings, 0 errors
 selftest (datastream)              17 checks green
 selftest-forces                    22 checks green
 selftest-fire                       7 checks green
-selftest-regression               161 checks green
+selftest-regression               165 checks green
 selftest-external                 49 checks green (NIST/AMBER/FIPS/PDB 1K4C)
 ASan + UBSan                        0 memory errors, 0 UB findings, empty stderr
 stdout byte-identical across runs   yes

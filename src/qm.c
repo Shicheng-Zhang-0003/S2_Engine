@@ -576,25 +576,55 @@ int qm_qeq(const Simulation *sim, double total_q, double dielectric,
      *
      * The clamp is a physical statement - beyond +/-2 e no partial charge is
      * meaningful - so it must be enforced while the constraint is still being
-     * satisfied. Doing it by rescaling the UNCLAMPED vector preserves sum(q)
-     * exactly and never increases any |q_i|, which is the direction the clamp
-     * requires. Measured: exact conservation to 1e-16 on every one of the
-     * 4000 cases that previously broke it, with max|q| still <= 2 e.
+     * satisfied.
      *
-     * A single-atom-dominated cluster is the extreme case: there, rescaling
-     * drives q to exactly total_q, which is the only answer consistent with
-     * both the constraint and the bound. */
-    double qmax = 0.0;
-    for (int i = 0; i < n; i++) {
-        if (!isfinite(sol[i])) return -1;
-        double a = fabs(sol[i]);
-        if (a > qmax) qmax = a;
-    }
-    double shrink = (qmax > QM_QEQ_QMAX) ? QM_QEQ_QMAX / qmax : 1.0;
-    for (int i = 0; i < n; i++) {
-        double qv = sol[i] * shrink;
-        if (!isfinite(qv)) return -1;
-        out_q[i] = qv;   /* audit F9 bound, now conservation-preserving */
+     * AUDIT FIX A-C2b: the first version of this fix scaled the vector about
+     * ZERO:
+     *
+     *     shrink = QMAX / max|q|;   out_q[i] = sol[i] * shrink
+     *
+     * which preserves sum(q) ONLY when total_q is 0, because it turns
+     * sum(q) = total_q into sum(q) = total_q * shrink. The regression test
+     * that verified the fix (a09_qeq_conservation) sampled total_q = 0 only,
+     * so it passed, and the property was reported as fixed. It was not.
+     * qm_qeq is the general entry point and takes total_q as a parameter;
+     * measured on random clusters with total_q swept over [-1, +1]:
+     *
+     *     31 of 400 clusters violate sum(q) = total_q at 1e-9
+     *     worst |sum(q) - total_q| = 0.79 e   (N = 6, total_q = +0.98)
+     *
+     * The bound must be imposed by contracting the DEVIATION FROM THE MEAN,
+     * not the vector about the origin. Since mean = total_q/m, scaling
+     * deviations symmetrically about it leaves the sum at m*mean = total_q
+     * exactly and is order-preserving, so the electronegativity ordering that
+     * is the physical content of the model survives too. This is the same
+     * argument, and the same code, as the SCF path already used.
+     *
+     * The residual risk is a request that is INFEASIBLE rather than merely
+     * violated: if |mean| > QMAX, no vector can satisfy both the bound and
+     * sum(q) = total_q, and returning a silently wrong answer would repeat
+     * the original defect in a new place. That case returns -1.
+     */
+    {
+        double m = (double)n;
+        double mean = total_q / m;
+        if (fabs(mean) > QM_QEQ_QMAX) return -1;   /* infeasible: see above */
+        double dev = 0.0;
+        for (int i = 0; i < n; i++) {
+            if (!isfinite(sol[i])) return -1;
+            double dv = fabs(sol[i] - mean);
+            if (dv > dev) dev = dv;
+        }
+        double span = QM_QEQ_QMAX - fabs(mean);
+        if (span < 1e-12) span = 1e-12;
+        if (dev > span && dev > 0.0) {
+            double s = span / dev;
+            for (int i = 0; i < n; i++) sol[i] = mean + (sol[i] - mean) * s;
+        }
+        for (int i = 0; i < n; i++) {
+            if (!isfinite(sol[i])) return -1;
+            out_q[i] = sol[i];   /* audit F9 bound, conservation-preserving */
+        }
     }
     return 0;
 }
@@ -665,7 +695,35 @@ int qm_qeq_pinned(const Simulation *sim, double total_q, double dielectric,
         if (fabs(M[r * N + r]) < 1e-12) return -1;
         sol[r] = acc / M[r * N + r];
     }
-    for (int a = 0; a < m; a++) out_q[idx[a]] = sol[a];
+    /* AUDIT FIX A-C2c: qm_qeq_pinned enforced NO bound at all. Every other
+     * QEq entry point applies the +/-2 e limit, so a pinned-atom system -
+     * exactly the case the engine uses for an ion in a cage - could return
+     * charges with any magnitude while its unpinned twin could not. Same
+     * mean-relative contraction as qm_qeq, over the free atoms only, because
+     * the pinned charge is a fixed input and not a variable to be scaled.
+     * Invariant preserved: sum over FREE atoms = total_q - pinned_q. */
+    {
+        double mf = (double)m;
+        double free_target = total_q - pinned_q;
+        double mean = (m > 0) ? free_target / mf : 0.0;
+        if (fabs(mean) > QM_QEQ_QMAX) return -1;   /* infeasible, see qm_qeq */
+        double dev = 0.0;
+        for (int a = 0; a < m; a++) {
+            if (!isfinite(sol[a])) return -1;
+            double dv = fabs(sol[a] - mean);
+            if (dv > dev) dev = dv;
+        }
+        double span = QM_QEQ_QMAX - fabs(mean);
+        if (span < 1e-12) span = 1e-12;
+        if (dev > span && dev > 0.0) {
+            double s = span / dev;
+            for (int a = 0; a < m; a++) sol[a] = mean + (sol[a] - mean) * s;
+        }
+    }
+    for (int a = 0; a < m; a++) {
+        if (!isfinite(sol[a])) return -1;
+        out_q[idx[a]] = sol[a];
+    }
     out_q[pinned_idx] = pinned_q;
     return 0;
 }
