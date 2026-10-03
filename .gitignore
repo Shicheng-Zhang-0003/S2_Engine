@@ -20,6 +20,14 @@ build/*.d
 stderr_asan.txt
 output.asan.txt
 
+# audit/ holds the audit's own working material (audit/README.md). Its build
+# products and generated files are derived data: the harnesses are rebuilt by
+# audit/run_audit.sh, and 1K4C.cif is the decompressed form of the tracked
+# 1K4C.cif.gz.
+audit/build/
+audit/external/1K4C.cif
+audit/scratch/
+
 # ./run writes candidate records here instead of overwriting output.txt
 # (audit fix M6). A candidate run is not a record until it is promoted with
 # ./run --accept, so keeping the staging area out of the tree is what stops

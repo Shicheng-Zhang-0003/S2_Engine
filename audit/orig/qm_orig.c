@@ -563,68 +563,12 @@ int qm_qeq(const Simulation *sim, double total_q, double dielectric,
         if (fabs(M[r * N + r]) < 1e-12) return -1;
         sol[r] = acc / M[r * N + r];
     }
-    /* AUDIT FIX A-C2: the clamp must be INSIDE the solve, not applied to its
-     * output.
-     *
-     * The old code clamped each solved q_i to +/-2 e AFTER the augmented
-     * system had been solved. The system carries sum(q) = total_q as one of its
-     * rows, so a post-hoc clamp silently breaks that constraint: measured, 233
-     * of 4000 random clusters came back with sum(q) != total_q, worst |sum q|
-     * = 8.0 e against a requested 0. That is a net charge appearing on a
-     * system that was asked to be neutral, which then propagates into every
-     * Coulomb term downstream while the solver reports success.
-     *
-     * The clamp is a physical statement - beyond +/-2 e no partial charge is
-     * meaningful - so it must be enforced while the constraint is still being
-     * satisfied.
-     *
-     * AUDIT FIX A-C2b: the first version of this fix scaled the vector about
-     * ZERO:
-     *
-     *     shrink = QMAX / max|q|;   out_q[i] = sol[i] * shrink
-     *
-     * which preserves sum(q) ONLY when total_q is 0, because it turns
-     * sum(q) = total_q into sum(q) = total_q * shrink. The regression test
-     * that verified the fix (a09_qeq_conservation) sampled total_q = 0 only,
-     * so it passed, and the property was reported as fixed. It was not.
-     * qm_qeq is the general entry point and takes total_q as a parameter;
-     * measured on random clusters with total_q swept over [-1, +1]:
-     *
-     *     31 of 400 clusters violate sum(q) = total_q at 1e-9
-     *     worst |sum(q) - total_q| = 0.79 e   (N = 6, total_q = +0.98)
-     *
-     * The bound must be imposed by contracting the DEVIATION FROM THE MEAN,
-     * not the vector about the origin. Since mean = total_q/m, scaling
-     * deviations symmetrically about it leaves the sum at m*mean = total_q
-     * exactly and is order-preserving, so the electronegativity ordering that
-     * is the physical content of the model survives too. This is the same
-     * argument, and the same code, as the SCF path already used.
-     *
-     * The residual risk is a request that is INFEASIBLE rather than merely
-     * violated: if |mean| > QMAX, no vector can satisfy both the bound and
-     * sum(q) = total_q, and returning a silently wrong answer would repeat
-     * the original defect in a new place. That case returns -1.
-     */
-    {
-        double m = (double)n;
-        double mean = total_q / m;
-        if (fabs(mean) > QM_QEQ_QMAX) return -1;   /* infeasible: see above */
-        double dev = 0.0;
-        for (int i = 0; i < n; i++) {
-            if (!isfinite(sol[i])) return -1;
-            double dv = fabs(sol[i] - mean);
-            if (dv > dev) dev = dv;
-        }
-        double span = QM_QEQ_QMAX - fabs(mean);
-        if (span < 1e-12) span = 1e-12;
-        if (dev > span && dev > 0.0) {
-            double s = span / dev;
-            for (int i = 0; i < n; i++) sol[i] = mean + (sol[i] - mean) * s;
-        }
-        for (int i = 0; i < n; i++) {
-            if (!isfinite(sol[i])) return -1;
-            out_q[i] = sol[i];   /* audit F9 bound, conservation-preserving */
-        }
+    for (int i = 0; i < n; i++) {
+        double qv = sol[i];
+        if (!isfinite(qv)) return -1;
+        if (qv >  QM_QEQ_QMAX) qv =  QM_QEQ_QMAX;   /* audit F9 */
+        if (qv < -QM_QEQ_QMAX) qv = -QM_QEQ_QMAX;
+        out_q[i] = qv;
     }
     return 0;
 }
@@ -695,35 +639,7 @@ int qm_qeq_pinned(const Simulation *sim, double total_q, double dielectric,
         if (fabs(M[r * N + r]) < 1e-12) return -1;
         sol[r] = acc / M[r * N + r];
     }
-    /* AUDIT FIX A-C2c: qm_qeq_pinned enforced NO bound at all. Every other
-     * QEq entry point applies the +/-2 e limit, so a pinned-atom system -
-     * exactly the case the engine uses for an ion in a cage - could return
-     * charges with any magnitude while its unpinned twin could not. Same
-     * mean-relative contraction as qm_qeq, over the free atoms only, because
-     * the pinned charge is a fixed input and not a variable to be scaled.
-     * Invariant preserved: sum over FREE atoms = total_q - pinned_q. */
-    {
-        double mf = (double)m;
-        double free_target = total_q - pinned_q;
-        double mean = (m > 0) ? free_target / mf : 0.0;
-        if (fabs(mean) > QM_QEQ_QMAX) return -1;   /* infeasible, see qm_qeq */
-        double dev = 0.0;
-        for (int a = 0; a < m; a++) {
-            if (!isfinite(sol[a])) return -1;
-            double dv = fabs(sol[a] - mean);
-            if (dv > dev) dev = dv;
-        }
-        double span = QM_QEQ_QMAX - fabs(mean);
-        if (span < 1e-12) span = 1e-12;
-        if (dev > span && dev > 0.0) {
-            double s = span / dev;
-            for (int a = 0; a < m; a++) sol[a] = mean + (sol[a] - mean) * s;
-        }
-    }
-    for (int a = 0; a < m; a++) {
-        if (!isfinite(sol[a])) return -1;
-        out_q[idx[a]] = sol[a];
-    }
+    for (int a = 0; a < m; a++) out_q[idx[a]] = sol[a];
     out_q[pinned_idx] = pinned_q;
     return 0;
 }
@@ -1083,64 +999,22 @@ double qm_induction_forces(Simulation *sim, double dielectric) {
  * honest signal that the induced-dipole model has no solution at this
  * geometry, e.g. undamped catastrophe cancellation).
  */
-/* Upper bound on atoms for the coupled-dipole solve. The system is 3N x 3N,
- * so the workspace is (3N)^2 doubles; at N=64 that is 192^2 = 36864 doubles
- * = 288 kB of thread-local storage, which is a sane ceiling for a term whose
- * force path already costs 6N extra solves per call. */
-#define QM_SOLVE_MAX_ATOMS 64
-
 int qm_solve_dipoles(const Simulation *sim, double dielectric, Vec3 *mu_out) {
     if (!sim || !sim->atoms || !mu_out) return -1;
     int N = sim->num_atoms;
-    if (N < 1 || N > QM_SOLVE_MAX_ATOMS) return -1;
+    if (N < 1 || N > 256) return -1;
     if (!(dielectric > 1e-9) || !isfinite(dielectric)) dielectric = 1.0;
 
-    Vec3 E0[QM_SOLVE_MAX_ATOMS];
+    Vec3 E0[256];
     qm_fields(sim, dielectric, E0);
 
-    double alpha[QM_SOLVE_MAX_ATOMS];
+    double alpha[256];
     for (int i = 0; i < N; i++) {
         alpha[i] = qm_polarizability(&sim->atoms[i]);
         if (!(alpha[i] > 0.0) || !isfinite(alpha[i])) alpha[i] = 0.0;
     }
 
-/* AUDIT FIX A-C1: this whole assembly is rewritten. The previous
-     * version was documented as solving the 3N x 3N system
-     *     (I - A) mu = alpha (*) E0,  A_ij = alpha_i k f(r) [3 d d - I]/r^3/eps
-     * and did not. Four independent structural defects, each fatal:
-     *
-     *   (1) The elimination ran c < N, r < N over an N x N array. A system
-     *       of N atoms has 3N dipole unknowns, so the pivoting loop must run
-     *       3N times and the array must be (3N)^2.
-     *   (2) The 3x3 tensor block was written with THREE of its NINE entries
-     *       ((xx), (xy), (xz)) at offsets +0, +N, +2N. A 3x3 block at row
-     *       stride 3N and column stride 3 needs offsets
-     *       {0,1,2, N,N+1,N+2, 2N,2N+1,2N+2}; the code's +N and +2N address
-     *       rows i+1 and i+2 of an N-wide matrix, not components of block
-     *       (i,j). yy, yz, zz, zx, zy were never written at all.
-     *   (3) Only M[0 .. N*N-1] was zeroed while the writes reached index
-     *       3N^2 - N - 1, so for EVERY N > 1 the off-diagonal writes
-     *       accumulated onto stale thread-local memory from a previous call.
-     *   (4) rhs was FILLED as rhs[3*i + c] and READ as rhs[comp*N + r];
-     *       those are different permutations unless N == 1.
-     *
-     * Why every shipped test passed anyway, which is the part worth
-     * recording: the force test verifies that the returned force is the
-     * gradient of the returned energy U = -1/2 sum mu.E0, which is true by
-     * construction for ANY mu; the continuity test passes because stale
-     * thread-local memory is a deterministic function of the previous call;
-     * and "the solver converges" only checks the return code, which is 0
-     * because the N x N matrix actually being solved is nonsingular. The
-     * measured residual of the documented equation was 5.4 to 14.2 - a
-     * function that returned nonsense, not a function that was slightly off.
-     *
-     * The fix below assembles the genuine 3N x 3N system and eliminates it.
-     * QM_SOLVE_MAX_ATOMS bounds N so the (3N)^2 workspace is a fixed size;
-     * the old 256^2 array is replaced by a 3*QM_SOLVE_MAX_ATOMS square, which
-     * is the actual requirement of a 3N x 3N solve (the old declaration was
-     * simultaneously too small for the system it claimed to solve and larger
-     * than the region it zeroed). */
-    const int M3 = 3 * N;
+    /* rhs = alpha (*) E0, as three stacked scalars. */
     double rhs[3 * 256];
     for (int i = 0; i < N; i++) {
         double s = alpha[i] / COULOMB_MD;
@@ -1150,10 +1024,10 @@ int qm_solve_dipoles(const Simulation *sim, double dielectric, Vec3 *mu_out) {
     }
     if (N == 1) { mu_out[0] = vec3(rhs[0], rhs[1], rhs[2]); return 0; }
 
-    /* M = I - A over 3N unknowns: block (i,j) at row 3i, column 3j. */
-    static _Thread_local double M[(3 * QM_SOLVE_MAX_ATOMS) * (3 * QM_SOLVE_MAX_ATOMS)];
-    for (int i = 0; i < M3 * M3; i++) M[i] = 0.0;
-    for (int i = 0; i < M3; i++) M[i * M3 + i] = 1.0;
+    /* M = I - A, A_ij = alpha_i * k * f(r_ij) * [3 d d - I] / r^3 / eps. */
+    static _Thread_local double M[256 * 256];
+    for (int i = 0; i < N * N; i++) M[i] = 0.0;
+    for (int i = 0; i < N; i++) M[i * N + i] = 1.0;
     for (int i = 0; i < N; i++) {
         for (int j = 0; j < N; j++) {
             if (i == j || alpha[i] == 0.0) continue;
@@ -1191,72 +1065,60 @@ int qm_solve_dipoles(const Simulation *sim, double dielectric, Vec3 *mu_out) {
             double r3 = r2 * r;
             /* k_ij = alpha_i * k * fth / (eps * r^3) */
             double kij = alpha[i] * COULOMB_MD * fth / (dielectric * r3);
-            /* AUDIT FIX A-C1 (2): write the FULL 3x3 tensor block.
-             *     A_ij   = kij * [3 dhat dhat^T - I]
-             * so the (I - A) off-diagonal is kij * [I - 3 dhat dhat^T],
-             * whose (a,b) entry is kij * ((a==b) - 3 u_a u_b).
-             * The old code wrote only (xx), (xy), (xz) and never wrote
-             * yy, yz, zz, zx, zy, which is why the solve it performed had no
-             * relation to this operator. Block (i,j) is at row 3i, column 3j. */
+            /* -A_ij = kij * (I - 3 dhat dhat^T): off-diagonal of (I - A) */
             double ux = d.x / r, uy = d.y / r, uz = d.z / r;
-            const double u[3] = { ux, uy, uz };
-            for (int a = 0; a < 3; a++)
-                for (int b = 0; b < 3; b++)
-                    M[(3*i + a) * M3 + (3*j + b)]
-                        += kij * (((a == b) ? 1.0 : 0.0) - 3.0 * u[a] * u[b]);
+            M[i*N + j]     -= kij * (1.0 - 3.0 * ux * ux);
+            M[i*N + j + N] -= kij * (0.0 - 3.0 * ux * uy);
+            M[i*N + j + 2*N] -= kij * (0.0 - 3.0 * ux * uz);
         }
     }
 
-    /* Gaussian elimination with partial pivoting over the FULL 3N system.
-     * rhs is interleaved by atom (rhs[3*i+c]), matching the fill above.
-     * The old version ran an N x N elimination three times, once per
-     * Cartesian component. That cannot be right even with a correct matrix:
-     * the 3x3 blocks couple x, y and z, so the three directions are NOT
-     * independently solvable. It is one 3N x 3N solve. */
-    for (int c = 0; c < M3; c++) {
+    /* Gaussian elimination with partial pivoting, 3 right-hand sides. */
+    for (int c = 0; c < N; c++) {
         int piv = c;
-        double best = fabs(M[c * M3 + c]);
-        for (int r = c + 1; r < M3; r++) {
-            double v = fabs(M[r * M3 + c]);
+        double best = fabs(M[c * N + c]);
+        for (int r = c + 1; r < N; r++) {
+            double v = fabs(M[r * N + c]);
             if (v > best) { best = v; piv = r; }
         }
         if (!(best > 1e-12)) return -1;   /* singular */
-        if (piv != c) {
-            for (int k = 0; k < M3; k++) {
-                double t = M[c * M3 + k];
-                M[c * M3 + k] = M[piv * M3 + k];
-                M[piv * M3 + k] = t;
+        if (piv != c)
+            for (int k = 0; k < N; k++) {
+                double t = M[c * N + k]; M[c * N + k] = M[piv * N + k]; M[piv * N + k] = t;
             }
-            double t = rhs[c];
-            rhs[c] = rhs[piv];
-            rhs[piv] = t;
+        for (int comp = 0; comp < 3; comp++) {
+            double t = rhs[comp * N + c];
+            rhs[comp * N + c] = rhs[comp * N + piv];
+            rhs[comp * N + piv] = t;
         }
-        double dg = M[c * M3 + c];
-        for (int r = c + 1; r < M3; r++) {
-            double fct = M[r * M3 + c] / dg;
+        double dg = M[c * N + c];
+        for (int r = c + 1; r < N; r++) {
+            double fct = M[r * N + c] / dg;
             if (fct == 0.0) continue;
-            for (int k = c; k < M3; k++) M[r * M3 + k] -= fct * M[c * M3 + k];
-            rhs[r] -= fct * rhs[c];
+            for (int k = c; k < N; k++) M[r * N + k] -= fct * M[c * N + k];
+            for (int comp = 0; comp < 3; comp++)
+                rhs[comp * N + r] -= fct * rhs[comp * N + c];
         }
     }
-    /* Back-substitution over the full 3N vector, then unpack to Vec3. The old
-     * version back-substituted component by component reading mu_out[k]
-     * directly, which is correct only because mu_out is written in the same
-     * order it is needed - but it did so on an N-long index into an array of
-     * 3N unknowns, so it solved three N-long systems for a 3N-long answer. */
-    double sol[3 * 256];
-    for (int r = M3 - 1; r >= 0; r--) {
-        double acc = rhs[r];
-        for (int k = r + 1; k < M3; k++) acc -= M[r * M3 + k] * sol[k];
-        sol[r] = acc / M[r * M3 + r];
-        if (!isfinite(sol[r])) return -1;
+    /* Back-substitution, one component at a time: component r of row r
+     * depends on components k > r of the already-solved mu_out[k]. */
+    for (int comp = 0; comp < 3; comp++) {
+        for (int r = N - 1; r >= 0; r--) {
+            double acc = rhs[comp * N + r];
+            for (int k = r + 1; k < N; k++) {
+                double m = (comp == 0) ? mu_out[k].x
+                        : (comp == 1) ? mu_out[k].y : mu_out[k].z;
+                acc -= M[r * N + k] * m;
+            }
+            double v = acc / M[r * N + r];
+            if (!isfinite(v)) return -1;
+            if (comp == 0) mu_out[r].x = v;
+            else if (comp == 1) mu_out[r].y = v;
+            else mu_out[r].z = v;
+        }
     }
-    for (int i = 0; i < N; i++) {
-        mu_out[i].x = sol[3*i + 0];
-        mu_out[i].y = sol[3*i + 1];
-        mu_out[i].z = sol[3*i + 2];
+    for (int i = 0; i < N; i++)
         if (!isfinite(mu_out[i].x + mu_out[i].y + mu_out[i].z)) return -1;
-    }
     return 0;
 }
 
@@ -1290,25 +1152,13 @@ int qm_solve_dipoles(const Simulation *sim, double dielectric, Vec3 *mu_out) {
 static double qm_scf_induction_energy(const Simulation *sim, double dielectric,
                                       int *rc_out) {
     int N = sim->num_atoms;
-    /* AUDIT FIX A-C1: the workspace is sized to the solver's own atom cap,
-     * and the cap is checked HERE rather than after the fact. The previous
-     * version declared 256-slot arrays and called a solver that would refuse
-     * N > 256, so a system between the old solver cap and the array size was
-     * fine while a system over it silently returned zero energy. Sizing both
-     * from one constant removes the possibility of the two drifting apart
-     * again, which is the same class of duplication the amber_lj.h
-     * consolidation was about. */
-    Vec3 E0[QM_SOLVE_MAX_ATOMS], mu[QM_SOLVE_MAX_ATOMS];
-    if (N < 1 || N > QM_SOLVE_MAX_ATOMS) { if (rc_out) *rc_out = -1; return 0.0; }
+    Vec3 E0[256], mu[256];
     qm_fields(sim, dielectric, E0);
     int rc = qm_solve_dipoles(sim, dielectric, mu);
     if (rc_out) *rc_out = rc;
-    /* On solver failure the SAME functional is still evaluated from the
-     * returned dipoles (audit D3's continuity requirement): the dipoles are
-     * zeroed, so U = 0 and the energy stays a continuous function of geometry
-     * across a singular point instead of jumping to a different functional. */
     if (rc != 0)
-        for (int i = 0; i < N; i++) mu[i] = vec3_zero();
+        for (int i = 0; i < N; i++)
+            if (!isfinite(mu[i].x + mu[i].y + mu[i].z)) mu[i] = vec3_zero();
     double U = 0.0;
     for (int i = 0; i < N; i++) U += -0.5 * vec3_dot(mu[i], E0[i]);
     return isfinite(U) ? U : 0.0;
@@ -1328,7 +1178,7 @@ static double qm_scf_induction_energy(const Simulation *sim, double dielectric,
 double qm_induction_scf_forces(Simulation *sim, double dielectric, int *rc_out) {
     if (!sim || !sim->atoms || sim->num_atoms < 1) return 0.0;
     int N = sim->num_atoms;
-    if (N > QM_SOLVE_MAX_ATOMS) { if (rc_out) *rc_out = -1; return 0.0; }
+    if (N > 256) return 0.0;
     if (!(dielectric > 1e-9) || !isfinite(dielectric)) dielectric = 1.0;
 
     double U = qm_scf_induction_energy(sim, dielectric, rc_out);
@@ -1743,71 +1593,18 @@ static int qm_scf_run(Simulation *sim, double total_q, double dielectric,
             if (fabs(M[rr * Nsys + rr]) < 1e-12) return -1;
             sol[rr] = acc / M[rr * Nsys + rr];
         }
-        /* AUDIT FIX A-C2b: the constraint is re-imposed after under-relaxation,
-         * and the bound is enforced in a way that preserves it.
-         *
-         * The linear solve returns a `sol` that satisfies sum(sol) = target by
-         * construction, because that sum is one of the system's rows. The old
-         * code then clamped sol to +/-2 e and mixed 30/70 with the previous
-         * iterate - and BOTH of those destroy the constraint. Clamping breaks
-         * it outright; mixing breaks it too, because only one of the two
-         * vectors being mixed satisfies the constraint (qprev starts from the
-         * atoms' stored charges, which need not sum to target at all). The net
-         * effect was a solver that returned charges violating sum(q) = target
-         * while reporting convergence.
-         *
-         * Both corrections below preserve the group-charge ORDERING, which is
-         * the thing the under-relaxation exists to protect:
-         *
-         *   - conservation: a UNIFORM shift of every free atom. Adding the
-         *     same constant to all of them leaves every pairwise difference
-         *     q_i - q_j untouched, so the electronegativity ordering (the
-         *     physical content of the charge model) is bit-for-bit preserved
-         *     while the sum is restored exactly.
-         *   - bound: rescaling the DEVIATION from the constraint-consistent
-         *     uniform vector sum(q)/m. A contraction toward the mean also
-         *     leaves ordering intact and never increases any |q_i|.
-         *
-         * Net charge on a system asked to be neutral is a defect the caller
-         * cannot see: qm_scf_charges returns an iteration count, not a charge
-         * audit, and the value lands straight in the Coulomb term. */
         double maxd = 0.0;
         for (int a = 0; a < m; a++) {
             double raw = sol[a];
-            /* Under-relaxation: dipole feedback can overshoot (charge
-             * sloshing → collapse in dynamics). Mix 30/70 toward the new
-             * solve. No clamp here — clamping a vector that carries a sum
-             * constraint is what broke it; the bound is imposed below in a
-             * form that preserves the constraint. */
+            /* Under-relaxation + clamp: dipole feedback can overshoot
+             * (charge sloshing → collapse in dynamics). Mix 70/30 and
+             * cap |q|≤2 e (beyond any physical carbonyl charge). */
+            if (raw > 2.0) raw = 2.0;
+            else if (raw < -2.0) raw = -2.0;
             double mixed = 0.3 * raw + 0.7 * qprev[idx[a]];
-            if (!isfinite(mixed)) return -1;
             double dch = fabs(mixed - qprev[idx[a]]);
             if (dch > maxd) maxd = dch;
             qprev[idx[a]] = mixed;
-        }
-        /* restore sum(q_free) = target exactly, by uniform shift */
-        {
-            double sum = 0.0;
-            for (int a = 0; a < m; a++) sum += qprev[idx[a]];
-            double shift = (m > 0) ? (target - sum) / (double)m : 0.0;
-            for (int a = 0; a < m; a++) qprev[idx[a]] += shift;
-        }
-        /* enforce |q| <= 2 e without touching the sum: contract the
-         * deviation from the mean, which is order-preserving */
-        {
-            double mean = (m > 0) ? target / (double)m : 0.0;
-            double dev = 0.0;
-            for (int a = 0; a < m; a++) {
-                double dv = fabs(qprev[idx[a]] - mean);
-                if (dv > dev) dev = dv;
-            }
-            double span = QM_QEQ_QMAX - fabs(mean);
-            if (span < 1e-12) span = 1e-12;
-            if (dev > span && dev > 0.0) {
-                double s = span / dev;
-                for (int a = 0; a < m; a++)
-                    qprev[idx[a]] = mean + (qprev[idx[a]] - mean) * s;
-            }
         }
         for (int pp = 0; pp < npin; pp++) qprev[pidx[pp]] = pinq[pp];
         if (maxd < 1e-4) {
