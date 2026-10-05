@@ -457,9 +457,16 @@ make
 The project ships a makefile with the following targets:
 
 * `make` / `make all` — compile every source in `src/` into object
-  files under `build/`, then link the `carbonsim` binary.
+  files under `build/`, then link **all seven executables**: the
+  `carbonsim` record binary, the `s2tui` interactive terminal (a live
+  tool, deliberately untracked — see `s2tui` section below), and the
+  five test binaries (`build/test_datastream`, `test_forces`,
+  `test_fire`, `test_regression`, `test_external`). One command, no
+  separate `make tui` / `make selftest-*` runs needed (`compile` is
+  exactly `make clean; make -j$(nproc)`).
 * `make run` — build if necessary, then execute `./carbonsim`.
-* `make clean` — remove the `build/` directory and the binary.
+* `make test` — build and run every gate (what CI should invoke).
+* `make clean` — remove the `build/` directory and both binaries.
 
 **Requirements**: a C11 compiler (gcc or clang), `make`, and the
 standard C math library (linked automatically via `-lm`). The default
@@ -492,11 +499,13 @@ heartbeats, leg progress — goes to stderr and only when stderr is a TTY
 (`CARBON_QUIET` silences it). Piped/file runs stay silent and s01-clean
 by construction. See `include/display.h`.
 
-**Tests**: `make selftest` (datastream writer: SHA KATs, round-trip,
-tamper-reject — 17 checks), `make selftest-forces` (analytic dihedral
-vs FD oracle to 1e-6 + net-zero force + collinear guard), both gated by
-`verify_scripts.sh` alongside the record SHA, warning-clean build,
-`kcsa.cvmds` seal, and key/unit compliance.
+**Tests**: `make test` builds and runs every gate (17 datastream
+writer checks: SHA KATs, round-trip, tamper-reject; 22 analytic-dihedral
+vs FD oracle checks to 1e-6 + net-zero force + collinear guard; 7 FIRE
+vs steepest-descent minima checks; 165 audit-regression checks against
+independent oracles; 49 external-source checks against NIST/AMBER/FIPS/
+PDB 1K4C), all gated by `verify_scripts.sh` alongside the record SHA,
+warning-clean build, `kcsa.cvmds` seal, and key/unit compliance.
 
 ---
 
@@ -1638,9 +1647,14 @@ What changed, grouped by subsystem (all in `output.txt`, all sealed in
   thread-local QEq buffers throughout.
 * **Display.** Deterministic stdout (the record) vs TTY-gated stderr
   (timings, heartbeats, leg progress) split in `include/display.h`;
-  version banner; 13-line result recap; three selftests
-  (`test_datastream`, `test_forces`, `test_fire`) all gated by
-  `verify_scripts.sh` and the s01 record harness.
+  version banner; 14-line result recap; five selftests
+  (`test_datastream`, `test_forces`, `test_fire`, `test_regression`,
+  `test_external`) all gated by `verify_scripts.sh` and the s01 record
+  harness. Interactive work lives in the separate `s2tui` binary, which
+  extends the same contract to the terminal: stdout is DATA (command
+  output, listings, tables, grid), stderr carries diagnostics, prompts
+  and progress — so pipes, `>`/`2>` and `$( )` are honest. See the
+  `s2tui` section at the end of this file.
 
 ## Code Organisation
 
@@ -1868,6 +1882,14 @@ and the antiprism block is now a real result.
    gene-regulatory logic, a synapse between neurons, and eventually
    deriving ion-channel gating from actual protein structure — closing
    the loop between the protein and electrophysiology tracks.
+
+The interactive terminal (`s2tui`, documented at the end of this file)
+is the first step past batch demos toward that horizon and toward the
+v9–v10 OpenWorm-style bond display: every demo runs as a live system
+test inside it, chemicals spawn by command, the integrator steps in
+real time under `watch`, and the ASCII grid shows atoms, bonds and
+restraints as they move. Text only, by current decision — no graphics
+claimed yet.
 
 ## Demo 17 — DNA duplex (incorporated into main executable)
 
@@ -2326,4 +2348,94 @@ code. Record digest moves from `9eb32e54…` to the contents of
 analytic already exact (keep FD as oracle); SCF FD forces dominate Demo 12
 cost — cache `E0` per geometry; WHAM windows are independent — parallelise
 by seed/window; QEq/dipole workspaces are thread-local — safe to shard.*
+
+---
+
+## s2tui — interactive terminal establishment (unreleased tool, not record)
+
+`s2tui` (`src/tui.c`, `src/tui_view.c`, `include/tui.h`,
+`include/tui_view.h`) is OpenWorm-in-the-TUI without graphics: a
+line-oriented REPL over **one live `Simulation` plus one HH neuron**,
+with an ASCII display grid for atoms and bonds. It is a separate binary
+precisely so the batch `./carbonsim` record path can never leak wall
+time or keystroke timing into stdout — the record binary does not link
+the TUI, and the TUI never writes the record. `s2tui` is deliberately
+untracked (`.gitignore`); only its sources are reviewed.
+
+Run it: `make` (builds it alongside everything else), then `./s2tui`.
+`help` prints the command map; `help <cmd>` / `man <cmd>` prints a
+man-style entry for any of the ~60 commands.
+
+**Demos as system tests.** Every batch demo doubles as a fast live test:
+`list demos`, `test demo <1|2|3|4|5|6|7|8|9|10|11|12|12b|17>`, `test all`
+(14/14 green in ~2 s). Demo 12 skips WHAM sampling and Demo 17 the full
+8000-step MD — the legs are structural/single-point smoke checks, and
+each says so; full physics stays in `./carbonsim` output.
+
+**Session model.** `new [atoms bonds]` starts a fresh sim (512-cap
+default, dt 0.5 fs, cutoff 12 A). Spawners place chemistry at an origin:
+`spawn atom <Z|sym> x y z [q]`, `spawn ion <Z> <formal> x y z [q]`,
+`spawn h2|h2o|nh3|ch4|co2 [x y z]`, `spawn kcsa [nsub 1–4]`.
+Topology: `bond`, `detect bonds`, `del atom` (terminal-only),
+`restrain` / `clear restraints`. Live controls apply immediately:
+`set dt|cutoff|dielectric|temp|thermostat|tau|nu|seed|lj|charge`,
+`init velocities <T> [seed]`, `step [N]`, `run <N>`, `show energy`
+(KE/PE/T + LJ/Coulomb/restraint/pol/Pauli/disp ledger), `minimize`,
+`neuron init|inject|step|run|show` (HH1952 squid, RK4 0.01 ms).
+
+**Your chemistry: molecules, reactions, gases.** `mol new|add|bond|
+list|clear|center|save|load|place` builds atom-by-atom templates
+(`MOL1` files) and stamps copies into the live sim.
+`rxn new|pair|break|make|delete|charge|list|save|load|fire|arm|auto`
+defines pair-triggered topology rewrites (bond cut/form, leaving-atom
+delete, charge set, ΔPE report; `RXN1` files); `rxn arm` + `rxn auto N`
+fires once when a live run wanders into geometry. Gas variables:
+`set box|pbc|press|tau-p|barostat`, `show pressure` (virial,
+COM-relative: P=(2KE/3+vir/3)/V in bar), `show thermo` (T/N/KE/V/ρ/P),
+`show temp` (per-element T), `heat <dE_eV>` (signed velocity scaling).
+The barostat is tui-side isotropic Berendsen scaling about the box
+centre — the engine is untouched.
+
+**POSIX shell layer (IEEE 1003.1 style).** Quotes (`'sq'` literal,
+`"dq $V"` expanding, `\` escapes with POSIX `\"` rules), `#` comments,
+`;` sequencing, `&&` / `||` chaining with real exit statuses
+(0 ok, 1 error, 2 usage/syntax, 127 not found), `$V` / `${V}` / `$?` /
+`$$` / `$!` expansion per segment at execution time, `V=value`
+assignment (persistent — no subprocesses to scope it to), `|` pipes
+(sequential temp-file stages, identical output for terminating
+filters), trailing `&` background subshell snapshots (`[pid]`, `wait`),
+`>` / `>>` / `<` / `<<<` / `2>` / `2>>` redirection (quoted forms stay
+literal; `$R` results are never rescanned), `*?[]` globs (no match stays
+literal), `$( )` capture as one word, `-` meaning stdin. Familiar names
+are mapped onto sim verbs: `ls atoms|bonds|summary|demos` (= `list`),
+`rm atom <i>` (= `del`), plus real utilities — `cat pwd cd mkdir cp
+mv head tail wc sort uniq cut tr grep tee basename dirname touch rmdir
+rm -r ln date uname find test/[ printf true false echo export unset
+env history source/. clear sleep time` — and `!cmd` escapes to the real
+Linux shell, returning its status. Anything else is honestly out of
+scope: no `if`/`for`/`while`/`case`/functions, no field splitting after
+`$( )`, `time` measures CPU, background jobs cannot mutate the parent
+sim (fork snapshot, like a subshell).
+
+**Stream contract.** stdout is DATA (command output, listings, tables,
+grid); stderr carries diagnostics, prompts, progress and the line
+editor. That is what makes `failing | wc` count data rather than error
+text, `2>` capture real errors, and `s2tui < script > data` stay clean.
+`save` / `load` persist `S2SAVE1` snapshots (atoms+LJ+velocities,
+bonds+r0/k, restraints, dt/cutoff/thermostat/seed; angles rebuilt).
+
+**Display grid.** `render` draws the orthographic ASCII viewport
+(depth-shaded painter's algorithm, auto-fit zoom): `h c n o N p K` =
+H C N O Na P K, `.` bonds, `x` restraint anchors, side panel with
+N/step/T/E, camera and legend. `view xy|xz|yz`, `cam yaw|pitch|zoom|
+center|reset`, `slice <thick|off>` (z-slab cutaway for the 164-atom
+filter), `watch <steps> [ms]` (live stepping redraw), `view auto
+on|off`. First ASCII step toward the v9–v10 OpenWorm-style bond display;
+no graphics claimed.
+
+**Verification.** `s2tui` output is never a record, but it is tested:
+all 14 demo-tests PASS, `save`/`load` round-trips byte-exactly, and the
+batch gates are unaffected — `make test` 165+49 green,
+`verify_scripts.sh` VERIFY PASSED, record SHA byte-identical (the
+`tui*.o` objects are excluded from the `carbonsim` link).
 
