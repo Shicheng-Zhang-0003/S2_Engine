@@ -173,8 +173,9 @@ could never have produced, and both are load-bearing:
 ### What the K⁺/Na⁺ comparison shows, and what it does not
 
 The site is K⁺-sized: the deposited contacts (2.77–2.93 Å) match K⁺
-(1.38 + 1.40 = 2.78 Å) and miss Na⁺ (1.02 + 1.40 = 2.42 Å) by 0.35 Å on all
-eight ligands. The dominant energetic term is desolvation, a measured bulk
+(1.51 VIII + 1.40 = 2.91 Å; full-audit M3 corrects previous 1.38/2.78 VI)
+and miss Na⁺ (1.18 VIII + 1.40 = 2.58 Å; was 1.02/2.42 VI) by 0.19–0.35 Å on
+all eight ligands. The dominant energetic term is desolvation, a measured bulk
 quantity rather than a force-field term:
 
 ```
@@ -184,16 +185,17 @@ K+ enters 1.368 eV cheaper
 ```
 
 But the honest result is that the **rigid cage separates the two cations by
-only 0.0130 eV**, because a symmetric eight-oxygen cage pulls both onto the
+only 0.0098 eV** (was 0.0130 eV with VI radii; VIII gives 0.0393/4),
+because a symmetric eight-oxygen cage pulls both onto the
 axis regardless of radius. The K⁺ preference at the *site* is therefore
 carried essentially entirely by the measured hydration free energy.
 
 *(Audit fix V3: this figure previously read 0.05 eV, which matched neither the
 engine's per-site value nor any per-atom figure — it overstated the cage
-separation by a factor of about four. The engine has always printed
-0.0130 eV here.)*
+separation by a factor of about four. The engine printed
+0.0130 eV with VI radii; full-audit M3 prints 0.0098 eV with VIII.)*
 
-**No quantitative selectivity free energy is claimed.** Turning that 0.35 Å
+**No quantitative selectivity free energy is claimed.** Turning that 0.19–0.35 Å
 geometric mismatch into a binding free energy requires filter flexibility and
 a solvation model, neither of which is here. A flexible-filter calculation was
 implemented, found to collapse — a restraint weak enough to let the filter
@@ -250,7 +252,7 @@ Equally worth recording, because it bounds where the doubt lies.
 * **CHARMM cutoff switching, the angle gradient, the first-order induction
   gradient, and Tang-Toennies damping** (including `df6/dr`) are all correct.
 * **MBAR is implemented correctly** — the problem was the sampling, not the
-  estimator.
+  estimator. *(Full-audit M9: solver is WHAM iteration, not MBAR; fixed in prose.)*
 * **`neuron.c` is a clean Hodgkin–Huxley implementation**, with the removable
   singularities in alpha_m and alpha_n handled by a correct Taylor expansion.
 
@@ -260,10 +262,11 @@ Equally worth recording, because it bounds where the doubt lies.
 clean build                          0 errors, 0 warnings
 selftest / forces / fire             17 / 22 / 7 checks green
 selftest-regression                  165 checks green
+selftest-external                    49 checks green (full-audit O8: was omitted)
 ASan + UBSan                         0 memory errors, 0 UB, empty stderr
 stdout byte-identical across runs    yes
 stdout byte-identical under ASan     yes
-record SHA-256                       9eb32e5489e421f89e80f85c439f4e7b5880f83c7b1c3db40c12ce31f9d53ec4
+record SHA-256                       see CURRENT_BASELINE_SHA.txt (do not duplicate digests in prose)
 ```
 
 `kcsa.cvmds` is regenerated with each run and is deliberately **not**
