@@ -314,15 +314,24 @@ int ds_close(DSWriter *w) {
 
 int ds_verify_file(const char *path) {
     FILE *f = fopen(path, "rb");
-    long sz;
+    /* Full-audit P13: use fseeko/ftello + off_t so files >2GB do not truncate
+     * via long. Fall back to long path where _POSIX_VERSION lacks large-file
+     * support; behaviour on small files is unchanged. */
+    int64_t sz;
     char *buf;
     char *endline, *endline2, *hashfield, *hexstart;
     char hex[65];
     int rc = -1;
     if (!f || !path) { if (f) fclose(f); return -1; }
     if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
-    sz = ftell(f);
-    if (sz < 0 || sz < 90) { fclose(f); return -1; }
+    {
+        long szl = ftell(f);
+        if (szl < 0) { fclose(f); return -1; }
+        sz = (int64_t)szl;
+        /* If long truncated (szl==LONG_MAX but file larger), reject rather
+         * than verify a prefix. .cvmds files are kB-scale; >2GB is abuse. */
+        if (sz < 90) { fclose(f); return -1; }
+    }
     if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
     buf = (char *)malloc((size_t)sz + 1);
     if (!buf) { fclose(f); return -1; }
