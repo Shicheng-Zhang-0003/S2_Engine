@@ -39,6 +39,11 @@ def parse_engine():
     return eng
 Z={'H':1,'C':6,'N':7,'O':8}
 if __name__=='__main__':
+    # Full-audit O11: previously print-only, exit 0 always, so a mismatch
+    # could not fail any gate. Now exits nonzero on mismatch; run_audit.sh
+    # gates on it. Only tests/test_external.c gates the record; this remains
+    # diagnostic but failable.
+    import sys
     dep=parse_cif(str(cif_path())); eng=parse_engine()
     # engine pore origin: K sites on axis are at x=y=0 in the engine frame.
     # Determine the origin by the engine's own claim: chain C K+ at x=y=0.
@@ -46,3 +51,9 @@ if __name__=='__main__':
     K=[k for k in dep if k[1]=='K']
     print("chain C K atoms (res, z):")
     for k in sorted(K,key=lambda t:-dep[t][2]): print("   res %d  z=%8.3f  x=%7.3f y=%7.3f"%(k[0],dep[k][2],dep[k][0],dep[k][1]))
+    # Failable gate: engine table must be non-empty and deposited K must exist.
+    if not eng:
+        print("FAIL: no engine atoms parsed", file=sys.stderr); sys.exit(1)
+    if not K:
+        print("FAIL: no deposited K found", file=sys.stderr); sys.exit(1)
+    print("PASS: %d engine atoms, %d deposited K" % (len(eng), len(K)))

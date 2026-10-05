@@ -113,9 +113,12 @@ $(OBJ_DIR)/test_external.o: $(TEST_DIR)/test_external.c
 # make unmasked, and the FAIL lines are grepped as well so the gate fails even
 # if a future change to the suite decouples its exit code from its verdicts.
 test: selftest selftest-forces selftest-fire selftest-regression selftest-external
-	@./$(OBJ_DIR)/test_datastream   > /dev/null && echo "  datastream   OK"
-	@./$(OBJ_DIR)/test_forces      > /dev/null && echo "  forces       OK"
-	@./$(OBJ_DIR)/test_fire        > /dev/null && echo "  fire         OK"
+	@./$(OBJ_DIR)/test_datastream   > $(OBJ_DIR)/datastream.log 2>&1; \
+	  dc=$$?; if [ $$dc -ne 0 ]; then echo "  datastream   FAILED (rc=$$dc)"; cat $(OBJ_DIR)/datastream.log; exit 1; else echo "  datastream   OK"; fi
+	@./$(OBJ_DIR)/test_forces      > $(OBJ_DIR)/forces.log 2>&1; \
+	  fc=$$?; if [ $$fc -ne 0 ]; then echo "  forces       FAILED (rc=$$fc)"; cat $(OBJ_DIR)/forces.log; exit 1; else echo "  forces       OK"; fi
+	@./$(OBJ_DIR)/test_fire        > $(OBJ_DIR)/fire.log 2>&1; \
+	  fic=$$?; if [ $$fic -ne 0 ]; then echo "  fire         FAILED (rc=$$fic)"; cat $(OBJ_DIR)/fire.log; exit 1; else echo "  fire         OK"; fi
 	@./$(OBJ_DIR)/test_external    > $(OBJ_DIR)/external.log 2>&1; \
 	  ex=$$?; tail -3 $(OBJ_DIR)/external.log; \
 	  if [ $$ex -ne 0 ] || grep -q '^  FAIL' $(OBJ_DIR)/external.log; then \

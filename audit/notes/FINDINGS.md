@@ -151,27 +151,22 @@ loss, not a hole.
 `CURRENT_BASELINE_SHA.txt`.
 
 ## M7 — MINOR — tracked `.d` files contradict the commit that "untracked" them
-
-`f8a3ed1` is titled "untrack the auto-generated .d dependency files" but only
-added `.gitignore` lines; no `git rm --cached`. All 11 `.d` files plus the
-stale `output.asan.txt` remain tracked. `.gitignore` does not affect tracked
-files. Confirmed the stale-`.d` footgun is real: injecting a nonexistent
-header name makes `make` fail hard with "No rule to make target" (exit 2).
+# HISTORICAL (full-audit O2: resolved): `f8a3ed1` only added `.gitignore`
+# lines; `git ls-files | grep \.d` is now empty and `output.asan.txt` is
+# untracked+ignored. The stale-.d footgun note remains as history.
 
 ## M8 — MINOR — stale artifacts that break the harness
-
-* `output.asan.txt` (tracked) is `58bb9f69…` — the **previous pre-audit**
-  release. `s01_verify_record.sh` diffs against it, so **the s01 harness fails
-  against the current tree by construction.**
-* Parent-level `kcsa.cvmds` has the older header schema
-  (`source-hash: record-tree-v9R4-fixed-no-vcs`, no version fields).
-
----
+# HISTORICAL (full-audit O2: resolved): `output.asan.txt` was tracked at
+# `58bb9f69…` and `s01` diffed against it; parent `kcsa.cvmds` had the old
+# schema. Now `output.asan.txt` is ignored, `s01` checks
+# CURRENT_BASELINE_SHA.txt, and the parent cvmds is archived under
+# audit/stale_artifacts/ with deprecation. Notes below describe the
+# pre-fix state.
 
 ## D1 — DOC — readme states a digest nothing produces
-
-`readme.md:461`: "both SHA-256 `8e8836a04bb3…`". The record is `67f9f47e…`.
-No build of this tree produces `8e8836a0…`.
+# HISTORICAL (full-audit O2: resolved): `readme.md:461` claimed `8e8836a…`
+# vs record `67f9f47…`. Current readme points at CURRENT_BASELINE_SHA.txt
+# and repeats no digest so the paragraph cannot rot.
 
 ## D2 — DOC — `kcsa_filter.h` ion sigmas are the *pre-fix* wrong values
 

@@ -41,7 +41,7 @@ EMPTY_SHA="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 # it must reproduce the recorded SHA byte-for-byte and leave stderr empty.
 # Byte-equality with the normal build is then implied, and is asserted
 # explicitly below because it is the property the archive was standing in for.
-ARCHIVED="$TREE/output.asan.txt"
+# Full-audit O5: dead ARCHIVED var removed (M8 leftover, never used).
 
 [ -d "$TREE" ] || { echo "FATAL: $TREE not found"; exit 2; }
 command -v sha256sum >/dev/null || { echo "FATAL: sha256sum not found"; exit 2; }
@@ -64,8 +64,11 @@ make -C "$TREE" CFLAGS="$ASAN_FLAGS" >"$SCRATCH/build_asan.log" 2>&1
 echo "[4/6] run ASan build"
 "$TREE/carbonsim" >"$SCRATCH/output.asan.txt" 2>"$SCRATCH/stderr_asan.txt"
 
-echo "[5/6] leave tree source-clean"
-make -C "$TREE" clean >/dev/null
+echo "[5/6] restore tracked build (tree dirtied by clean)"
+# Full-audit O6: the final `make clean` deleted TRACKED build/*.o + carbonsim,
+# leaving the tree git-dirty by design. Rebuild normal so the working tree is
+# left in its committed state (clean build, zero warnings) rather than dirty.
+make -C "$TREE" >"$SCRATCH/build_restore.log" 2>&1 || { echo "FATAL: restore build failed"; exit 1; }
 
 echo "[6/6] assertions"
 norm_sha=$(sha256sum "$SCRATCH/output.txt"        | cut -d' ' -f1)

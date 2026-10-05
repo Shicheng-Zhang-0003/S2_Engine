@@ -34,3 +34,6 @@ for line in out.strip().split('\n'):
     flag="" if max(rel)<1e-13 else "  <-- MISMATCH"
     print("  %d  %d  %.10e  %.10e  %.10e  %.10e  max rel %.2e%s"%(n,l,sr,sr2,sinvr,sT,max(rel),flag))
 print("\n  worst relative deviation from the closed forms: %.3e"%worst)
+# Full-audit O11: failable (was print-only, exit 0 always).
+import sys
+sys.exit(0 if worst < 1e-12 else 1)
