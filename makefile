@@ -28,20 +28,41 @@ DEPFLAGS = -MMD -MP -MF $(OBJ_DIR)/$*.d
 SRC_DIR = src
 OBJ_DIR = build
 BIN     = carbonsim
+TUI_BIN = s2tui
 
 SRCS = $(wildcard $(SRC_DIR)/*.c)
 OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SRCS))
+# tui.c carries its own main: keep it out of the batch record binary so
+# ./carbonsim stays byte-deterministic. s2tui links engine objects minus main.
+BIN_OBJS = $(filter-out $(OBJ_DIR)/tui.o $(OBJ_DIR)/tui_view.o,$(OBJS))
+ENG_OBJS = $(filter-out $(OBJ_DIR)/main.o $(OBJ_DIR)/tui.o $(OBJ_DIR)/tui_view.o,$(OBJS))
+TUI_OBJS = $(ENG_OBJS) $(OBJ_DIR)/tui.o $(OBJ_DIR)/tui_view.o
 DEPS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.d, $(SRCS))
 
 .PHONY: all clean run selftest selftest-forces selftest-fire selftest-regression \
-        selftest-external test deps audit audit-revert
+        selftest-external test deps audit audit-revert tui
 
-all: $(OBJ_DIR) $(BIN)
+# One command builds every executable: the batch record binary, the live
+# TUI, and all five test binaries — `make` / `make -j$(nproc)` is enough,
+# no separate `make tui` / `make selftest-*` runs needed. The selftest-*
+# targets below remain as aliases (verify_scripts.sh calls them).
+TEST_BINS = $(OBJ_DIR)/test_datastream $(OBJ_DIR)/test_forces \
+            $(OBJ_DIR)/test_fire $(OBJ_DIR)/test_regression \
+            $(OBJ_DIR)/test_external
+
+all: $(OBJ_DIR) $(BIN) $(TUI_BIN) $(TEST_BINS)
+
+# Live terminal (see readme `s2tui` section): separate binary with its own
+# main, linked against engine objects minus main. Untracked tool, not record.
+tui: $(OBJ_DIR) $(TUI_BIN)
+
+$(TUI_BIN): $(TUI_OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ -lm
 
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
 
-$(BIN): $(OBJS)
+$(BIN): $(BIN_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
 # Include auto-generated dependencies
@@ -57,8 +78,10 @@ run: all
 # src/datastream.o only — no dependency on the rest of the engine.
 TEST_DIR = tests
 
-selftest: $(OBJ_DIR) $(OBJ_DIR)/test_datastream.o $(OBJ_DIR)/datastream.o
-	$(CC) $(CFLAGS) -o $(OBJ_DIR)/test_datastream $(OBJ_DIR)/test_datastream.o $(OBJ_DIR)/datastream.o -lm
+$(OBJ_DIR)/test_datastream: $(OBJ_DIR) $(OBJ_DIR)/test_datastream.o $(OBJ_DIR)/datastream.o
+	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_datastream.o $(OBJ_DIR)/datastream.o -lm
+
+selftest: $(OBJ_DIR)/test_datastream
 
 # Test compilation uses TEST_DEPFLAGS for correct dependency paths
 TEST_DEPFLAGS = -MMD -MP -MF $(OBJ_DIR)/$(*F).d
@@ -68,15 +91,19 @@ $(OBJ_DIR)/test_datastream.o: $(TEST_DIR)/test_datastream.c
 
 # forces selftest (audit P2): analytic dihedral vs FD oracle. Links the
 # engine objects (minus main) since forces_dihedral lives in forces.o.
-selftest-forces: all $(OBJ_DIR)/test_forces.o
-	$(CC) $(CFLAGS) -o $(OBJ_DIR)/test_forces $(OBJ_DIR)/test_forces.o $(filter-out $(OBJ_DIR)/main.o,$(OBJS)) -lm
+$(OBJ_DIR)/test_forces: $(OBJ_DIR) $(OBJ_DIR)/test_forces.o $(ENG_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_forces.o $(ENG_OBJS) -lm
+
+selftest-forces: $(OBJ_DIR)/test_forces
 
 $(OBJ_DIR)/test_forces.o: $(TEST_DIR)/test_forces.c
 	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
 
 # fire selftest: FIRE vs steepest-descent minima agreement.
-selftest-fire: all $(OBJ_DIR)/test_fire.o
-	$(CC) $(CFLAGS) -o $(OBJ_DIR)/test_fire $(OBJ_DIR)/test_fire.o $(filter-out $(OBJ_DIR)/main.o,$(OBJS)) -lm
+$(OBJ_DIR)/test_fire: $(OBJ_DIR) $(OBJ_DIR)/test_fire.o $(ENG_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_fire.o $(ENG_OBJS) -lm
+
+selftest-fire: $(OBJ_DIR)/test_fire
 
 $(OBJ_DIR)/test_fire.o: $(TEST_DIR)/test_fire.c
 	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
@@ -84,8 +111,10 @@ $(OBJ_DIR)/test_fire.o: $(TEST_DIR)/test_fire.c
 # audit regression suite: one check per defect found and fixed in the
 # v9R4 audit. Independent oracles (finite differences, quadrature, NIST
 # SHA-256 vectors, published reference values) so it can actually fail.
-selftest-regression: all $(OBJ_DIR)/test_regression.o
-	$(CC) $(CFLAGS) -o $(OBJ_DIR)/test_regression $(OBJ_DIR)/test_regression.o $(filter-out $(OBJ_DIR)/main.o,$(OBJS)) -lm
+selftest-regression: $(OBJ_DIR)/test_regression
+
+$(OBJ_DIR)/test_regression: $(OBJ_DIR) $(OBJ_DIR)/test_regression.o $(ENG_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_regression.o $(ENG_OBJS) -lm
 
 $(OBJ_DIR)/test_regression.o: $(TEST_DIR)/test_regression.c
 	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
@@ -97,8 +126,10 @@ $(OBJ_DIR)/test_regression.o: $(TEST_DIR)/test_regression.c
 # oracles, which is self-referential: an AMBER R* compared as a sigma and a
 # FIPS digest transcribed with one wrong character were both harness errors
 # during this audit, and in both cases the engine was right.
-selftest-external: all $(OBJ_DIR)/test_external.o
-	$(CC) $(CFLAGS) -o $(OBJ_DIR)/test_external $(OBJ_DIR)/test_external.o $(filter-out $(OBJ_DIR)/main.o,$(OBJS)) -lm
+selftest-external: $(OBJ_DIR)/test_external
+
+$(OBJ_DIR)/test_external: $(OBJ_DIR) $(OBJ_DIR)/test_external.o $(ENG_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_external.o $(ENG_OBJS) -lm
 
 $(OBJ_DIR)/test_external.o: $(TEST_DIR)/test_external.c
 	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
@@ -146,7 +177,7 @@ audit-revert:
 	@./audit/run_audit.sh --revert
 
 clean:
-	rm -rf $(OBJ_DIR) $(BIN) audit/build
+	rm -rf $(OBJ_DIR) $(BIN) $(TUI_BIN) audit/build
 
 # Print dependency info for debugging
 deps:
