@@ -128,7 +128,9 @@ int kcsa_coord_stats(const Simulation *sim, int filter_first,
                      int n_subunits, Vec3 point, double cutoff,
                      double *mean_r);
 
-/* Six-coordinate Pauling/Shannon cation radius in Angstrom. */
+/* Eight-coordinate Shannon effective ionic radius in Angstrom (Shannon 1976).
+ * Full-audit M3: was six-coordinate (K 1.38, Na 1.02); filter is CN=8 so
+ * VIII values are correct (K 1.51, Na 1.18, Li 0.92, Rb 1.61, Cs 1.74). */
 double kcsa_cation_radius(int Z);
 
 /*
@@ -139,8 +141,8 @@ double kcsa_cation_radius(int Z);
  * what makes the site discriminate, and it is taken from tabulated
  * ionic radii, NOT fitted to reproduce a selectivity result:
  *
- *   r(K+) 1.38 A  r(Na+) 1.02 A  r(O) 1.40 A
- *   => preferred contact 2.78 A (K–O) and 2.42 A (Na–O)
+ *   r(K+) 1.51 A (VIII)  r(Na+) 1.18 A (VIII)  r(O) 1.40 A
+ *   => preferred contact 2.91 A (K–O) and 2.58 A (Na–O)
  *
  * sigma is fixed by requiring the ion–O LJ minimum to sit at that contact.
  * The solve is in two steps, because the mixed sigma is not the contact:
@@ -149,8 +151,12 @@ double kcsa_cation_radius(int Z);
  * fixes sigma_ion by inversion. With sigma_O = LJ_AMBER_O_SIGMA (2.959922 A,
  * the AMBER R* 1.6612 converted) that gives
  *
- *   sigma_ionO 2.4767 A (K+), 2.1560 A (Na+)   ->  minimum at 2.78 / 2.42 A
- *   sigma_ion  1.9935 A (K+), 1.3520 A (Na+)
+ *   sigma_ionO 2.5925 A (K+), 2.2985 A (Na+)   ->  minimum at 2.91 / 2.58 A
+ *   sigma_ion  2.2251 A (K+), 1.6371 A (Na+)
+ *
+ * Full-audit M3: previous values 2.4767/2.1560 and 1.9935/1.3520 used
+ * six-coordinate contacts 2.78/2.42 A. Updated for VIII radii; asserted in
+ * tests/test_regression.c so header and implementation cannot drift.
  *
  * AUDIT FIX D2: this comment used to claim sigma 1.888 A (K+) and 1.246 A
  * (Na+). Those numbers are wrong on both counts. They come from mixing
@@ -163,7 +169,8 @@ double kcsa_cation_radius(int Z);
  * One shared epsilon (0.05 kcal/mol on the ion–O pair) is used for every
  * alkali, so the comparison has no per-ion strength available to it -
  * only the size ratio. The per-ion epsilon the code back-solves is
- * 0.00300 kcal/mol on the ion site, which is a mixing artifact and not a
+ * 0.01190 kcal/mol on the ion site (0.05^2/0.21; full-audit M8 corrects the
+ * previous 0.00300 which was 4x low), which is a mixing artifact and not a
  * physical parameter; do not read it as one.
  */
 void kcsa_set_ion_radius(Simulation *sim, int ion, int Z);
