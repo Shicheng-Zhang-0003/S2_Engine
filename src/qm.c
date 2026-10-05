@@ -244,7 +244,11 @@ QmHybrid qm_hybridization(const Atom *atom) {
 /* ── chi/J and alpha ───────────────────────────────────────────────── */
 
 void qm_chi_J(const Element *el, double *chi_out, double *J_out) {
-    if (!el) return;
+    /* Full-audit P2: on NULL element write safe fallbacks when the caller
+     * provided storage, so qm_qeq cannot leave chi[]/J[] uninitialised.
+     * Callers that cannot tolerate unknown elements must still check
+     * element!=NULL and fail; this only makes the failure deterministic. */
+    if (!el) { if (chi_out) *chi_out = 0.0; if (J_out) *J_out = 10.0; return; }
     double ie = el->ionization_energy;
     double ea = el->electron_affinity; /* table uses 0 for negative/unknown */
     /* NOTE: clamping EA<0 to 0 biases J=(IE-EA)/2 low for species whose
@@ -504,6 +508,9 @@ int qm_qeq(const Simulation *sim, double total_q, double dielectric,
     if (n < 1 || n > 128 || !out_q) return -1;
     if (!(dielectric > 1e-9) || !isfinite(dielectric)) dielectric = 1.0;
     if (!isfinite(total_q)) return -1;
+    /* Full-audit P2: unknown elements (Z>Kr, element==NULL) have no chi/J.
+     * Fail closed rather than solving with garbage hardness. */
+    for (int i = 0; i < n; i++) if (!sim->atoms[i].element) return -1;
     /* Augmented system (n+1)x(n+1): [A 1; 1^T 0] [q; -mu] = [-chi; total].
      * Thread-local so concurrent calls do not race on shared statics. */
     static _Thread_local double M[129*129], rhs[129], sol[129];
@@ -637,6 +644,8 @@ int qm_qeq_pinned(const Simulation *sim, double total_q, double dielectric,
     if (pinned_idx < 0 || pinned_idx >= n) return -1;
     if (!(dielectric > 1e-9) || !isfinite(dielectric)) dielectric = 1.0;
     if (!isfinite(total_q) || !isfinite(pinned_q)) return -1;
+    /* Full-audit P2: fail closed on unknown elements, same as qm_qeq. */
+    for (int i = 0; i < n; i++) if (!sim->atoms[i].element) return -1;
     /* Free-atom index map. */
     int idx[128], m = 0;
     for (int i = 0; i < n; i++) if (i != pinned_idx) idx[m++] = i;
@@ -771,7 +780,15 @@ int qm_refresh_charges(Simulation *sim, double total_q, double dielectric) {
  * result for a spherical electron cloud of N electrons in a sphere of
  * radius R, which is the standard zeroth-order polarizability model:
  *
- *     alpha = (3/4) * (N * a0^3) / R^3        [Å^3]
+ *     alpha_vol ≈ (3/4) * N * (a0^3 / R^3)   [taken as A^3 order-of-magnitude]
+ *
+ * Full-audit M11: the previous comment wrote "alpha = (3/4)*(N*a0^3)/R^3 [A^3]"
+ * as if a0^3/R^3 carried volume units. a0^3/R^3 is dimensionless, so the
+ * expression is strictly dimensionless; it is USED as an A^3 volume
+ * order-of-magnitude (numerical value only), consistent with the measured
+ * table it backs up (H 0.42, C 1.35, etc.). Only the Z>36 fallback path
+ * reaches this estimator; all chemically decisive elements use measured
+ * values. No numeric change — comment correction only.
  *
  * with R the Slater-Clementi screening radius of the valence shell
  * (n*_eff a0 / Z_eff, from the same quantum_zeff machinery used
@@ -1359,14 +1376,24 @@ double qm_induction_scf_forces(Simulation *sim, double dielectric, int *rc_out) 
 
 /* ── v2: Pauli energy + FD forces ────────────────────────────────── */
 static int qm_pair_excluded(const Simulation *sim, int i, int j) {
+    /* Full-audit P5: harden against corrupt topology. num_bonds is clamped
+     * to MAX_BONDS_PER_ATOM so a corrupt count cannot OOB bond_partners[8];
+     * partner values are range-checked before use as indices. */
+    if (!sim || !sim->atoms || i < 0 || j < 0 || i >= sim->num_atoms || j >= sim->num_atoms) return 0;
     const Atom *ai = &sim->atoms[i];
-    for (int p = 0; p < ai->num_bonds; p++)
+    int nbi = ai->num_bonds;
+    if (nbi < 0) nbi = 0;
+    if (nbi > MAX_BONDS_PER_ATOM) nbi = MAX_BONDS_PER_ATOM;
+    for (int p = 0; p < nbi; p++)
         if (ai->bond_partners[p] == j) return 1;
-    for (int p = 0; p < ai->num_bonds; p++) {
+    for (int p = 0; p < nbi; p++) {
         int k = ai->bond_partners[p];
         if (k < 0 || k >= sim->num_atoms) continue;
         const Atom *ak = &sim->atoms[k];
-        for (int q = 0; q < ak->num_bonds; q++)
+        int nbk = ak->num_bonds;
+        if (nbk < 0) nbk = 0;
+        if (nbk > MAX_BONDS_PER_ATOM) nbk = MAX_BONDS_PER_ATOM;
+        for (int q = 0; q < nbk; q++)
             if (ak->bond_partners[q] == j) return 1;
     }
     for (int a = 0; a < sim->num_angles; a++) {

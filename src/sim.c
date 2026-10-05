@@ -382,7 +382,16 @@ int sim_add_bond(Simulation *sim, int ia, int ib, int order) {
 
     /* Look up equilibrium parameters */
     BondParam bp;
-    forces_bond_params(sim->atoms[ia].Z, sim->atoms[ib].Z, order, &bp);
+    /* Full-audit P1: forces_bond_params returns 0 only when neither element
+     * is known (Z outside 1..36, element==NULL) so no fallback applies and
+     * bp is untouched. Previously b->r0/k were garbage. Fall back to the
+     * documented geometric generic explicitly. */
+    if (!forces_bond_params(sim->atoms[ia].Z, sim->atoms[ib].Z, order, &bp)) {
+        const Element *ea = pt_element(sim->atoms[ia].Z);
+        const Element *eb = pt_element(sim->atoms[ib].Z);
+        if (ea && eb) { bp.r0 = ea->covalent_radius + eb->covalent_radius; bp.k = 20.0; }
+        else { sim->num_bonds--; return SIM_ERR_BADPARAM; }
+    }
     b->r0 = bp.r0;
     b->k  = bp.k;
 
@@ -459,6 +468,10 @@ int sim_rebuild_angles(Simulation *sim) {
 
                 int ia = b->bond_partners[p];
                 int ic = b->bond_partners[q];
+                /* Full-audit P6: partner indices are trusted topology. A
+                 * corrupt/short partner list would OOB atoms[]. Validate
+                 * before dereferencing; skip the angle rather than poison. */
+                if (ia < 0 || ia >= sim->num_atoms || ic < 0 || ic >= sim->num_atoms) continue;
 
                 Angle *ang = &sim->angles[sim->num_angles++];
                 ang->atom_a = ia;
@@ -467,7 +480,9 @@ int sim_rebuild_angles(Simulation *sim) {
 
                 /* Look up angle parameters */
                 AngleParam ap;
-                forces_angle_params(sim->atoms[ia].Z, b->Z,
+                /* Return 0 = generic fallback (still fills ap); nonzero =
+                 * table hit. Either way ap is valid; no silent drop. */
+                (void)forces_angle_params(sim->atoms[ia].Z, b->Z,
                                     sim->atoms[ic].Z, &ap);
                 ang->theta0 = ap.theta0;
                 ang->k      = ap.k;
@@ -548,10 +563,14 @@ void sim_wrap_positions(Simulation *sim) {
 /* ── H₂ ─────────────────────────────────────────────────────────────────── */
 int sim_place_h2(Simulation *sim, Vec3 origin) {
     /* Bond length 0.7414 Å, atoms symmetric about origin */
+    /* Full-audit P4: propagate allocation failures. Previously the
+     * sim_add_atom/bond returns were ignored, so an overflowed placement
+     * returned a stale `first` as valid. sim_place_co2 already checked;
+     * all constructors now do. */
     int first = sim->num_atoms;
-    sim_add_atom(sim, 1, vec3(origin.x - 0.3707, origin.y, origin.z), 0.0);
-    sim_add_atom(sim, 1, vec3(origin.x + 0.3707, origin.y, origin.z), 0.0);
-    sim_add_bond(sim, first, first+1, 1);
+    if (sim_add_atom(sim, 1, vec3(origin.x - 0.3707, origin.y, origin.z), 0.0) < 0) return SIM_ERR_OVERFLOW;
+    if (sim_add_atom(sim, 1, vec3(origin.x + 0.3707, origin.y, origin.z), 0.0) < 0) return SIM_ERR_OVERFLOW;
+    if (sim_add_bond(sim, first, first+1, 1) < 0) return SIM_ERR_OVERFLOW;
     sim_rebuild_angles(sim);
     return first;
 }
@@ -583,6 +602,7 @@ int sim_place_h2o(Simulation *sim, Vec3 origin) {
     /* H2 */
     int iH2 = sim_add_atom(sim, 1,
         vec3(origin.x - hx, origin.y - hy, origin.z),      +0.417);
+    if (iO < 0 || iH1 < 0 || iH2 < 0) return SIM_ERR_OVERFLOW;
 
     /*
      * TIP3P (Jorgensen, Chandrasekhar, Madura, Impey & Klein, J. Chem.
@@ -611,8 +631,8 @@ int sim_place_h2o(Simulation *sim, Vec3 origin) {
     sim_set_atom_lj(sim, iH1, 0.0,                      0.0);
     sim_set_atom_lj(sim, iH2, 0.0,                      0.0);
 
-    sim_add_bond(sim, first,   first+1, 1);  /* O-H1 */
-    sim_add_bond(sim, first,   first+2, 1);  /* O-H2 */
+    if (sim_add_bond(sim, first,   first+1, 1) < 0) return SIM_ERR_OVERFLOW;  /* O-H1 */
+    if (sim_add_bond(sim, first,   first+2, 1) < 0) return SIM_ERR_OVERFLOW;  /* O-H2 */
     sim_rebuild_angles(sim);
     return first;
 }
@@ -657,18 +677,18 @@ int sim_place_nh3(Simulation *sim, Vec3 origin) {
     double sin_theta  = sqrt(1.0 - cos2_theta);
 
     int first = sim->num_atoms;
-    sim_add_atom(sim, 7,
-        vec3(origin.x, origin.y, origin.z), -1.02);
+    if (sim_add_atom(sim, 7,
+        vec3(origin.x, origin.y, origin.z), -1.02) < 0) return SIM_ERR_OVERFLOW;
 
     double PI23 = 2.0 * 3.14159265358979323846 / 3.0;
     for (int k = 0; k < 3; k++) {
         double phi = k * PI23;
-        sim_add_atom(sim, 1,
+        if (sim_add_atom(sim, 1,
             vec3(origin.x + rNH * sin_theta * cos(phi),
                  origin.y + rNH * sin_theta * sin(phi),
                  origin.z - rNH * cos_theta),
-            +0.34);
-        sim_add_bond(sim, first, first+1+k, 1);
+            +0.34) < 0) return SIM_ERR_OVERFLOW;
+        if (sim_add_bond(sim, first, first+1+k, 1) < 0) return SIM_ERR_OVERFLOW;
     }
     sim_rebuild_angles(sim);
     return first;
@@ -693,14 +713,14 @@ int sim_place_ch4(Simulation *sim, Vec3 origin) {
     };
 
     int first = sim->num_atoms;
-    sim_add_atom(sim, 6, origin, -0.24);   /* C */
+    if (sim_add_atom(sim, 6, origin, -0.24) < 0) return SIM_ERR_OVERFLOW;   /* C */
     for (int k = 0; k < 4; k++) {
-        sim_add_atom(sim, 1,
+        if (sim_add_atom(sim, 1,
             vec3(origin.x + H[k][0],
                  origin.y + H[k][1],
                  origin.z + H[k][2]),
-            +0.06);
-        sim_add_bond(sim, first, first+1+k, 1);
+            +0.06) < 0) return SIM_ERR_OVERFLOW;
+        if (sim_add_bond(sim, first, first+1+k, 1) < 0) return SIM_ERR_OVERFLOW;
     }
     sim_rebuild_angles(sim);
     return first;

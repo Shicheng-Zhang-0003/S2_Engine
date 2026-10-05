@@ -146,15 +146,22 @@ static const int ANGLE_TABLE_LEN =
  * the engine is single-threaded, and the QEq buffers in qm.c that DO care
  * about threads use _Thread_local.
  * ══════════════════════════════════════════════════════════════════════════ */
-#define WARN_KEYS_MAX 256
+#define WARN_KEYS_MAX 1024
 static uint32_t warn_keys[WARN_KEYS_MAX];
 static int      warn_keys_n = 0;
 
 static int warn_once(uint32_t key) {
     for (int i = 0; i < warn_keys_n; i++)
         if (warn_keys[i] == key) return 0;
-    if (warn_keys_n < WARN_KEYS_MAX) warn_keys[warn_keys_n++] = key;
-    return 1;
+    /* Full-audit P7: when the set is full, go silent rather than warning on
+     * every call. The previous behaviour warned every call after 256 distinct
+     * keys, which would break the s01 empty-stderr gate with spam. Diagnostic
+     * loss after 1024 distinct fallbacks is preferable to non-deterministic
+     * stderr volume. Keys mask Z&0x7f/ord&0xf so out-of-range inputs collide
+     * rather than index OOB — collisions only suppress a duplicate warning,
+     * never physics. */
+    if (warn_keys_n < WARN_KEYS_MAX) { warn_keys[warn_keys_n++] = key; return 1; }
+    return 0;
 }
 
 /* 7 bits per atomic number (1..127 fits), 4 bits for bond order. */
@@ -321,13 +328,20 @@ static PairEnergy pair_nonbonded_core(Atom *atoms, int ia, int ib,
     if (use_lj) {
         double eps   = lj_eps_combine(ai->lj_epsilon, bi->lj_epsilon);
         double sigma = lj_sigma_combine(ai->lj_sigma, bi->lj_sigma);
+        /* Full-audit P9: garbage eps/sigma (NaN/negative/zero) previously fed
+         * straight into sr2/sr6. Reject non-finite or non-positive sigma and
+         * non-finite eps; negative eps is unphysical for LJ well depth. */
+        if (!isfinite(eps) || !isfinite(sigma) || !(sigma > 1e-12)) { /* skip LJ, keep Coulomb */ }
+        else {
         double sr2  = (sigma * sigma) / r2;
         double sr6  = sr2 * sr2 * sr2;
         double sr12 = sr6 * sr6;
         double V_lj = 4.0 * eps * (sr12 - sr6);
         double f_lj = (24.0 * eps / r2) * (sr6 - 2.0 * sr12); /* (1/r) dV_lj/dr */
+        if (!isfinite(V_lj) || !isfinite(f_lj)) { V_lj = 0.0; f_lj = 0.0; }
         result.lj_energy = V_lj * S;
         f_total += f_lj * S + V_lj * dSdr / r;
+        }
     }
     if (use_coulomb) {
         double qi = ai->partial_charge;
@@ -402,18 +416,24 @@ PairEnergy forces_nonbonded_energy(const Atom *atoms, int ia, int ib,
 double forces_bond(Atom *atoms, const Bond *bond) {
     if (!atoms || !bond) return 0.0;
     if (bond->atom_a < 0 || bond->atom_b < 0) return 0.0;
+    /* Full-audit P5: reject non-finite parameters. A garbage r0/k (e.g. from
+     * a failed lookup that was not checked) previously produced NaN energy
+     * and forces. */
+    if (!isfinite(bond->r0) || !isfinite(bond->k)) return 0.0;
     Atom *a = &atoms[bond->atom_a];
     Atom *b = &atoms[bond->atom_b];
 
     Vec3   r_ab   = vec3_sub(b->position, a->position);
     double r      = vec3_norm(r_ab);
-    if (r < 1.0e-10) return 0.0;
+    if (r < 1.0e-10 || !isfinite(r)) return 0.0;
 
     double stretch = r - bond->r0;
     double energy  = 0.5 * bond->k * stretch * stretch;
+    if (!isfinite(energy)) return 0.0;
 
     /* f_scalar = k × stretch / r  →  F_a = f_scalar × r_ab */
     double f_scalar = bond->k * stretch / r;
+    if (!isfinite(f_scalar)) return energy;
     Vec3 F_a = vec3_scale(r_ab, f_scalar);
     vec3_iadd(&a->force, F_a);
     vec3_isub(&b->force, F_a);
@@ -669,9 +689,13 @@ void forces_calculate(Simulation *sim) {
     if (!sim->angles && sim->num_angles > 0) return;
     if (!sim->dihedrals && sim->num_dihedrals > 0) return;
     /* v3 SCF: converge charges (with dipole feedback) before forces. */
+    /* Full-audit P10: check return codes. On solver failure charges are left
+     * untouched (stale but finite) and the step proceeds with the previous
+     * charges — the honest fallback, since inventing charges would be worse.
+     * Single-atom (n<2) and n>128 systems cannot run QEq by construction. */
     if (sim->use_scf) {
         if (sim->scf_pinned_idx >= 0) {
-            qm_scf_charges(sim, sim->scf_total_q, sim->dielectric,
+            (void)qm_scf_charges(sim, sim->scf_total_q, sim->dielectric,
                            sim->scf_pinned_idx, sim->scf_pinned_q);
         } else {
             double qq[128];
