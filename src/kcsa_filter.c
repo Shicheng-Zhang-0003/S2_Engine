@@ -299,10 +299,11 @@ int kcsa_coord_stats(const Simulation *sim, int filter_first,
  * ══════════════════════════════════════════════════════════════════════════
  *
  * The site is K+-sized. Deposited K-O distances are 2.77-2.93 A against a
- * preferred 2.78 A for K+ (1.38 A six-coordinate ionic radius + 1.40 A
- * O radius), while Na+ prefers 2.42 A. Na+ is therefore 0.35 A too far
- * from each of eight oxygens, and that geometric mismatch is what the
- * filter's side chains are shaped to enforce.
+ * preferred 2.91 A for K+ (1.51 A eight-coordinate Shannon radius + 1.40 A
+ * O radius; full-audit M3 corrects previous 2.78 A six-coordinate),
+ * while Na+ prefers 2.58 A (1.18 A VIII). Na+ is therefore 0.19-0.35 A
+ * too far from each of eight oxygens, and that geometric mismatch is what
+ * the filter's side chains are shaped to enforce.
  *
  * But the geometric mismatch is NOT the dominant energetic term, and this
  * is where a vacuum calculation goes wrong. The dominant term is the
@@ -359,15 +360,20 @@ double kcsa_dehydration_cost_eV(int Z) {
  * rigid deposited structure; see kcsa_build_filter for why adding bonded
  * terms to it would only inject strain.
  */
-/* Six-coordinate Pauling/Shannon cation radii, Angstrom. */
+/* Eight-coordinate Shannon effective ionic radii, Angstrom (Shannon 1976
+ * Table 1). The filter is 8-coordinate (CN=8 at every site, Demo 12b), so
+ * the 8-coordinate radii are the correct sizes — full-audit M3.
+ * Previous values were 6-coordinate (Li 0.59 is 4-coordinate): K 1.38->1.51,
+ * Na 1.02->1.18 (+0.13/+0.16 A). Contact error was 40% of the 0.36 A K/Na
+ * signal. Preferred contacts become K-O 2.91 A, Na-O 2.58 A. */
 double kcsa_cation_radius(int Z) {
     switch (Z) {
-        case  3: return 0.59;   /* Li+ */
-        case 11: return 1.02;   /* Na+ */
-        case 19: return 1.38;   /* K+  */
-        case 37: return 1.52;   /* Rb+ */
-        case 55: return 1.67;   /* Cs+ */
-        default: return 1.38;
+        case  3: return 0.92;   /* Li+ VIII */
+        case 11: return 1.18;   /* Na+ VIII */
+        case 19: return 1.51;   /* K+  VIII */
+        case 37: return 1.61;   /* Rb+ VIII */
+        case 55: return 1.74;   /* Cs+ VIII */
+        default: return 1.51;
     }
 }
 

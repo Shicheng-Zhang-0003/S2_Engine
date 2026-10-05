@@ -989,7 +989,7 @@ static void test_kcsa_filter_residue_neutrality(void) {
 }
 
 static void test_kcsa_ion_sigma(void) {
-    grp("KcsA ion sigma is the one the header documents (audit D2)");
+    grp("KcsA ion sigma is the one the header documents (audit D2; full-audit M3)");
     double rO = AMBER_RSTAR_TO_SIGMA(1.6612);   /* LJ_AMBER_O_SIGMA */
     char d[224];
     okrel("LJ_AMBER_O_SIGMA == 2.959922 A (AMBER R* 1.6612)", rO, 2.959922, 1e-6);
@@ -1004,14 +1004,16 @@ static void test_kcsa_ion_sigma(void) {
         kcsa_set_ion_radius(s, ion, Z);
         double got = s->atoms[ion].lj_sigma;
 
-        /* the two-step inversion must reproduce the tabulated contact exactly */
+        /* the two-step inversion must reproduce the tabulated contact exactly.
+         * Full-audit M3: VIII contacts 2.91/2.58 A, sigmas 2.2251/1.6371 A
+         * (were VI 2.78/2.42 A, 1.9935/1.3520 A). */
         double back = TWOPOW_SIXTH * 0.5 * (got + rO);   /* = the contact distance */
         (void)sig_ionO;
         snprintf(d, sizeof d, "Z=%2d r=%.2f sigma=%.4f A, mixed minimum %.4f A, contact %.2f A",
                  Z, r_i, got, back, contact);
-        ok(k ? "Na+ sigma 1.3520 A puts the ion-O minimum at 2.42 A"
-             : "K+  sigma 1.9935 A puts the ion-O minimum at 2.78 A",
-           fabs(got - (k ? 1.3520 : 1.9935)) < 5e-4 && fabs(back - contact) < 1e-9, d);
+        ok(k ? "Na+ sigma 1.6371 A puts the ion-O minimum at 2.58 A (VIII)"
+             : "K+  sigma 2.2251 A puts the ion-O minimum at 2.91 A (VIII)",
+           fabs(got - (k ? 1.6371 : 2.2251)) < 5e-4 && fabs(back - contact) < 1e-9, d);
         sim_destroy(s);
     }
 }
@@ -1412,8 +1414,8 @@ static void test_ion_size_and_hydration(void) {
         ok("ion-O contact equals r(cation) + r(O)", fabs(contact - want) < 0.01, d);
     }
     sim_destroy(s);
-    okrel("K+  cation radius 1.38 A (Pauling/Shannon CN6)", kcsa_cation_radius(19), 1.38, 1e-12);
-    okrel("Na+ cation radius 1.02 A (Pauling/Shannon CN6)", kcsa_cation_radius(11), 1.02, 1e-12);
+    okrel("K+  cation radius 1.51 A (Shannon VIII, full-audit M3)", kcsa_cation_radius(19), 1.51, 1e-12);
+    okrel("Na+ cation radius 1.18 A (Shannon VIII, full-audit M3)", kcsa_cation_radius(11), 1.18, 1e-12);
     /* hydration free energies, and the K+ advantage they imply */
     okrel("K+  hydration -322 kJ/mol", kcsa_hydration_free_energy_kJmol(19), -322.0, 1e-12);
     okrel("Na+ hydration -454 kJ/mol", kcsa_hydration_free_energy_kJmol(11), -454.0, 1e-12);

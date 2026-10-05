@@ -1628,16 +1628,29 @@ static void demo_helix(void) {
  * the real Thr75-O -> antiprism-site K+ distance computing to 2.70 A exactly. */
 #define KCSA_RING_Z_SEP 3.084
 
-/* ══ KcsA dehydration penalty (s37) ═══════════════════════════════════
-* Hydration free energies -> dehydration cost. The thermodynamic leg the
-* vacuum model cannot represent. Source: Marcus, Y. "Thermodynamics of
-* solvation of ions. Part 5." J. Chem. Soc. Faraday Trans. 87, 2995
-* (1991). Conversion: 1 eV = 96.485 kJ/mol.
-*   K+:  dG_hyd = -295 kJ/mol = -3.057 eV  ->  dG_dehyd = +3.057 eV
-*   Na+: dG_hyd = -365 kJ/mol = -3.783 eV  ->  dG_dehyd = +3.783 eV
-* Na+ pays 0.726 eV MORE to dehydrate - this is the selectivity term. */
-#define KCSA_DEHYD_K_EV   3.057
-#define KCSA_DEHYD_NA_EV  3.783
+/* ══ KcsA dehydration penalty (s37, unified full-audit M1) ══════════════
+ * Hydration free energies -> dehydration cost. The thermodynamic leg the
+ * vacuum model cannot represent.
+ *
+ * UNIFICATION: this leg previously used Marcus 1991 conventional values
+ * (K -295, Na -365 kJ/mol => 3.057/3.783 eV, diff 0.726 eV) while Demo 12b
+ * and kcsa_filter.c used Marcus absolute TATB values (K -322, Na -454
+ * kJ/mol => 3.337/4.705 eV, diff 1.368 eV). Dataset delta is 27 kJ K
+ * (0.280 eV) + 89 kJ Na (0.922 eV); gap discrepancy 0.642 eV exceeds the
+ * experimental 0.179 eV. Both cannot be right in one binary.
+ *
+ * Fixed by unifying EVERY leg on the absolute TATB set tabulated in
+ * kcsa_filter.c (Marcus 1997; TATB convention as used throughout ion
+ * solvation work), which is the scale appropriate for single-ion transfer
+ * and the only set that covers Li/Na/K/Rb/Cs. Conversion uses
+ * KCSA_KJ_PER_EV = N_A*e/1000 derived from CODATA primaries, not the
+ * hand literal 96.48533212 (diff 3.3e-09, negligible but closes the class).
+ *   K+:  dG_hyd = -322 kJ/mol -> dG_dehyd = +3.337 eV
+ *   Na+: dG_hyd = -454 kJ/mol -> dG_dehyd = +4.705 eV
+ * Na+ pays 1.368 eV MORE to dehydrate - this is the selectivity term. */
+#define KCSA_KJ_PER_EV    (AVOGADRO_N * ELEM_CHARGE / 1000.0)
+#define KCSA_DEHYD_K_EV   (322.0 / KCSA_KJ_PER_EV)
+#define KCSA_DEHYD_NA_EV  (454.0 / KCSA_KJ_PER_EV)
 /* Experimental K+/Na+ selectivity ~1000:1 for KcsA. At 300 K the free
  * energy is -kT*ln(1000) = -0.179 eV (K+ favored). Reference scale only:
  * a vacuum single-point ΔU cannot validate against a ΔG (missing TΔS,
@@ -1647,13 +1660,17 @@ static void demo_helix(void) {
 #define KCSA_T_KELVIN     300.0
 #define KCSA_EXPT_RATIO   1000.0
 
-/* Ionic radii (Shannon & Prewitt, 1969, 8-coordination):
-   K+ = 1.38 A, Na+ = 1.02 A. Listed for context only. The vacuum leg
-   below uses the SAME crystallographic cage for both ions; imposing a
-   rigid +0.36 A shift on Na+ would assume the size-exclusion mechanism
-   instead of deriving it, so no offset is applied in any energy
-   comparison. A former KCSA_CAGE_OFFSET/kcsa_coord_distance path did
-   exactly that and has been removed for that reason. */
+/* Ionic radii (Shannon 1976; full-audit M3 note):
+ * 6-coordination K+ = 1.38 A, Na+ = 1.02 A; 8-coordination K+ = 1.51 A,
+ * Na+ = 1.18 A. The previous comment claimed "8-coordination" with the
+ * 6-coordination numbers. Listed for context only. The vacuum leg
+ * below uses the SAME crystallographic cage for both ions; imposing a
+ * rigid shift on Na+ would assume the size-exclusion mechanism
+ * instead of deriving it, so no offset is applied in any energy
+ * comparison. The 8-coordinate radii that DO size the real filter are in
+ * kcsa_filter.c:kcsa_cation_radius (contacts 2.91/2.58 A). A former
+ * KCSA_CAGE_OFFSET/kcsa_coord_distance path imposed a rigid offset and
+ * has been removed for that reason. */
 /* Ions are modeled as point charges (+1 e) with no LJ site: neutral-atom
  * UFF LJ (K sigma 3.812 A, Na sigma 2.983 A) does not describe K+/Na+,
  * so assigning it would inject false repulsion/attraction. Coulomb-only
@@ -1693,7 +1710,10 @@ static void kcsa_set_ion_jc(Simulation *sim, int ion_idx, int ion_Z) {
  *     selectivity enters only through the JC-LJ-differentiated distances. */
 #define KCSA_ECC_SCALE 0.75
 #define KCSA_POL_ALPHA_O 0.84
-#define KCSA_POL_CFAC 0.069446
+/* Full-audit M6: was hand literal 0.069446, which differs from 1/COULOMB_MD
+ * by 1.5e-07 (rel 2.2e-6) — the same D4 pattern fixed as QM_FIELD_C in qm.c.
+ * Derive so the induction proxy cannot drift from the Coulomb constant. */
+#define KCSA_POL_CFAC (1.0 / COULOMB_MD)
 static double kcsa_induction_ev(double q_ion, const Vec3 *ion_pos,
                                 const Vec3 *o_pos, int n_o) {
     double u = 0.0;
@@ -2002,9 +2022,11 @@ static int kcsa_pair_relax(int ion_Z, double d0, int do_min,
 }
 
 
-/* ── Sampling diagnostics (audit fix S1) ────────────────────────────────
+/* ── Sampling diagnostics (audit fix S1; full-audit M9) ─────────────────
  *
- * The histogram counts fed to MBAR are NOT independent samples. The ion
+ * The histogram counts fed to WHAM are NOT independent samples. (Previous
+ * comment said MBAR; the solver in kcsa_wham_one is WHAM iteration, not
+ * MBAR.) The ion
  * coordinate is sampled every WHAM_SAMPLE_EVERY steps from a single
  * continuous trajectory inside a harmonic umbrella well, so consecutive
  * counts are strongly correlated and the effective sample size is far
@@ -2029,7 +2051,16 @@ static int kcsa_pair_relax(int ion_Z, double d0, int do_min,
 #define WHAM_SAMPLE_EVERY 5
 
 /* Integrated autocorrelation time by the initial-positive-sequence
- * estimator (Geyer). Returns tau in units of samples. */
+ * estimator (Geyer). Returns tau in units of samples.
+ *
+ * Full-audit M2: the previous version summed gamma(k) from k=0 (including
+ * g0=variance) and formed tau=0.5*(1+2*sum/v)=1.5+sum_{k>=1}rho, i.e. 1.0
+ * too large (white noise gave 1.493 not 0.500; AR1(0.95) 21.17 not 20.17),
+ * so N_eff=N/(2*tau) was ~3x too small on white and ~5% low on correlated
+ * data. It also added the first non-positive g before breaking. The correct
+ * form is tau=0.5+sum_{k>=1}rho with the terminating non-positive term
+ * excluded. Geyer pairs are not implemented; single-term IPS is the
+ * documented estimator and matches the printed N_eff definition. */
 static double wham_tau(const double *x, int n) {
     if (!x || n < 8) return 0.5;
     double m = 0.0;
@@ -2042,22 +2073,23 @@ static double wham_tau(const double *x, int n) {
     double maxlag = (n < 200) ? n / 2 : 200;
     /* gamma(k) = (1/n) sum_{t} (x_t - m)(x_{t+k} - m) */
     double sum = 0.0;
-    for (int k = 0; k < maxlag; k++) {
+    for (int k = 1; k < maxlag; k++) {
         double g = 0.0;
         for (int t = 0; t + k < n; t++) g += (x[t] - m) * (x[t + k] - m);
         g /= n;
-        /* initial positive sequence: stop at the first non-positive pair */
+        /* initial positive sequence: stop at the first non-positive term
+         * WITHOUT adding it. */
+        if (!(g > 0.0)) break;
         sum += g;
-        if (k > 0 && g <= 0.0) break;
     }
-    double tau = 0.5 * (1.0 + 2.0 * sum / v);
+    double tau = 0.5 + sum / v;
     if (!isfinite(tau) || tau < 0.5) tau = 0.5;
     return tau;
 }
 
 /* One WHAM repeat: 7 umbrella windows per ion (z0=-3..3, k=0.15,
- * T=300 K, WHAM_STEPS steps, sample every WHAM_SAMPLE_EVERY), MBAR over
- * 0.25 A bins.
+ * T=300 K, WHAM_STEPS steps, sample every WHAM_SAMPLE_EVERY), WHAM over
+ * 0.25 A bins (full-audit M9: was "MBAR", solver is WHAM iteration).
  *
  * AUDIT FIX S1 (sampling and its statistics):
  *  - Trajectory length raised 8x, because the sampled z series is
@@ -2323,7 +2355,8 @@ static void demo_kcsa_filter(void) {
     /* ══ DEHYDRATION-CORRECTED SELECTIVITY (s37) ══════════════════════
      * The vacuum tests above compute only the filter-binding leg (a 0 K
      * single-point ΔU, no sampling/entropy/reorganization/multi-ion).
-     * The dehydration cost is a bulk-ion ΔG leg (Marcus 1991). Their sum
+     * The dehydration cost is a bulk-ion ΔG leg (Marcus 1997 TATB absolute,
+     * unified full-audit M1). Their sum
      * is a two-leg estimate, NOT a computed ΔG: do not validate it
      * against the experimental ΔG as pass/fail. Both legs and the
      * experimental reference scale are reported side by side. */
@@ -2334,7 +2367,7 @@ static void demo_kcsa_filter(void) {
         double k_filt  = k_e3;
         double na_filt = na_e3;
         double vac_ddG  = k_filt - na_filt;                       /* + = Na+ favored */
-        double dehyd    = KCSA_DEHYD_K_EV - KCSA_DEHYD_NA_EV;     /* -0.726 eV */
+        double dehyd    = KCSA_DEHYD_K_EV - KCSA_DEHYD_NA_EV;     /* -1.368 eV unified TATB */
         double corr_ddG = vac_ddG + dehyd;                        /* - = K+ favored */
         double expt_ddG = -KCSA_KB_EV * KCSA_T_KELVIN * log(KCSA_EXPT_RATIO);
 
@@ -2343,7 +2376,7 @@ static void demo_kcsa_filter(void) {
         printf("Filter binding dU_vac(K)-dU_vac(Na) [antiprism] = %+.4f eV (%s)\n",
                vac_ddG, (fabs(vac_ddG) < 1e-9) ? "no vacuum selectivity (point-charge ions, same cage; expected)"
               : vac_ddG > 0 ? "Na+ favored in vacuum leg" : "K+ favored in vacuum leg");
-        printf("Dehydration ΔG: K+ = +%.3f eV  Na+ = +%.3f eV (Marcus 1991)\n",
+        printf("Dehydration ΔG: K+ = +%.3f eV  Na+ = +%.3f eV (Marcus 1997 TATB absolute)\n",
                KCSA_DEHYD_K_EV, KCSA_DEHYD_NA_EV);
         printf("Two-leg sum (vacuum ΔU + dehyd ΔG) = %+.4f eV (%s)\n",
                corr_ddG, corr_ddG < 0 ? "K+ favored in sum"
@@ -3031,7 +3064,9 @@ static void demo_kcsa_filter(void) {
     }
 
     /* == Umbrella-sampled free energy: 3 WHAM repeats, robust barrier ==
-     * Per-ion umbrella windows (z0=-3..3, k=0.15, T=300 K, 1500 steps)
+     * Per-ion umbrella windows (z0=-3..3, k=0.15, T=300 K, WHAM_STEPS=12000
+     * steps, sample every 5 => 2400 samples/window; full-audit M9 corrects
+     * stale "1500 steps")
      * run 3x with independent seed bases; barrier over bins with >=10
      * total counts (tail-bin noise set F_max from single counts before
      * this fix — observed 0.21 vs 0.61 eV across builds). Reported:
@@ -3069,19 +3104,20 @@ static void demo_kcsa_filter(void) {
         if (!isfinite(sna)) sna = 0.0;
         if (!isfinite(sg)) sg = 0.0;
         fe_k_bar = mk; fe_na_bar = mna; fe_gap_err = sg;
-        printf("--- Umbrella polar-WHAM free energy (full QM: SCF dipoles+Pauli+disp, 300 K, 3x[7x1500 steps]) ---\n");
+        printf("--- Umbrella polar-WHAM free energy (full QM: SCF dipoles+Pauli+disp, 300 K, 3x[7x12000 steps, sample every 5]) ---\n");
         printf("  K+: barrier=%.4f±%.4f eV | Na+: barrier=%.4f±%.4f eV | gap=%+.4f±%.4f eV\n",
                mk, sk, mna, sna, mg, sg);
         printf("  Fixed-charge ref gap=%+.4f eV. Polar sampling decides the kinetics bracket.\n", fef_gap);
         printf("  Barrier over bins with >=10 counts.\n");
-        printf("  ERROR BAR DEFINITION (audit S1): the +/- is the sample standard\n");
+        printf("  ERROR BAR DEFINITION (audit S1; full-audit M9): the +/- is the sample standard\n");
         printf("    deviation across 3 INDEPENDENT SEED REPEATS of the whole\n");
         printf("    sampling protocol. It is NOT a standard error of the mean and\n");
         printf("    NOT a confidence interval. With n=3 the standard error of that\n");
-        printf("    standard deviation is itself ~76%% of its value. It captures\n");
+        printf("    standard deviation is itself ~52%% of its value (1/sqrt(2(n-1))=50%%;\n");
+        printf("    chi-square exact 52%%; previous 76%% overstated). It captures\n");
         printf("    seed-to-seed variation only; within-run sampling error is\n");
         printf("    characterised separately by the reported tau and N_eff.\n");
-        printf("  Note: 3D ion restraint confines laterally; MBAR over z only.\n");
+        printf("  Note: 3D ion restraint confines laterally; WHAM over z only.\n");
     }
 
     /* == FORENSIC TABLE: every leg, both ions, one place ==
@@ -3193,8 +3229,8 @@ static void demo_kcsa_filter(void) {
             ds_add_claim(w, "kcsa.antiprism.e_k", k_e3, "eV", "computed");
             ds_add_claim(w, "kcsa.antiprism.e_na", na_e3, "eV", "computed");
             ds_add_claim(w, "kcsa.antiprism.ddg_vacuum", vac_dd, "eV", "computed");
-            ds_add_claim(w, "kcsa.dehyd.k", KCSA_DEHYD_K_EV, "eV", "Marcus1991");
-            ds_add_claim(w, "kcsa.dehyd.na", KCSA_DEHYD_NA_EV, "eV", "Marcus1991");
+            ds_add_claim(w, "kcsa.dehyd.k", KCSA_DEHYD_K_EV, "eV", "Marcus1997-TATB");
+            ds_add_claim(w, "kcsa.dehyd.na", KCSA_DEHYD_NA_EV, "eV", "Marcus1997-TATB");
             ds_add_claim(w, "kcsa.ddg_corrected", corr, "eV", "computed");
             ds_add_claim(w, "kcsa.ddg_experimental", expt, "eV", "expt-1000:1@300K");
             ds_add_claim(w, "kcsa.ddg_deviation", corr - expt, "eV", "computed");
@@ -3411,8 +3447,9 @@ static void demo_kcsa_real_filter(void) {
     /* --- K+ vs Na+ in the real, rigid filter --- */
     printf("\n  --- K+ vs Na+ at each site, rigid deposited filter ---\n");
     printf("    The filter is K+-sized: the deposited contacts (2.77-2.93 A)\n");
-    printf("    match K+ (1.38 A radius + 1.40 A oxygen = 2.78 A) and miss Na+\n");
-    printf("    (1.02 A + 1.40 A = 2.42 A) by 0.35 A on all eight ligands.\n");
+    printf("    match K+ (1.51 A VIII radius + 1.40 A oxygen = 2.91 A) and miss Na+\n");
+    printf("    (1.18 A + 1.40 A = 2.58 A) by 0.19-0.35 A on all eight ligands\n");
+    printf("    (full-audit M3: was 1.38/1.02 A VI, 2.78/2.42 A, 0.35 A).\n");
     printf("\n    Dehydration cost to enter the site, from measured single-ion\n");
     printf("    hydration free energies (absolute scale):\n");
     printf("      K+   %+.0f kJ/mol -> %.3f eV\n",
@@ -3475,7 +3512,7 @@ static void demo_kcsa_real_filter(void) {
     printf("    bulk solvent, no membrane potential, no ion concentrations, and\n");
     printf("    no flexible filter - a flexible-filter calculation was tried\n");
     printf("    and collapses, which kcsa_filter.c documents. A rigid\n");
-    printf("    fixed-charge model cannot turn the real 0.35 A geometric\n");
+    printf("    fixed-charge model cannot turn the real 0.19-0.35 A geometric\n");
     printf("    mismatch into a binding-energy difference on its own.\n");
     printf("    The previous model's Na+-favouring result was not a KcsA\n");
     printf("    result: it was the electrostatics of a constructed cage.\n");

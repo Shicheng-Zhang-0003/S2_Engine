@@ -74,7 +74,10 @@ Columns: `key  value  unit  provenance`
 - `unit`: `eV`, `A`, `A^3`, `K`, `fs`, `e` (elementary charge),
   `dimensionless`, or `-`
 - `provenance`: `computed`, `computed-jc2008-params` (JC ion sizes),
-  `computed-ecc-scaled`, or a citation tag — `Marcus1991`, `1K4C-LINK`,
+  `computed-ecc-scaled`, or a citation tag — `Marcus1997-TATB`
+  (absolute single-ion hydration, unified full-audit M1; legacy files may
+  carry `Marcus1991` for the conventional 295/365 set — verifiers accept
+  both but new writers must use `Marcus1997-TATB`), `1K4C-LINK`,
   `Aduri2007`, `expt-1000:1@300K`, etc. `JC2008` alone is deprecated:
   JC numbers are computed with JC parameters, not measured by JC.
 
