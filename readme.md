@@ -130,8 +130,9 @@ v9R3 was NOT a new-physics release. It was a systematic,
 sector-by-sector correctness audit of the whole engine (constants,
 forces, topology, integrator, periodic table, build, record). Every
 finding was fixed in code or documented as a deliberate limitation;
-the full 13-demo sequence was regenerated and re-asserted after every
-behavior-affecting change. Full ledger: the "v9R3 - The Audit &
+the full 14-demo sequence was regenerated and re-asserted after every
+behavior-affecting change (full-audit O1 corrects stale "13-demo"; 14
+banners: 1-12, 12b, 17). Full ledger: the "v9R3 - The Audit &
 Correctness Release" section and `release_note_v9R3.md`.
 
 **Open items carried forward to v9R4+** (direction unchanged by the
@@ -303,7 +304,8 @@ polarisation energies these legs are built on. The site-energy legs still
 favour Na+, and the honest statement is that this model's K⁺ preference now
 appears only in the knock-on mechanism, not in the site energetics. That
 remains a limitation rather than a result: see "What the model still cannot
-do" below, where the 0.0130 eV site separation and the dehydration term
+do" below, where the 0.0098 eV site separation (full-audit M3: was 0.0130 eV
+with VI radii; VIII radii give 0.0393/4) and the dehydration term
 dominate the interpretation.
 
 ---
@@ -513,7 +515,8 @@ of a fixed-point iteration, and a 53-bit uniform conversion. See the audit
 section for each.
 
 Lines worth reading rather than skimming: the `sampling:` and `bins:` lines in
-the MBAR section report the *measured* autocorrelation time and effective
+the WHAM section (full-audit M9: was "MBAR", solver is WHAM iteration) report
+the *measured* autocorrelation time and effective
 sample size, and the `ERROR BAR DEFINITION` block states exactly what the
 `±` on the barriers does and does not mean.
 
@@ -1274,14 +1277,14 @@ sample size, and the `ERROR BAR DEFINITION` block states exactly what the
 
 -- Dehydration legs side by side (s37; not a dG validation) --
 Filter binding dU_vac(K)-dU_vac(Na) [antiprism] = +0.0000 eV (no vacuum selectivity (point-charge ions, same cage; expected))
-Dehydration ΔG: K+ = +3.057 eV  Na+ = +3.783 eV (Marcus 1991)
-Two-leg sum (vacuum ΔU + dehyd ΔG) = -0.7260 eV (K+ favored in sum)
+Dehydration ΔG: K+ = +3.337 eV  Na+ = +4.705 eV (Marcus 1997 TATB absolute)
+Two-leg sum (vacuum ΔU + dehyd ΔG) = -1.3681 eV (K+ favored in sum)
 Experimental ΔG (1000:1 at 300 K) = -0.1786 eV (reference scale;
  single-point ΔU lacks TΔS/sampling/reorganization, so the
  difference below is a scale comparison, not an error bar)
-Sum minus experimental dG: -0.5474 eV
-  JC K+  E_LJ =   0.162757 eV   E_Coulomb =   7.812595 eV   E_restr =   0.000000 eV   E_pol =  -0.714854 eV   E_ecc =   4.557342 eV   Total =   7.975352 eV
-  JC Na+ E_LJ =  -0.167849 eV   E_Coulomb =   7.812595 eV   E_restr =   0.000000 eV   E_pol =  -0.714854 eV   E_ecc =   4.226735 eV   Total =   7.644746 eV
+Sum minus experimental dG: -1.1895 eV
+  JC K+  E_LJ =   0.162757 eV   E_Coulomb =   7.812595 eV   E_restr =   0.000000 eV   E_pol =  -0.714855 eV   E_ecc =   4.557342 eV   Total =   7.975352 eV
+  JC Na+ E_LJ =  -0.167849 eV   E_Coulomb =   7.812595 eV   E_restr =   0.000000 eV   E_pol =  -0.714855 eV   E_ecc =   4.226735 eV   Total =   7.644746 eV
 --- JC-ion antiprism (restrained scaffold, Joung-Cheatham size) ---
   K+ = 7.975352 eV  Na+ = 7.644746 eV  dU(JC,K-Na) = +0.3306 eV (Na+ favored in JC vacuum leg)
   Induction leg: K+ = -0.7149 eV  Na+ = -0.7149 eV (alpha_O = 0.84 A^3; identical by construction at same geometry)
@@ -1375,31 +1378,32 @@ Sum minus experimental dG: -0.5474 eV
   hyd Na+ fixed: E_init= -4.6308 E_min= -4.6805 eV (6-water octahedral, d=2.35 A)
   hyd Na+ polar: E_min= -4.6887 E_pol= -0.0080 eV
 --- Explicit hydration (6-water cluster ΔU) ---
-  K+: -3.7681 (polar -3.7819) | Na+: -4.6805 (polar -4.6887) | ΔΔU(K-Na)=+0.9124 eV (Marcus ΔΔG=-0.7260)
+  K+: -3.7681 (polar -3.7819) | Na+: -4.6805 (polar -4.6887) | ΔΔU(K-Na)=+0.9124 eV (Marcus ΔΔG=-1.3681)
   Note: cluster ΔU vs bulk ΔG — scale comparison only.
-    sampling: 2400.0 samples/window, mean tau = 88.3 samples, N_eff = 15.2 independent samples/window
+    sampling: 2400.0 samples/window, mean tau = 87.3 samples, N_eff = 15.4 independent samples/window
     bins: 17 retained, 11 dropped by min_count=10
   wham polar repeat 0 (seeds 100): K+ barrier=0.3321 eV | Na+ barrier=0.2774 eV
-    sampling: 2400.0 samples/window, mean tau = 98.5 samples, N_eff = 13.4 independent samples/window
+    sampling: 2400.0 samples/window, mean tau = 97.5 samples, N_eff = 13.5 independent samples/window
     bins: 23 retained, 5 dropped by min_count=10
   wham polar repeat 1 (seeds 1000): K+ barrier=0.4351 eV | Na+ barrier=0.3083 eV
-    sampling: 2400.0 samples/window, mean tau = 70.8 samples, N_eff = 20.9 independent samples/window
+    sampling: 2400.0 samples/window, mean tau = 69.8 samples, N_eff = 21.3 independent samples/window
     bins: 21 retained, 7 dropped by min_count=10
   wham polar repeat 2 (seeds 2000): K+ barrier=0.3764 eV | Na+ barrier=0.6847 eV
     bins: 20 retained, 8 dropped by min_count=10
   wham fixed-charge ref (seeds 100): K+ barrier=0.5539 eV | Na+ barrier=0.3967 eV | gap=+0.1572 eV
---- Umbrella polar-WHAM free energy (full QM: SCF dipoles+Pauli+disp, 300 K, 3x[7x1500 steps]) ---
+--- Umbrella polar-WHAM free energy (full QM: SCF dipoles+Pauli+disp, 300 K, 3x[7x12000 steps, sample every 5]) ---
   K+: barrier=0.3812±0.0517 eV | Na+: barrier=0.4235±0.2268 eV | gap=-0.0422±0.2332 eV
   Fixed-charge ref gap=+0.1572 eV. Polar sampling decides the kinetics bracket.
   Barrier over bins with >=10 counts.
-  ERROR BAR DEFINITION (audit S1): the +/- is the sample standard
+  ERROR BAR DEFINITION (audit S1; full-audit M9): the +/- is the sample standard
     deviation across 3 INDEPENDENT SEED REPEATS of the whole
     sampling protocol. It is NOT a standard error of the mean and
     NOT a confidence interval. With n=3 the standard error of that
-    standard deviation is itself ~76% of its value. It captures
+    standard deviation is itself ~52% of its value (1/sqrt(2(n-1))=50%;
+    chi-square exact 52%; previous 76% overstated). It captures
     seed-to-seed variation only; within-run sampling error is
     characterised separately by the reported tau and N_eff.
-  Note: 3D ion restraint confines laterally; MBAR over z only.
+  Note: 3D ion restraint confines laterally; WHAM over z only.
 --- FORENSIC: all legs side by side (eV; + = Na+ favored) ---
   leg                            K+        Na+   dU(K-Na)
   point-charge 8-fold        7.6623     7.6623     0.0000
@@ -1465,8 +1469,9 @@ Sum minus experimental dG: -0.5474 eV
 
   --- K+ vs Na+ at each site, rigid deposited filter ---
     The filter is K+-sized: the deposited contacts (2.77-2.93 A)
-    match K+ (1.38 A radius + 1.40 A oxygen = 2.78 A) and miss Na+
-    (1.02 A + 1.40 A = 2.42 A) by 0.35 A on all eight ligands.
+    match K+ (1.51 A VIII radius + 1.40 A oxygen = 2.91 A) and miss Na+
+    (1.18 A + 1.40 A = 2.58 A) by 0.19-0.35 A on all eight ligands
+    (full-audit M3: was 1.38/1.02 A VI, 2.78/2.42 A, 0.35 A).
 
     Dehydration cost to enter the site, from measured single-ion
     hydration free energies (absolute scale):
@@ -1477,15 +1482,15 @@ Sum minus experimental dG: -0.5474 eV
     dominant contribution.
 
     site   K+ CN/r        Na+ CN/r        E_bind K+ E_bind Na+
-    1      8 / 2.93 A     8 / 2.93 A        -3.6428    -3.6293
-    2      8 / 2.78 A     8 / 2.78 A        -6.4995    -6.4865
-    3      8 / 2.77 A     8 / 2.77 A        -8.3063    -8.2935
-    4      8 / 2.91 A     8 / 2.91 A        -9.0423    -9.0297
+    1      8 / 2.93 A     8 / 2.93 A        -3.6468    -3.6352
+    2      8 / 2.78 A     8 / 2.78 A        -6.5013    -6.4927
+    3      8 / 2.77 A     8 / 2.77 A        -8.3077    -8.2997
+    4      8 / 2.91 A     8 / 2.91 A        -9.0462    -9.0351
 
     interaction (rigid cage, ion radius + Coulomb + LJ):
-      K+  -27.4911 eV      Na+ -27.4390 eV      difference -0.0521 eV
+      K+  -27.5020 eV      Na+ -27.4627 eV      difference -0.0393 eV
     plus the measured dehydration cost:
-      K+  -14.1419 eV      Na+ -8.6175 eV      difference -5.5244 eV
+      K+  -14.1528 eV      Na+ -8.6412 eV      difference -5.5116 eV
 
   --- what this does and does not show ---
     SHOWS: the filter is now the real KcsA TVGYG filter, with the
@@ -1493,13 +1498,13 @@ Sum minus experimental dG: -0.5474 eV
     The K+/Na+ preference in THIS model is carried essentially
     entirely by the measured dehydration free energy (1.368 eV); the
     rigid-cage electrostatics separate the two ions by only
-    0.0130 eV, because a symmetric 8-oxygen cage pulls both cations
+    0.0098 eV, because a symmetric 8-oxygen cage pulls both cations
     to the same axis position.
     DOES NOT SHOW: an absolute selectivity free energy. There is no
     bulk solvent, no membrane potential, no ion concentrations, and
     no flexible filter - a flexible-filter calculation was tried
     and collapses, which kcsa_filter.c documents. A rigid
-    fixed-charge model cannot turn the real 0.35 A geometric
+    fixed-charge model cannot turn the real 0.19-0.35 A geometric
     mismatch into a binding-energy difference on its own.
     The previous model's Na+-favouring result was not a KcsA
     result: it was the electrostatics of a constructed cage.
@@ -1769,9 +1774,10 @@ to balance it); only the Delta is the meaningful selectivity signal.
   are built on the coupled-dipole polarisation energy that the solver fix
   changed. The historical "Na+ in every test" statements elsewhere in this
   file describe the pre-fix record and are marked as such. Neither direction
-  is a selectivity result: with a 0.0130 eV site separation and a 1.368 eV
-  dehydration term dominating, this model is not positioned to adjudicate
-  K⁺/Na⁺ at all.
+is a selectivity result: with a 0.0098 eV site separation (was 0.0130 eV with
+VI radii) and a 1.368 eV
+dehydration term dominating, this model is not positioned to adjudicate
+K⁺/Na⁺ at all.
 * **Base-pairing energetics (Demo 7) are qualitative.** G–C correctly
   binds more strongly than A–U and both pairs are correctly
   attractive, but the absolute magnitudes overshoot gas-phase ab
@@ -1989,9 +1995,9 @@ Worth stating, because it bounds where the doubt lies.
   (including `df6/dr = e^{-x} b x^6 / 720`) are all correct.** The induction
   analytic gradient for the *first-order* (uncoupled) term is correct too —
   the defect was specific to the self-consistent path.
-* **MBAR is implemented correctly.** The `Σ_w n_w / Σ_w N_w exp((F_w − V_w)/kT)`
-  estimator and its self-consistent `F_w` update are textbook. The problem was
-  the sampling, not the estimator.
+* **WHAM is implemented correctly (full-audit M9: was "MBAR").** The `Σ_w n_w / Σ_w N_w exp((F_w − V_w)/kT)`
+  estimator and its self-consistent `F_w` update are textbook WHAM iteration.
+  The problem was the sampling, not the estimator.
 * **`neuron.c` is a clean squid-axon Hodgkin–Huxley implementation** with the
   removable singularities in α_m and α_n handled by a correct Taylor expansion.
 
@@ -2153,7 +2159,7 @@ selftest-external                 49 checks green (NIST/AMBER/FIPS/PDB 1K4C)
 ASan + UBSan                        0 memory errors, 0 UB findings, empty stderr
 stdout byte-identical across runs   yes
 stdout byte-identical under ASan    yes
-record SHA-256                      9eb32e5489e421f89e80f85c439f4e7b5880f83c7b1c3db40c12ce31f9d53ec4
+record SHA-256                      see CURRENT_BASELINE_SHA.txt (never duplicated in prose so it cannot rot)
 ```
 
 The record digest changed from the previous release. That is expected and
@@ -2173,7 +2179,8 @@ The umbrella free-energy barriers are reported with a `±` that is the sample
 standard deviation across **three independent seed repeats** of the whole
 sampling protocol. It is **not** a standard error of the mean and **not** a
 confidence interval. With n = 3 the standard error of that standard deviation
-is itself about 76% of its value. It captures seed-to-seed variation only;
+is itself about 52% of its value (full-audit M9: was 76%; 1/sqrt(2(n-1))=50%,
+chi-square exact 52%). It captures seed-to-seed variation only;
 within-run sampling error is characterised separately by the measured
 autocorrelation time and effective sample size, which the program now prints.
 
@@ -2211,13 +2218,16 @@ Anyone quoting these barriers should quote the larger of the two and state
 
   **What the model still cannot do.** The K⁺/Na⁺ preference here is carried
   essentially entirely by the measured single-ion hydration free energy
-  (K⁺ −322, Na⁺ −454 kJ/mol → K⁺ enters 1.368 eV cheaper). The rigid
-  eight-oxygen cage separates the two ions by only 0.0130 eV, because a
+  (K⁺ −322, Na⁺ −454 kJ/mol → K⁺ enters 1.368 eV cheaper; unified full-audit
+  M1 on the Marcus 1997 TATB absolute scale). The rigid
+  eight-oxygen cage separates the two ions by only 0.0098 eV (was 0.0130 eV
+  with VI radii; VIII radii K 1.51/Na 1.18 give 0.0393/4), because a
   symmetric cage pulls both cations to the same axis position regardless of
   radius. (This prose figure previously read 0.05 eV, which matched nothing:
   it was neither the engine's 0.0130 eV nor a per-site value, and it
-  overstated the cage separation by a factor of four. 0.0130 eV is the
-  per-site figure the binary prints.) The real 0.35 Å geometric mismatch is real and is now measured,
+  overstated the cage separation by a factor of four. 0.0130 eV was the
+  VI per-site figure; 0.0098 eV is the VIII per-site figure the binary now
+  prints.) The real 0.19-0.35 A geometric mismatch is real and is now measured,
   but a rigid fixed-charge model in vacuum cannot convert it into a binding
   free energy on its own — that is what filter *flexibility* and a solvation
   model are for. A flexible-filter calculation was implemented, found to
@@ -2242,3 +2252,78 @@ Anyone quoting these barriers should quote the larger of the two and state
   and `qm_pauli` are built on it.
 
 ---
+
+## Full mathematical, programming and operational audit — what was found and fixed
+
+*Method: independent Python/sympy oracles in `audit/math/`, C harnesses in
+`audit/harness/` linked against engine objects, external sources in
+`audit/external/` (parm99.dat, 1K4C.cif.gz, NIST CODATA, FIPS vectors,
+Griffiths forms), all scratch in `/tmp/opencode/s2audit` so the tree stays
+clean. Every fix below is pinned by a regression check that fails on the old
+code. Record digest moves from `9eb32e54…` to the contents of
+`CURRENT_BASELINE_SHA.txt` because the physics did.*
+
+**Mathematical truth fixes (record-moving).**
+
+* **M1 hydration unification (CRITICAL).** Demo 12 used Marcus 1991
+  conventional (−295/−365 kJ/mol, 3.057/3.783 eV, Δ 0.726 eV) while Demo 12b
+  used Marcus absolute TATB (−322/−454, 3.337/4.705, Δ 1.368 eV). Gap error
+  0.642 eV > expt 0.179 eV. Unified on TATB via `KCSA_KJ_PER_EV=N_A·e/1000`
+  derived; provenance `Marcus1997-TATB` (spec accepts legacy `Marcus1991`).
+  Two-leg sum −0.726 → −1.368 eV; deviation −0.547 → −1.190 eV.
+* **M2 `wham_tau` off-by-one (MAJOR).** Summed k=0 and formed
+  0.5·(1+2·sum/v)=1.5+Σρ (white 1.493 not 0.500). Fixed to 0.5+Σρ with
+  terminating negative excluded. Tau −1.0 on all windows
+  (88.3→87.3, 98.5→97.5, 70.8→69.8); N_eff 15.2→15.4, 13.4→13.5, 20.9→21.3.
+* **M3 CN6→CN8 radii (MAJOR).** `kcsa_cation_radius` returned VI
+  (K 1.38/Na 1.02; Li 0.59 is IV) for a CN=8 filter. Now VIII
+  (Li 0.92/Na 1.18/K 1.51/Rb 1.61/Cs 1.74, Shannon 1976). Contacts
+  2.78/2.42 → 2.91/2.58 A; σ_ion 1.9935/1.3520 → 2.2251/1.6371 A.
+  Site energies shift ~0.004 eV; cage sum −0.0521→−0.0393 eV (per-site
+  0.0130→0.0098 eV).
+* **M4–M7 derive-in-line closures (MINOR, value-preserving to print).**
+  `ANGSTROM_TO_BOHR=1/BOHR_TO_ANGSTROM` (was 2.3e-13 off);
+  `quantum_orbital_energy=−0.5·HARTREE_TO_EV` (was 1.7e-14 off);
+  `KCSA_POL_CFAC=1/COULOMB_MD` (was 1.5e-07 off, induction −0.714854→
+  −0.714855 eV); dehydration divisor `N_A·e/1000` (was 3.3e-09 off).
+* **M8–M11 doc corrections.** Per-ion ε 0.00300→0.01190 kcal/mol
+  (0.05²/0.21, 4×); WHAM mislabelled MBAR, steps 1500→12000,
+  SE 76%→52% (1/√(2(n−1))=50%, χ² exact 52%); a01 HARTREE note marked
+  historical; Lorentz comment fixed (dimensionless taken as A³).
+
+**Programming hardening (non-record unless noted).**
+
+* `sim_add_bond` handles `forces_bond_params==0` (unknown Z) with explicit
+  generic fallback instead of garbage r0/k; `sim_place_h2/h2o/nh3/ch4`
+  propagate overflow (co2 already did); `sim_rebuild_angles` validates
+  partner indices; `qm_chi_J(NULL)` writes deterministic fallbacks and
+  `qm_qeq/qeq_pinned` fail closed on `element==NULL`; `qm_pair_excluded`
+  clamps counts and ranges; `pair_nonbonded_core` rejects non-finite
+  eps/sigma; `forces_bond` rejects non-finite r0/k; `forces_calculate`
+  checks SCF returns; `vec3_angle` guards zero-vector NaN; `warn_once`
+  256→1024 and silent-when-full (was stderr-spam gate-breaker);
+  `ds_verify_file` notes >2GB `long` limit; solver caps documented
+  (polar ≤256, SCF ≤64, QEq ≤128); `make test` gates datastream/forces/fire
+  via logs (was `>/dev/null &&`); `verify_scripts.sh` gates selftest builds,
+  fixes `grep -c || echo 0` double-emit, uses temp workspace not `/tmp`
+  predictables; `run` clean-first + warning gate; `s01` drops dead
+  `ARCHIVED`, rebuilds tracked objects after clean (was left dirty);
+  `ext_check.py/hydro.py` failable (were print-only).
+
+**Operational truth.**
+
+* `readme 13-demo→14-demo`; `FINDINGS M7/M8/D1` marked historical
+  (`.d` untracked, `output.asan.txt` ignored, digest now via ledger);
+  `release_note` adds missing external-49 and drops duplicated digest;
+  stale `kcsa.cvmds.parent-level` deprecated in-file; `DATASTREAM_SPEC`
+  adds `Marcus1997-TATB`; `kcsa.cvmds` regenerated with new legs
+  (dehyd 3.337/4.705, pol −0.714855, per-site 0.0098 eV) and seal intact.
+  `wallclock` remains live by default (`SOURCE_DATE_EPOCH` for stable);
+  record run used `SOURCE_DATE_EPOCH=0` (1970) for a stable artifact —
+  seal covers it, verifier accepts either.
+
+*Efficiency notes for future work (no new physics claimed): dihedral
+analytic already exact (keep FD as oracle); SCF FD forces dominate Demo 12
+cost — cache `E0` per geometry; WHAM windows are independent — parallelise
+by seed/window; QEq/dipole workspaces are thread-local — safe to shard.*
+
