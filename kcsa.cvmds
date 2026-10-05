@@ -3,7 +3,7 @@ schema: 1
 demo: kcsa
 build-compiler: gcc 13.3.0
 build-flags: -O3 -g -Wall -Wextra -std=c11 -Iinclude
-wallclock: 2026-10-02T04:04:16Z
+wallclock: 1970-01-01T00:00:00Z
 rng-seed: 7
 version-internal: v9R4
 version-external: V0.9RC4
@@ -17,23 +17,23 @@ real-filter-geometry: demo 12b: PDB 1K4C chain C TVGYG, C4-symmetric, CN=8 at al
 kcsa.antiprism.e_k 7.6622918303931531 eV computed
 kcsa.antiprism.e_na 7.6622918303931531 eV computed
 kcsa.antiprism.ddg_vacuum 0 eV computed
-kcsa.dehyd.k 3.0569999999999999 eV Marcus1991
-kcsa.dehyd.na 3.7829999999999999 eV Marcus1991
-kcsa.ddg_corrected -0.72599999999999998 eV computed
+kcsa.dehyd.k 3.33729482931642 eV Marcus1997-TATB
+kcsa.dehyd.na 4.705378423943027 eV Marcus1997-TATB
+kcsa.ddg_corrected -1.368083594626607 eV computed
 kcsa.ddg_experimental -0.17857928799699513 eV expt-1000:1@300K
-kcsa.ddg_deviation -0.54742071200300479 eV computed
+kcsa.ddg_deviation -1.1895043066296118 eV computed
 kcsa.jc.e_k 7.9753516314254496 eV computed-jc2008-params
 kcsa.jc.e_na 7.6447455085649993 eV computed-jc2008-params
 kcsa.jc.ddu_vacuum 0.33060612286045021 eV computed-jc2008-params
-kcsa.jc.ddu_corrected -0.39539387713954977 eV computed-jc2008-params
-kcsa.pol.e_k -0.71485363572839677 eV computed
-kcsa.pol.e_na -0.71485363572839677 eV computed
+kcsa.jc.ddu_corrected -1.0374774717661568 eV computed-jc2008-params
+kcsa.pol.e_k -0.71485522277914237 eV computed
+kcsa.pol.e_na -0.71485522277914237 eV computed
 kcsa.ecc.scale 0.75 dimensionless computed
 kcsa.ecc.coulomb_factor 0.5625 dimensionless computed
 kcsa.ecc.e_k 4.5573415275141471 eV computed-ecc-scaled
 kcsa.ecc.e_na 4.2267354046536969 eV computed-ecc-scaled
 kcsa.ecc.ddu_vacuum 0.33060612286045021 eV computed-ecc-scaled
-kcsa.ecc.ddu_corrected -0.39539387713954977 eV computed-ecc-scaled
+kcsa.ecc.ddu_corrected -1.0374774717661568 eV computed-ecc-scaled
 kcsa.pmf.e_k_min 7.9753516314254496 eV computed
 kcsa.pmf.e_na_min 7.6447455085649993 eV computed
 kcsa.pmf.z_k_min 0 A computed
@@ -55,7 +55,7 @@ kcsa.v2.pauli_na 1.2644390424742912e-10 eV computed-v2-pauli
 kcsa.v2.e_k 7.9336273204512153 eV computed-v2
 kcsa.v2.e_na 7.6007896708043567 eV computed-v2
 kcsa.v2.ddu_vacuum 0.33283764964685858 eV computed-v2
-kcsa.v2.ddu_corrected -0.3931623503531414 eV computed-v2
+kcsa.v2.ddu_corrected -1.0352459449797484 eV computed-v2
 kcsa.hyd.e_k -3.7681344614602144 eV computed-explicit-6water
 kcsa.hyd.e_na -4.6805201936244734 eV computed-explicit-6water
 kcsa.hyd.e_k_polar -3.7819430051703726 eV computed-explicit-6water-polar
@@ -71,7 +71,7 @@ kcsa.fe.fixed_gap 0.15716663115945501 eV computed-wham-300k
 kcsa.scf.e_k 7.6831773446542977 eV computed-scf-qm
 kcsa.scf.e_na 7.4732663539735755 eV computed-scf-qm
 kcsa.scf.ddu_vacuum 0.20991099068072216 eV computed-scf-qm
-kcsa.scf.ddu_corrected -0.51608900931927781 eV computed-scf-qm
+kcsa.scf.ddu_corrected -1.1581726039458848 eV computed-scf-qm
 kcsa.scf.qsh_k -0.54620000000000002 e computed-scf-qm
 kcsa.scf.qsh_na -0.54619999999999991 e computed-scf-qm
 kcsa.scf.pol_k -0.041250898355117818 eV computed-scf-qm
@@ -133,4 +133,4 @@ kcsa.scfuz.pol_k15 -0.11003140228302026 eV computed-scf-uz
 kcsa.scfuz.pol_na15 -0.20845572315954711 eV computed-scf-uz
 
 [end]
-payload-sha256: 17346a5cad8485017dbb4ba72ced64f38154380a3e553e36aede69629b24b359
+payload-sha256: 708bba835e46893d1584cbe94fca26b6cfc05a10f0d35b5550782bb0d97a0a6a
