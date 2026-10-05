@@ -183,7 +183,10 @@ double quantum_zeff(int Z, int n, int l, const ElectronConfig *cfg) {
 double quantum_orbital_energy(int Z, int n, int l, const ElectronConfig *cfg) {
     double Zeff = quantum_zeff(Z, n, l, cfg);
     double nstar = quantum_nstar(n);
-    return -13.605693122994 * (Zeff / nstar) * (Zeff / nstar);
+    /* Full-audit M5: was hand literal -13.605693122994, which differs from
+     * -0.5*HARTREE_TO_EV by 1.7e-14 eV. Derive so the ionisation scale cannot
+     * drift from the Hartree definition. */
+    return -0.5 * HARTREE_TO_EV * (Zeff / nstar) * (Zeff / nstar);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════

@@ -97,11 +97,18 @@ static inline Vec3 vec3_pbc_box(Vec3 dr, Vec3 box, const int periodic[3]) {
 }
 
 /* ── Angle between two vectors (radians) ─────────────────────────────────── */
+/* Full-audit P8: zero-vector guard. na=|a|, nb=|b|; if either <1e-300 the
+ * angle is undefined (0/0=NaN survives the clamp and acos(NaN)=NaN, which
+ * sim_rebuild_angles_geometric stored as theta0). Return 0.0 for degenerate
+ * input rather than NaN. */
 static inline double vec3_angle(Vec3 a, Vec3 b) {
-    double c = vec3_dot(a, b) / (vec3_norm(a) * vec3_norm(b));
+    double na = vec3_norm(a), nb = vec3_norm(b);
+    if (!(na > 1e-300) || !(nb > 1e-300) || !isfinite(na) || !isfinite(nb)) return 0.0;
+    double c = vec3_dot(a, b) / (na * nb);
     /* clamp to [-1,1] for numerical safety */
     if (c >  1.0) c =  1.0;
     if (c < -1.0) c = -1.0;
+    if (!isfinite(c)) return 0.0;
     return acos(c);
 }
 

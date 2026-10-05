@@ -320,21 +320,28 @@ typedef struct {
     int            use_angles;
     int            use_dihedrals;
     int            use_polar;     /* qm v2: isotropic induced dipoles U=-0.5ΣαE².
-                                  * 0 default (fixed-charge baseline preserved).
-                                  * 1 = energy+analytic forces in forces_calculate. */
+                                   * 0 default (fixed-charge baseline preserved).
+                                   * 1 = energy+analytic forces in forces_calculate.
+                                   * First-order path supports n<=256 (static
+                                   * workspace; full-audit P11). */
     int            use_pol_scf;   /* v4: self-consistent dipoles (dipole-dipole
-                                  * coupling, Hellmann-Feynman forces).
-                                  * Superset of use_polar when set. */
+                                   * coupling, Hellmann-Feynman forces).
+                                   * Superset of use_polar when set. Coupled
+                                   * solve supports n<=64 (QM_SOLVE_MAX_ATOMS,
+                                   * 3Nx3N workspace); larger systems return
+                                   * rc=-1 and U=0 rather than garbage. */
     int            use_pauli;     /* qm v2: overlap Pauli E=A·S² with FD forces.
-                                  * 0 default. 1 = short-range, same 1-2/1-3
-                                  * exclusions as LJ. */
+                                   * 0 default. 1 = short-range, same 1-2/1-3
+                                   * exclusions as LJ. */
     int            use_disp;      /* v3: QM Slater-Kirkwood damped dispersion
-                                  * E=-ΣC6·f6/r⁶, C6 from live alpha/IE.
-                                  * 0 default. 1 = analytic forces. */
+                                   * E=-ΣC6·f6/r⁶, C6 from live alpha/IE.
+                                   * 0 default. 1 = analytic forces. */
     int            use_scf;       /* v3: SCF charge loop in force path. When 1,
-                                  * forces_calculate first runs qm_scf_charges
-                                  * with scf_total_q/pinned below (dipole
-                                  * reaction-field feedback included). */
+                                   * forces_calculate first runs qm_scf_charges
+                                   * with scf_total_q/pinned below (dipole
+                                   * reaction-field feedback included). QEq
+                                   * supports n<=128; larger/single-atom systems
+                                   * keep prior charges (solver returns -1). */
     double         scf_total_q;   /* total charge constraint for SCF */
     int            scf_pinned_idx;/* pinned atom (e.g. ion) or -1 = none */
     double         scf_pinned_q;  /* pinned charge value */

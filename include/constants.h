@@ -98,7 +98,11 @@
  * static initializers. */
 #define EV_TO_KCAL_MOL      (1.0 / KCAL_MOL_TO_EV)   /* 1 eV in kcal/mol */
 #define BOHR_TO_ANGSTROM    0.529177210903
-#define ANGSTROM_TO_BOHR    1.889726124626
+/* ANGSTROM_TO_BOHR derived, not typed (full-audit M4). The previous literal
+ * 1.889726124626 differed from 1/BOHR_TO_ANGSTROM by 2.3e-13 (rel 1.2e-13)
+ * and was the last non-exact reciprocal pair in the tree. Deriving it closes
+ * the derive-in-line class opened by C1-C4/M1-M2. */
+#define ANGSTROM_TO_BOHR    (1.0 / BOHR_TO_ANGSTROM)
 
 /*
  * MD force-unit conversion factor:
