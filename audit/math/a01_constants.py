@@ -97,7 +97,9 @@ EV_TO_HARTREE = 1.602176634e-19/4.3597447222071e-18
 chk("EV_TO_HARTREE", EV_TO_HARTREE, e/Hart, 1e-15)
 chk("HARTREE_TO_EV (literal) * EV_TO_HARTREE == 1",
     27.211386245988*EV_TO_HARTREE, 1.0, 1e-11,
-    "HARTREE_TO_EV stays a CODATA literal -> pair only agrees to ~1e-11")
+    "HISTORICAL: HARTREE_TO_EV stays a CODATA literal -> pair only agrees to ~1e-11; "
+    "full-audit M2 derives it in constants.h so the engine is now exact 1.0; "
+    "this oracle pins the pre-fix transcription, not the engine")
 
 MD_FORCE_CONV = (1.602176634e-19/1.0e-10)/1.66053906660e-27/1.0e20
 chk("MD_FORCE_CONV", MD_FORCE_CONV, (e/1e-10)/amu/1e20, 1e-15,

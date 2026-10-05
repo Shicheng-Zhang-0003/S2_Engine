@@ -12,6 +12,13 @@
 # committed objects stale enough to hide it completely. `make clean`
 # first is the only honest form.
 set -uo pipefail
+# Full-audit P19: scratch logs live in the temp workspace, not predictable
+# /tmp paths (symlink race). Override with TMPDIR or default to /tmp/opencode.
+AUDIT_TMP="${TMPDIR:-/tmp/opencode}/s2audit"
+mkdir -p "$AUDIT_TMP" 2>/dev/null || AUDIT_TMP="/tmp"
+VERIFY_BUILD_LOG="$AUDIT_TMP/verify_build.log"
+VERIFY_REG_LOG="$AUDIT_TMP/verify_regression.log"
+VERIFY_EXT_LOG="$AUDIT_TMP/verify_external.log"
 # AUDIT FIX M4. The old helper was:
 #
 #     ok(){ printf '  %-58s %s\n' "$1" "$2"; }
@@ -45,13 +52,13 @@ chk "stderr.txt empty" "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b
 # AUDIT FIX B1: clean first - see the header. A bare `make` is a no-op
 # against the committed objects and cannot fail.
 make clean >/dev/null 2>&1
-if ! make > /tmp/verify_build.log 2>&1; then
+if ! make > "$VERIFY_BUILD_LOG" 2>&1; then
   echo "  FAIL  clean build succeeds"
-  grep -E "error" /tmp/verify_build.log | head -10
+  grep -E "error" "$VERIFY_BUILD_LOG" | head -10
   exit 1
 fi
 echo "  PASS  clean build succeeds"
-chk "build warning-clean" "0" "$(grep -c 'warning:' /tmp/verify_build.log)"
+chk "build warning-clean" "0" "$(grep -c 'warning:' "$VERIFY_BUILD_LOG" || true)"
 
 echo; echo "=== kcsa cage wiring (truth fixes) ==="
 at_least "KCSA_RING_Z_SEP in main.c"        "$(grep -Fc 'KCSA_RING_Z_SEP'   src/main.c)" 6
@@ -70,34 +77,40 @@ at_least "explicit hydration legs"           "$(grep -Fc 'hyd_k'            src/
 at_least "WHAM free energy"                  "$(grep -Fc 'WHAM'             src/main.c)" 2
 
 echo; echo "=== datastream ==="
-make selftest >/dev/null 2>&1
+# Full-audit P19: gate the test-binary builds. Previously `make selftest*`
+# exit codes were ignored, so a failed build ran a stale binary and could
+# false-PASS.
+if ! make selftest >"$AUDIT_TMP/selftest_build.log" 2>&1; then echo "  FAIL  make selftest builds"; cat "$AUDIT_TMP/selftest_build.log" | head -10; fail=1; fi
 ./build/test_datastream >/dev/null 2>&1 && ST=0 || ST=1
 chk "selftest green" "0" "$ST"
-make selftest-forces >/dev/null 2>&1
+if ! make selftest-forces >"$AUDIT_TMP/forces_build.log" 2>&1; then echo "  FAIL  make selftest-forces builds"; fail=1; fi
 ./build/test_forces >/dev/null 2>&1 && FT=0 || FT=1
-make selftest-regression >/dev/null 2>&1
-./build/test_regression > /tmp/verify_regression.log 2>&1 && RT=0 || RT=1
+if ! make selftest-regression >"$AUDIT_TMP/regression_build.log" 2>&1; then echo "  FAIL  make selftest-regression builds"; fail=1; fi
+./build/test_regression > "$VERIFY_REG_LOG" 2>&1 && RT=0 || RT=1
 # AUDIT FIX E1: the external-source suite. Like the regression suite it must
 # be able to FAIL, so its FAIL lines are counted, not just its exit code.
-make selftest-external >/dev/null 2>&1
-./build/test_external > /tmp/verify_external.log 2>&1 && ET=0 || ET=1
-ET_PASS=$(grep -c '^  PASS' /tmp/verify_external.log 2>/dev/null || echo 0)
-ET_FAIL=$(grep -c '^  FAIL' /tmp/verify_external.log 2>/dev/null || echo 0)
+if ! make selftest-external >"$AUDIT_TMP/external_build.log" 2>&1; then echo "  FAIL  make selftest-external builds"; fail=1; fi
+./build/test_external > "$VERIFY_EXT_LOG" 2>&1 && ET=0 || ET=1
+# Full-audit P19: grep -c prints "0" but exits 1 on zero matches; `|| echo 0`
+# double-emitted "0\n0" and broke the = "0" test under pipefail. Use || true
+# which preserves grep's printed 0.
+ET_PASS=$(grep -c '^  PASS' "$VERIFY_EXT_LOG" 2>/dev/null || true)
+ET_FAIL=$(grep -c '^  FAIL' "$VERIFY_EXT_LOG" 2>/dev/null || true)
 # The suite's own summary line reads "TOTAL", so a plain "  PASS" prefix
 # counts check lines only. (It used to say "PASS n FAIL m" and got counted
 # as one of its own checks.)
-RT_PASS=$(grep -c '^  PASS' /tmp/verify_regression.log 2>/dev/null || echo 0)
-RT_FAIL=$(grep -c '^  FAIL' /tmp/verify_regression.log 2>/dev/null || echo 0)
+RT_PASS=$(grep -c '^  PASS' "$VERIFY_REG_LOG" 2>/dev/null || true)
+RT_FAIL=$(grep -c '^  FAIL' "$VERIFY_REG_LOG" 2>/dev/null || true)
 chk "forces selftest green (P2)" "0" "$FT"
-make selftest-fire >/dev/null 2>&1
+if ! make selftest-fire >"$AUDIT_TMP/fire_build.log" 2>&1; then echo "  FAIL  make selftest-fire builds"; fail=1; fi
 ./build/test_fire >/dev/null 2>&1 && FR=0 || FR=1
 chk "fire selftest green" "0" "$FR"
 chk "selftest-regression green" "0" "$RT"
 printf '  ---- audit regression suite: %s checks passed, %s failed ----\n' "$RT_PASS" "$RT_FAIL"
-[ "$RT_FAIL" = "0" ] || grep '^  FAIL' /tmp/verify_regression.log | head -20
+[ "$RT_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_REG_LOG" | head -20
 chk "selftest-external green" "0" "$ET"
 printf '  ---- external sources: %s checks passed, %s failed ----\n' "$ET_PASS" "$ET_FAIL"
-[ "$ET_FAIL" = "0" ] || grep '^  FAIL' /tmp/verify_external.log | head -20
+[ "$ET_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_EXT_LOG" | head -20
 if [ -f kcsa.cvmds ]; then
   ./build/test_datastream >/dev/null 2>&1 # ensures verifier linked; use binary below
   python3 - <<'PY'

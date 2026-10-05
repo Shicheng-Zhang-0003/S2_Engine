@@ -48,7 +48,11 @@ esac
 command -v sha256sum >/dev/null || { echo "run: sha256sum not found" >&2; exit 2; }
 
 printf 'run: building\n' >&2
-make >/dev/null
+# Full-audit P20: clean-first + warning gate. An incremental `make` is a no-op
+# against tracked objects and cannot fail (B1 class). Fail closed on warnings.
+make clean >/dev/null 2>&1
+if ! make > "${TMPDIR:-/tmp/opencode}/s2audit/run_build.log" 2>&1; then echo "run: clean build failed" >&2; exit 1; fi
+if grep -q 'warning:' "${TMPDIR:-/tmp/opencode}/s2audit/run_build.log"; then echo "run: build produced warnings" >&2; exit 1; fi
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$RUNS_DIR"

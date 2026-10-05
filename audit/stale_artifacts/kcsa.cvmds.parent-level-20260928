@@ -1,3 +1,7 @@
+# DEPRECATED ARCHIVE (full-audit O10): pre-fix parent-level kcsa.cvmds (2026-09-28).
+# Old schema (no version-*, cage-geometry without LEGACY, Marcus1991 3.057/3.783,
+# pre-dipole-fix v2/knock numbers). Kept per audit/README.md, not a record.
+# Current record is kcsa.cvmds in the tree root (Marcus1997-TATB, LEGACY cage tag).
 [header]
 schema: 1
 demo: kcsa
