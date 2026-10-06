@@ -97,14 +97,20 @@ top of the validated layers below it:
     specific carbonyl typing (ruling out generic-O typing as the cause),
     added a radius scan letting each ion pick its own preferred
     coordination distance (ruling out geometry-fit), and a fuller two-ring
-    antiprism construction that is explicitly flagged as a *placeholder* —
-    its ring z-separation was never sourced, so its numbers are not
-    interpretable as selectivity energetics yet. The demo reports an
-    honest **negative result** — Na⁺ favored at the site, wrong direction —
-    with a systematic diagnosis pointing at missing electronic
-    polarizability. (Audit fix V4: this describes the pre-fix record. It read
-    "in every test"; the knock-on legs now favor K⁺ by 1.54 eV since the
-    coupled-dipole solver was rebuilt. The site legs are unchanged.)
+    antiprism construction. The demo reports an honest **negative result**
+    — Na⁺ favored at the site — with a systematic diagnosis pointing at
+    missing electronic polarizability. *(v9R4 closure: the ring
+    z-separation was sourced from 1K4C in the deep audit (3.084 Å,
+    symmetry-validated), the real deposited TVGYG filter replaced the
+    constructed cage as Demo 12b, and all three diagnosed missing terms —
+    polarizability, explicit solvent, charge response — were built and are
+    reported leg by leg. Second-pass reconciliation: the site legs remain
+    Na⁺-favored, and so are the record's knock-on legs (+1.54 pair,
+    +4.76 conductive, +9.99 landscape barrier, in the forensic table's own
+    "+ = Na+ favored" convention) — an earlier V4 note claimed the
+    opposite direction from these same magnitudes, a sign inversion that
+    is corrected here. The computed exchange legs favor K⁺; see
+    "Current Status".)*
 
   - **v9 masterplan Step 0 resolved first, in-file**: the potassium row
     discrepancy in `periodic_table.c` (fully-populated data row vs. stale
@@ -112,8 +118,10 @@ top of the validated layers below it:
     lives, before any downstream demo depended on potassium parameters.
     The row's electronegativity, ionisation energy and electron affinity
     check out against standard tabulated values; the stale comment was
-    removed; the LJ ε/σ remain explicitly flagged as UFF-sourced but not
-    independently re-verified against the primary Rappé 1992 table.
+    removed. *(v9R4 closure: the whole UFF table — all 36 elements, ε and
+    σ — was checked cell-by-cell against the primary Rappé et al. 1992
+    values in the second audit pass; every ε matches and every σ is
+    x1/2^(1/6). See Code Organisation.)*
 
   - Amino-acid-specific carbonyl Lennard-Jones typing shared consistently
     between the protein and ion-channel tracks (Demo 12 recomputes
@@ -141,10 +149,9 @@ session):
 1. **Complete Demo 12's antiprism block** *(done)*: the real ring
 z-separation was sourced from 1K4C (3.084 A, symmetry-validated),
 and the antiprism block is now a real result. Result at the time: Na+
-favored (wrong direction), then consistent with all other tests.
-(Audit fix V4: no longer consistent with all other tests — see the known
-limitations section. The site legs still favor Na+, the knock-on legs no
-longer do.)
+favored. (Second-pass reconciliation: the record's site legs and knock-on
+legs both favor Na⁺ — an earlier V4 note had the knock-on direction
+inverted; the computed exchange legs favor K⁺. See Known Limitations.)
 2. **The missing-physics decision**: polarizability, explicit-solvent
    competition (the dehydration penalty the vacuum calculation cannot
    express at all), or both.
@@ -161,9 +168,11 @@ what is open" picture.
 * **Step 0 — resolve the potassium row discrepancy** *(done)*.
   `periodic_table.c` now carries the resolution in-file: electronegativity
   0.82, ionisation 4.341 eV, and the electron affinity match standard
-  tabulated values; the stale "mass only stub" comment was removed; the LJ
-  parameters remain flagged as UFF-sourced but not independently
-  re-verified before quantitative trust.
+  tabulated values; the stale "mass only stub" comment was removed.
+  *(v9R4 closure: the whole UFF table — all 36 elements, ε and σ — was
+  verified cell-by-cell against the primary Rappé et al. 1992 values; the
+  σ column also needed the x1 → x1/2^(1/6) correction. See Code
+  Organisation.)*
 
 * **Step 1 — get the real coordinates** *(honest deviation)*. The deposited
   TVGYG backbone coordinates were **not** fetched: in 1K4C, chain C sits
@@ -177,19 +186,24 @@ what is open" picture.
 * **Step 2 — build and sanity-check the bare filter** *(superseded by the
   deviation above)*. With no deposited backbone placed, there is no
   backbone to restrain near crystallographic coordinates; the constructed
-  oxygen cages are rigid by construction. Restraining near crystal
-  coordinates remains the right approach for a future pass if real
-  coordinates are sourced.
+  oxygen cages are rigid by construction. *(v9R4 closure: the deposited
+  coordinates were fetched after all — the previous audit built the real
+  1K4C TVGYG filter as Demo 12b from the actual chain-C coordinates,
+  C4-symmetric and CN=8 at every site, with the backbone held rigid. The
+  constructed cages remain as Demo 12; whether the correct geometry
+  *emerges* remains untested.)*
 
 * **Step 3 — K⁺, then Na⁺** *(executed; result negative)*. Both ions were
   compared at both fixed site radii, across a 2.00–4.20 Å radius scan, and
-  in a two-ring antiprism construction. Na⁺ was favored in every test — the
-  wrong direction. (Audit fix V4: "in every test" described the pre-fix
-  record; the knock-on legs now favor K⁺ by 1.54 eV. The site-leg
-  negatives are unchanged.) The radius scan is the stronger negative: even with
-  each ion free to choose its own best radius (K⁺ 2.82 Å, Na⁺ 2.44 Å),
-  Na⁺ still wins, which rules out geometry-fit entirely. The antiprism
-block is now a real result, not a placeholder (see Known Limitations).
+  in a two-ring antiprism construction. Na⁺ was favored at the sites — the
+  wrong direction. (Second-pass reconciliation: the record's site legs and
+  knock-on legs both favor Na⁺ — an earlier V4 note claimed the knock-on
+  legs favored K⁺ from the same magnitudes with the sign inverted. The
+  computed exchange legs favor K⁺.) The radius scan is the stronger
+  negative: even with each ion free to choose its own best radius
+  (K⁺ 2.82 Å, Na⁺ 2.44 Å), Na⁺ still wins, which rules out geometry-fit
+  entirely. The antiprism block is now a real result, not a placeholder
+  (see Known Limitations).
 
 * **Step 4 — write it up honestly** *(done)*. The negative result is
   reported in the output in Demo 7's convention: number, comparison, then
@@ -213,15 +227,18 @@ supports:
 1. **Complete Demo 12's antiprism block** *(done)*: the real ring
    z-separation was sourced from 1K4C (3.084 A, symmetry-validated),
    and the antiprism block is now a real result. Result at the time: Na+
-   favored (wrong direction), then consistent with all other tests.
-   (Audit fix V4: the knock-on legs no longer agree — see Known
-   Limitations.)
+   favored. (Second-pass reconciliation: site and knock-on legs both favor
+   Na⁺; the computed exchange legs favor K⁺. An earlier note had the
+   knock-on direction inverted — see Known Limitations.)
 2. **The missing-physics decision**: polarizability, explicit-solvent
    competition (the dehydration penalty the vacuum calculation cannot
-   express at all), or both.
+   express at all), or both. *(v9R4: all three, plus charge equilibration
+   and dispersion — see the v9R4 supplement.)*
 3. **Optionally, the original Step 1**: source the real TVGYG backbone
    coordinates, if a future pass needs geometry *emergence* rather than
-   energetic preference at imposed geometry.
+   energetic preference at imposed geometry. *(Done in v9R4 for the
+   deposited-filter case: Demo 12b is that structure, held rigid. Geometry
+   emergence remains untested.)*
 
 ---
 
@@ -285,8 +302,10 @@ potential. The audit found it had been silently active in the gas-phase
 demos (attenuating the 9.6-12 A band at the default 12 A cutoff),
 perturbing Demos 7 and 11; gating it off restored the clean baseline.
 
-**Deferred (P2, flagged not failed).** Analytic dihedral gradients (F4) -
-finite differences remain the oracle, correct by construction.
+**Deferred in v9R3, closed in v9R4 (P2).** Analytic dihedral gradients
+(F4) — the v9R4 audit implemented the exact chain-rule gradients (P2
+closed), keeping the finite-difference oracle and a 22-check agreement
+selftest.
 
 **Record (M2, D1).** The full demo sequence (14 banners — 1–12, 12b, 17) was
 regenerated post-audit and re-asserted (G-C > A-U ordering, trimer bound,
@@ -294,19 +313,19 @@ helix H-bond in range, HH worked-example values). Demo 11's emergent H-bond
 re-formed at H···O = 2.1637 A, N···O = 3.1286 A — the clean hard-cutoff
 baseline, unchanged in direction by the audit.
 
-*Audit fix V3*: this paragraph used to say "the full 13-demo sequence" and
-claimed "Demo 12's KcsA result remains an honest negative (Na+ favored, wrong
-direction, in every test)". Both were wrong. The count was 13 while 14 demos
-print banners, and the KcsA claim is no longer true of the record: the
-knock-on pair leg now favours K+ by 1.54 eV and the knock-on conductive leg
-by 4.76 eV, because the coupled-dipole solver fix (audit A-C1) changed the
-polarisation energies these legs are built on. The site-energy legs still
-favour Na+, and the honest statement is that this model's K⁺ preference now
-appears only in the knock-on mechanism, not in the site energetics. That
-remains a limitation rather than a result: see "What the model still cannot
-do" below, where the 0.0098 eV site separation (full-audit M3: was 0.0130 eV
-with VI radii; VIII radii give 0.0393/4) and the dehydration term
-dominate the interpretation.
+*Audit fix V3 + second-pass reconciliation*: this paragraph used to say "the
+full 13-demo sequence" and claimed "Demo 12's KcsA result remains an honest
+negative (Na+ favored, wrong direction, in every test)". The count was 13
+while 14 demos print banners; the direction claim has since moved twice,
+and this note records the current state rather than another intermediate:
+the record's site legs favour Na⁺, the knock-on pair/conductive/landscape
+legs favour Na⁺ too (the V3/V4 notes asserted the opposite by inverting the
+sign of +1.54/+4.76 eV, which the forensic table labels "+ = Na+ favored"),
+and the computed exchange legs favour K⁺. The coupled-dipole solver fix
+(audit A-C1) is what moved the knock-on magnitudes. See "What the model
+still cannot do" below, where the 0.0098 eV site separation (full-audit M3:
+was 0.0130 eV with VI radii; VIII radii give 0.0393/4) and the dehydration
+term dominate the interpretation.
 
 ---
 
@@ -332,33 +351,52 @@ dominate the interpretation.
   relative-permittivity (dielectric) divisor. Per-atom LJ parameters
   are overridable away from the generic UFF element defaults so a
   jointly-parameterized model (e.g. TIP3P water, AMBER ff99 nucleobase
-  and backbone types) stays internally consistent.
+  and backbone types) stays internally consistent. Harmonic positional
+  restraints ($V = \tfrac12 k |r - r_0|^2$) enter the force loop like
+  every other term; per-axis periodic boundaries and a CHARMM-style
+  cutoff switch are implemented (the switch is opt-in — see the
+  limitations).
 * **Bonded forces**: harmonic bond stretch and harmonic angle bend,
   plus **dihedral (torsion) terms** in the standard AMBER/CHARMM form
-  $V = k\,[1 + \cos(n\phi - \delta)]$.
-* **Dihedral gradients by finite difference**: the torsion force is
-  obtained by central numerical differentiation of the energy (24 energy
-  evaluations per dihedral per call) rather than an analytical
-  chain-rule formula. This is a deliberate correctness-over-speed choice
-  — the analytical dihedral force is a notorious source of silent sign
-  bugs, and a numerically differentiated force is correct by
-  construction. The signed dihedral angle itself (atan2-based, so it
-  distinguishes handedness) was verified against four hand-built test
-  cases before use.
-* **Integrator**: symplectic Velocity Verlet with Berendsen
-  weak-coupling NVT thermostats.
+  $V = k\,[1 + \cos(n\phi - \delta)]$, with **exact analytic chain-rule
+  gradients** (audit P2 closed). The finite-difference oracle that
+  proved them and a 22-check agreement selftest remain in-tree; the
+  earlier finite-difference implementation is gone from the shipped
+  force path.
+* **Quantum-enhancement layer** (every term opt-in, reported as its own
+  ledger entry, never folded into the base charges): induced dipoles
+  (first-order and self-consistent coupled-dipole solves with
+  Thole-damped dipole–dipole coupling), overlap Pauli repulsion,
+  Slater–Kirkwood dispersion with Tang–Toennies damping, and a QEq +
+  dipole SCF charge-equilibration loop (1-pin and 2-pin). The coupled
+  solve is bounded at `QM_SOLVE_MAX_ATOMS = 64` and fails closed rather
+  than returning garbage beyond it.
+* **Integrator**: symplectic Velocity Verlet with two thermostats —
+  Berendsen weak-coupling (steering; kept for the legacy record paths)
+  and Andersen stochastic collisions (rigorously canonical; used for
+  the WHAM free-energy legs). FIRE (Bitzek et al. 2006) minimization is
+  available alongside steepest descent.
 * **Initialisation**: Maxwell-Boltzmann velocities via Box-Muller
   transforms, with net linear momentum removed. Temperature uses the
-  correct $3N-3$ degrees of freedom (centre-of-mass motion excluded).
+  correct $3N-3$ degrees of freedom (centre-of-mass motion excluded),
+  with further constrained-DOF accounting for frozen atoms and linear
+  molecules. Two RNGs: the historical Knuth-MMIX LCG (default, keeps
+  the record byte-stable) and PCG64 (O'Neill 2014, 2⁶⁴ period).
 
 ### 3. Energy Minimization
 
 * Steepest-descent minimizer with an adaptive step size (grown ×1.2 on
   a successful downhill step, shrunk ×0.5 and rolled back on an
   uphill one).
-* A hard per-atom displacement cap (0.05 Å) and a divergence safety
-  check prevent a large step from tunnelling through a steep repulsive
-  wall into the unphysical $r \to 0$ Coulomb-divergence region.
+* FIRE minimizer (Bitzek et al., PRL 96, 054102, 2006): inertial
+  dynamics with velocity mixing and an adaptive timestep, for
+  smooth-basin polishing; an agreement selftest pins it to the same
+  minima as steepest descent.
+* A hard per-atom displacement cap (0.05 Å) and a **size-relative**
+  divergence floor (−60 eV/atom; an absolute floor silently disabled
+  minimization for large systems) prevent a large step from tunnelling
+  through a steep repulsive wall into the unphysical $r \to 0$
+  Coulomb-divergence region.
 * A frozen-atom variant holds a caller-specified subset of atoms fixed,
   used for relaxing part of an assembly without disturbing the rest.
 * Purpose: resolve the severe local steric clashes inherent in a
@@ -413,34 +451,57 @@ authoritative leaving-atom flags — to construct biomolecules:
 
 ### 6. Ion-Channel Biophysics
 
-* Demo 12 investigates the KcsA potassium-channel selectivity filter
-  with the unmodified Coulomb+LJ engine: four backbone carbonyl oxygens
-  carrying the real backbone-carbonyl partial charge (−0.55 e) in the
-  filter's real 4-fold crystallographic symmetry, with a single ion
-  on-axis, across three test blocks:
+Two KcsA tracks coexist in the record, deliberately:
 
-  1. **Fixed-radius site tests** at two literature/deposited
-     coordination distances (Gly77 site, 2.72 Å; Val76 site, 2.83 Å).
-  2. **A radius scan** (2.00–4.20 Å in 0.02 Å steps) letting each ion
-     find its own preferred coordination distance — the
-     cage-size-vs-ion-size framing.
-  3. **A two-ring antiprism construction** (Thr75 + Val76 rings with
-     the real 45° offset), with the real ring z-separation sourced
-     from 1K4C (3.084 Å, symmetry-validated in s10/s10b). Result:
-     Na⁺ favored (wrong direction). (Audit fix V4: this was "consistent
-     with all other tests"; it no longer is — the knock-on legs favor K⁺
-     by 1.54 eV in the current record.)
+* **Demo 12 — the legacy constructed cage** (kept for comparison). Four
+  backbone carbonyl oxygens carrying the real carbonyl partial charge
+  (−0.55 e) in the filter's 4-fold symmetry, single ion on-axis, across
+  (1) fixed-radius site tests at the deposited coordination distances,
+  (2) a radius scan letting each ion pick its own preferred distance,
+  and (3) the two-ring antiprism with the ring z-separation sourced from
+  1K4C (3.084 Å, symmetry-validated). The site legs favour Na⁺ in vacuum
+  — the honest negative result that motivated everything below.
+* **Demo 12b — the real filter**. The deposited PDB 1K4C chain C TVGYG
+  filter, built from the actual coordinates: C4-symmetric, CN = 8 at all
+  four sites, the Thr75 side-chain hydroxyl (OG1) as the innermost gate,
+  and GLY79's carbonyl correctly excluded (it sits 4.82 Å off-axis and
+  coordinates nothing). The geometry is deposited, not constructed; the
+  side chains are held rigid, and the module documents why a
+  flexible-filter calculation collapses without a real protein force
+  field and a solvation model.
 
-* The second pass switched from generic periodic-table oxygen LJ to the
-  amino-acid-specific carbonyl typing shared with the protein track
-  (recomputing `aminoacids.c`'s exact values). It reports an honest
-  **negative result**: Na⁺ is favored at both fixed sites *and* at each
-  ion's own preferred radius — the wrong direction at every site — with
-  the systematic diagnosis ruling out first the generic typing, then
-  geometry-fit, and pointing at missing electronic polarizability as
-  the most likely remaining physics. (Audit fix V4: "everywhere" covered
-  the site tests only, which remain negative; the knock-on legs now favor
-  K⁺ by 1.54 eV.) See the verification and limitations sections below.
+The selectivity program runs the same ion through every available leg
+and prints them side by side in a forensic table rather than quoting one
+number:
+
+1. **Statics**: point-charge → Joung–Cheatham ion sizes → SCF (QEq +
+   dipoles) → v2 in-loop polarization/Pauli → relaxed multi-start with
+   hysteresis errors → a stiff strain probe. The site legs favour Na⁺
+   (+0.21…+0.75 eV) — correct Coulomb physics at a fixed cage.
+2. **Coordination probe**: 8-fold antiprism vs a 6-fold octahedron at
+   each ion's own first-shell distance, same QM physics.
+3. **Knock-on**: two ions in the filter — relaxed pairs, conductive
+   single-points, and a second-ion entry landscape over the
+   clash-flagged valid subset.
+4. **Explicit solvent**: octahedral 6-water clusters (K–O 2.75 Å,
+   Na–O 2.35 Å, TIP3P) give the computed exchange
+   K⁺(aq) + Na⁺·F → Na⁺(aq) + K⁺·F directly.
+5. **Umbrella sampling**: 7 windows per ion, 12 000 steps each, three
+   independent seeds, WHAM-over-z with the measured autocorrelation
+   time τ and effective sample size printed alongside every barrier —
+   the ± is a three-seed spread, not a standard error, and the output
+   says so.
+6. **Dehydration**: measured single-ion hydration free energies enter
+   as a separate bulk-thermodynamic leg (Marcus 1991 TATB,
+   −295.3/−365.3 kJ/mol for K⁺/Na⁺ → K⁺ enters 0.726 eV cheaper). The
+   two-leg sum is compared with the experimental −0.179 eV selectivity
+   reference as a scale check, never as a prediction.
+
+Nothing in this program claims a quantitative selectivity free energy:
+the single-point vacuum legs mostly favour Na⁺, the computed exchange
+legs favour K⁺, the sampled kinetics sit inside a wide error bar, and
+the one robust, measured K⁺ advantage is the dehydration term. The full
+numbers are in the record and dissected in the audit sections below.
 
 ---
 
@@ -462,11 +523,19 @@ The project ships a makefile with the following targets:
   tool, deliberately untracked — see `s2tui` section below), and the
   five test binaries (`build/test_datastream`, `test_forces`,
   `test_fire`, `test_regression`, `test_external`). One command, no
-  separate `make tui` / `make selftest-*` runs needed (`compile` is
-  exactly `make clean; make -j$(nproc)`).
+  separate `make tui` / `make selftest-*` runs needed.
 * `make run` — build if necessary, then execute `./carbonsim`.
 * `make test` — build and run every gate (what CI should invoke).
-* `make clean` — remove the `build/` directory and both binaries.
+* `make tui` — build just the interactive terminal.
+* `make selftest` / `selftest-forces` / `selftest-fire` /
+  `selftest-regression` / `selftest-external` — build each suite
+  individually; `verify_scripts.sh` calls these aliases.
+* `make audit` / `make audit-revert` — run the audit's own evidence:
+  independent oracles and C harnesses, and (with `--revert`) the same
+  regression suite linked against the pre-fix engine to prove it still
+  catches the defects it claims to. Evidence, not a product gate.
+* `make clean` — remove `build/`, both binaries, and `audit/build`.
+* `make deps` — print the source/object/dependency lists (debugging aid).
 
 **Requirements**: a C11 compiler (gcc or clang), `make`, and the
 standard C math library (linked automatically via `-lm`). The default
@@ -474,22 +543,28 @@ record build compiles with `-O3 -g -Wall -Wextra -std=c11 -Iinclude`
 (no `-march=native`; see makefile s38 note for why native is disabled
 for the record).
 
-**Regenerating the recorded output**: the block reproduced below is the
-demo binary's stdout. After any code change, regenerate it so the
-"verbatim record" claim stays provable:
+**Regenerating the recorded output**: never overwrite `output.txt` by
+hand. `./run` builds clean behind a warning gate, executes the engine
+into a timestamped file under `runs/`, and prints the previous and new
+digests side by side; `./run --accept` promotes the new run to
+`output.txt` and `CURRENT_BASELINE_SHA.txt`, and refuses to promote a
+run whose stderr is non-empty. The old one-line
+`./carbonsim > output.txt` destroys the ability to tell an intended
+record update from an accident — the script exists because that
+happened (audit fix M6). Set `SOURCE_DATE_EPOCH` for byte-stable side
+artifacts (`kcsa.cvmds`). After accepting a run, re-sync this file's
+embedded block from `output.txt`: the block is that file minus its
+trailing blank line, nothing else. `verify_scripts.sh` then checks the
+baseline match, the `kcsa.cvmds` seal, key/unit compliance, and every
+test gate.
 
-```bash
-./carbonsim > output.txt 2> stderr.txt
-# Demo 12 also writes kcsa.cvmds as a side effect; both are record artifacts.
-sha256sum output.txt  # must match CURRENT_BASELINE_SHA.txt
-```
-
-and re-sync this readme's embedded block from that file. (Provenance
-note: the archived `output.after-fix09.txt` in this tree predates the
-Demo 12 caveat strengthening and the banner-line update now in
-`src/main.c`; the block below matches the current source.)
-
-**Debug build**: the makefile carries a commented alternate `CFLAGS` line enabling AddressSanitizer and UndefinedBehaviorSanitizer. As of audit fix B1, the link rule passes `$(CFLAGS)`, so uncommenting that line produces a working sanitised build through make. `s01_verify_record.sh` (in this directory) is the harness that actually does this: it builds normally, runs, builds with `-fsanitize=address,undefined`, runs, and asserts both runs reproduce the recorded SHA with empty stderr. Use it rather than the makefile comment — it also leaves the tree clean.
+**Debug build**: the makefile carries a commented alternate `CFLAGS`
+line enabling AddressSanitizer and UndefinedBehaviorSanitizer.
+`s01_verify_record.sh` (tree root) does this properly: it builds
+normally, runs, builds with `-fsanitize=address,undefined`, runs, and
+asserts both runs reproduce the recorded digest with empty stderr —
+and leaves the tree clean. `verify_scripts.sh` is the read-only record
++ spec verifier.
 
 *Audit fix M8*: this paragraph previously claimed the ASan run produced SHA `8e8836a04bb3…`, a digest from several releases ago, alongside the claim that it ran a "13-demo suite". 14 demos print a banner (demo 12b was added without updating either the count or the digest), and the archived `output.asan.txt` it referred to was itself a stale artifact that had to be refreshed in lockstep with every record change — it is now untracked and ignored, and `s01` verifies the ASan build against `CURRENT_BASELINE_SHA.txt` and against the normal build's output directly. The current digest is the one in `CURRENT_BASELINE_SHA.txt`; the number is not repeated here so this paragraph cannot rot.
 
@@ -1664,11 +1739,17 @@ turns an AMBER Rstar into a standard 12-6 collision diameter. Before the
 streamlining pass those numbers existed in four private copies:
 `AMBER_RSTAR_TO_SIGMA` in `nucleobases.c`, `AA_RSTAR_TO_SIGMA` in
 `aminoacids.c`, a third set in `kcsa_filter.c`, and the literal
-`1.6612 * 2.0 / 1.122462048309373` written out in **fourteen** places in
-`main.c`. `aminoacids.c` had admitted the duplication in its own comment —
+`1.6612 * 2.0 / 1.122462048309373` written out in **sixteen** places in
+`main.c` (fourteen carbonyl-sigma expressions across seven functions plus
+two JC ion-sigma macros; the numeral itself appeared nineteen times across
+the four files — a count corrected against the pre-refactor tree in the
+second audit pass, because the header's own note had said thirteen).
+`aminoacids.c` had admitted the duplication in its own comment —
 "duplicated here rather than shared via a header refactor to avoid touching
 already-validated, working code under time pressure" — a debt that was never
-paid. `2^(1/6)` is now written exactly once in the tree.
+paid. `2^(1/6)` is now written exactly once in executable code
+(`TWOPOW_SIXTH`, in that header); the only other appearances are worked
+examples in comments.
 
 Consolidating them immediately paid for itself by surfacing a bug: the
 carbonyl-oxygen sigma used by the new KcsA filter module had been hardcoded
@@ -1676,6 +1757,43 @@ as **3.06615** when the AMBER ff99 value is **2.95992**, and the regression
 test had copied the same wrong literal, so the module and its test agreed
 with each other and both were wrong. The shared constant fixed both, and
 moving the filter energies by ~0.0014 eV is the size of the correction.
+
+The second audit pass found two stragglers of the same class in `tui.c`
+(written after the consolidation): its demo-12 self-test still spelled the
+carbonyl pair inline, and its demo-2 LJ-minimum test carried the `2^(1/6)`
+numeral, while the same file elsewhere used the shared names. Both are
+fixed; the numeral now has exactly one executable spelling in the tree.
+
+### Source inventory (current tree)
+
+22 154 lines across `src/` (17 158), `include/` (2 659) and
+`tests/` (2 337):
+
+| File | Lines | Role |
+|---|---:|---|
+| `src/tui.c` | 4759 | interactive terminal: REPL, POSIX-shell layer, chemistry lab, gas/barostat, ASCII grid (not in the record) |
+| `src/main.c` | 4133 | the 14-demo record program and datastream consumer |
+| `src/qm.c` | 1867 | QEq, induced dipoles (first-order + coupled SCF), Pauli, dispersion, overlap, SCF driver |
+| `tests/test_regression.c` | 1466 | 165 in-repo-oracle checks |
+| `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
+| `src/forces.c` | 914 | pair non-bonded, bonded terms, restraints, analytic dihedral, energy breakdown |
+| `src/sim.c` | 824 | lifecycle, molecule constructors, topology rebuild, ion/restraint plumbing |
+| `src/integrator.c` | 740 | Velocity Verlet, PCG64/LCG, Maxwell–Boltzmann, Berendsen/Andersen, steepest descent, FIRE |
+| `src/quantum.c` | 547 | Slater screening/orbital energies, hydrogenic radial profiles, Clementi–Raimondi, real harmonics |
+| `tests/test_external.c` | 536 | 49 checks against values from outside the repo |
+| `src/kcsa_filter.c` | 513 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs |
+| `src/aminoacids.c` | 513 | glycine/alanine/dipeptide/polyalanine builders |
+| `src/datastream.c` | 374 | schema-1 writer, FIPS 180-4 SHA-256, seal verifier |
+| `src/periodic_table.c` | 294 | H–Kr element data, UFF ε/σ, Madelung configurations |
+| `src/tui_view.c` | 237 | TUI viewport/renderer |
+| `src/neuron.c` | 164 | Hodgkin–Huxley 1952 (squid axon) |
+| `include/` | 2659 | types, constants, per-module contracts; `amber_lj.h` and `display.h` are the shared-policy headers |
+| `tests/` | 2337 | `test_datastream` (17), `test_forces` (22), `test_fire` (7), `test_regression` (165), `test_external` (49) |
+
+Provenance and format live beside the code: `DATASTREAM_SPEC.md` for the
+`.cvmds` format, `audit/` for the audit's own evidence tree (`make audit`),
+`readme.md` (this file) and `release_note_v9R4.md` for claims, and
+`CURRENT_BASELINE_SHA.txt` for the record digest.
 
 ## Verification Discipline & Known Limitations
 
@@ -1699,6 +1817,10 @@ the output says so in plain language rather than burying it.
   values from Aduri et al. (2007), Table 1; Lennard-Jones parameters
   are real AMBER ff99 values from a TINKER-format parameter file,
   mapped atom-by-atom against AMBER's own per-base atom-type lines.
+  The second audit pass additionally re-checked the whole UFF table
+  cell-by-cell against the primary Rappé et al. 1992 parametrisation
+  (all 36 elements, ε and σ) and the KcsA hydration free energies
+  against Marcus 1991 (Faraday Trans. 87, 2995).
 * **Cross-checking before implementation.** Parameters and formulas
   were verified against two or more independent sources before any C
   code was written. The Hodgkin-Huxley resting gating values were
@@ -1723,21 +1845,24 @@ the output says so in plain language rather than burying it.
   documented where the data lives, before any downstream demo depended
   on potassium parameters — the same verify-before-building-on-it
   order the rest of the codebase uses.
-* **Build-configuration reproducibility.** The full demo sequence has
-  been run under AddressSanitizer (stderr empty — no memory errors)
-  and with `-ffast-math` both on and off. The ASan output and the
-  no-fast-math output are byte-identical (same SHA-256, archived as
-  `output.after-fix09.txt`); the fast-math output differs only in the
-  low-order digits of minimizer-dependent values (e.g. Demo 11 H···O
-  2.1639 vs 2.1636 Å) — expected floating-point reassociation noise
-  in a chaotic relaxation, not a physics difference.
+* **Build-configuration reproducibility.** `s01_verify_record.sh`
+  builds the tree normally and again with ASan+UBSan and asserts both
+  runs reproduce the recorded digest byte-for-byte with empty stderr
+  (the sanitized run also checks for memory errors and UB), leaving
+  the tree clean. Stdout is byte-identical across repeated normal
+  runs. The record build never uses `-march=native` (the makefile
+  disables it so FP contraction stays portable across machines), and
+  the digest pointer is `CURRENT_BASELINE_SHA.txt` rather than a
+  literal repeated in prose.
 
 **Confidence tiers.** Not all parameters carry the same weight, and the
 code says which tier each one is in:
 
 1. **Independently verified against primary data** — nucleobase RESP
    charges and AMBER ff99 Lennard-Jones parameters; the CODATA
-   constants; the Hodgkin-Huxley parameters and rate functions.
+   constants; the Hodgkin-Huxley parameters and rate functions; the UFF
+   ε/σ table (all 36 elements, cell-by-cell against Rappé et al. 1992);
+   the Marcus 1991 TATB hydration free energies.
 2. **Standard literature / textbook values, not re-derived here** —
    the 1.33 Å peptide bond length and the Engh-&-Huber-style backbone
    junction angles; the glycosidic bond length.
@@ -1746,13 +1871,14 @@ code says which tier each one is in:
    methyl-group charges. These are flagged in-source and in the output
    as *not* independently verified the way tier-1 values are.
 
-Potassium's LJ ε in `periodic_table.c` is verified against Rappé et al. 1992
-UFF (x2 = 0.035 kcal/mol) as of audit T1. The σ column needed a correction in
-the deep audit: it held UFF's x1 value (3.812 Å), which is **Rmin**, the
-distance of minimum — not the 12-6 collision diameter the field is declared to
-hold. Every σ is now `x1 / 2^(1/6)` (K: 3.39611 Å), which places the LJ
-minimum at the correct 3.812 Å and matches the AMBER conversions already used
-for amino acids and nucleobases.
+The whole UFF table in `periodic_table.c` was re-checked cell-by-cell
+against the primary Rappé et al. 1992 parametrisation in the second audit
+pass: all 36 elements' ε values match, and every σ is `x1 / 2^(1/6)`
+(K: 3.39611 Å), which places each LJ minimum at the tabulated x1 distance
+and matches the AMBER conversions used for biomolecules. (The deep audit
+had found the σ column holding UFF's x1 itself — the distance of minimum,
+not the 12-6 collision diameter the field is declared to hold — and
+corrected it.)
 
 ### Known limitations & honest scope
 
@@ -1763,15 +1889,15 @@ for amino acids and nucleobases.
   compensate. It was tested and broke the validated helix i,i+4 H-bond
   (Demo 11). 1-4 pairs stay at full strength; revisit only with fitted
   torsions.
-* **Ion selectivity (Demo 12) is a model result, not a KcsA result.** See the
-  audit section: the filter is a frozen, restrained array of carbonyl oxygens
-  and the protein is poly-alanine, so the real TVGYG selectivity chemistry is
-  not present. The barriers reported below are the umbrella-sampled U(z)
-  spans for that cage, and the numbers moved when the physics was corrected.
-  Any K⁺/Na⁺ comparison should be read as "in this reduced model", never as a
-  statement about the channel. The umbrella sampler now prints its measured
-  autocorrelation time and effective sample size, because the `±` on these
-  figures is a three-seed spread and **not** a standard error.
+* **Ion selectivity is a model result, not a KcsA result.** Demo 12's
+  constructed cage is a frozen, restrained array of carbonyl oxygens, and
+  Demo 12b — the real deposited TVGYG filter — is rigid and in vacuum. Any
+  K⁺/Na⁺ comparison should be read as "in this reduced model", never as a
+  statement about the channel. The barriers are umbrella-sampled U(z)
+  spans, and the numbers moved when the physics was corrected. The sampler
+  prints its measured autocorrelation time and effective sample size,
+  because the `±` on these figures is a three-seed spread and **not** a
+  standard error.
 * **Demo 12's antiprism block is now a real result (no longer a placeholder).** The
 ring z-separation was sourced from 1K4C (3.084 A, symmetry-validated in
 s10/s10b) and the artificial O-O overlap is removed. The block reports a
@@ -1779,16 +1905,20 @@ genuine, interpretable Delta. Note: the absolute Total_PE values are net
 positive due to the isolated cage's O-O self-repulsion (no protein backbone
 to balance it); only the Delta is the meaningful selectivity signal.
 
-  *Audit fix V4*: an earlier version of this bullet said "Na+ still favored,
-  wrong direction" and other sections said "in every test". That was true of
-  the record before the coupled-dipole solver was rebuilt, and it is no longer
-  true of the record. The **site** legs still favour Na+ — JC +0.33 eV, SCF
-  +0.21 eV, relaxed +0.75 eV — but the **knock-on** legs now favour K+, by
-  1.54 eV on the pair energy and 4.76 eV on conductivity, because those legs
-  are built on the coupled-dipole polarisation energy that the solver fix
-  changed. The historical "Na+ in every test" statements elsewhere in this
-  file describe the pre-fix record and are marked as such. Neither direction
-is a selectivity result: with a 0.0098 eV site separation (was 0.0130 eV with
+  *Audit fix V4 + second-pass reconciliation*: an earlier version of this
+  bullet said "Na+ still favored, wrong direction" and other sections said
+  "in every test". The **site** legs still favour Na⁺ (offset from the
+  antiprism point-charge zero: JC +0.33, SCF +0.21, v2 +0.33, relaxed
+  +0.75, stiff +0.26 eV), and — correcting a sign inversion this note
+  carried — so do the **knock-on** legs in the forensic table's own
+  convention ("+ = Na+ favored": pair +1.54, conductive +4.76, landscape
+  barrier +9.99 eV). The computed **exchange** legs favour K⁺
+  (rigid-filter −0.5762 eV deterministic; relaxed −0.1557 ± 0.9041), and
+  the polar-WHAM barrier gap is −0.0422 ± 0.2332 (K⁺, within its own
+  error; the fixed-charge reference is +0.1572). The historical "Na+ in
+  every test" statements elsewhere in this file describe the pre-fix
+  record and are marked as such. No direction here is a selectivity
+result: with a 0.0098 eV site separation (was 0.0130 eV with
 VI radii) and the measured dehydration term (0.726 eV on the true TATB free
 energies; N1 — the earlier 1.368 eV came from a hydration-enthalpy table,
 not a free energy) dominating, this model is not positioned to adjudicate
@@ -1809,6 +1939,10 @@ K⁺/Na⁺ at all.
 * **Approximate charges on non-nucleobase components.** Sugar,
   phosphate, and amino-acid partial charges are charge-balanced
   approximations, not verified RESP fits (see the confidence tiers).
+  The second audit pass made the glycine table exactly neutral (its
+  "adjusted for exact neutrality" correction had the sign of the
+  residual reversed) and removed a false citation rather than replacing
+  it with another guess.
 * **Scaling and algorithms.** The non-bonded loop is O(N²) with no
   neighbour list (the code suggests a cell list beyond ~500 atoms),
   though pair exclusion is O(coordination) via partner lists and
@@ -1827,10 +1961,11 @@ K⁺/Na⁺ at all.
   protein and electrophysiology tracks — remains future work.
 * **Demo 11 is not spontaneous folding.** Local backbone torsions
   (φ/ψ/ω) are restrained to textbook values; only the global i,i+4
-  hydrogen bond is allowed to emerge. Demo 12 uses a literature
-  coordination radius as a constructed input rather than deposited
-  backbone coordinates, so it tests energetic preference at imposed
-  geometry, not whether the correct geometry emerges.
+  hydrogen bond is allowed to emerge. Demo 12's constructed cage uses
+  literature coordination distances as constructed inputs; Demo 12b
+  uses the deposited backbone coordinates but holds the protein rigid,
+  so it tests energetics at deposited geometry, not whether the correct
+  geometry emerges.
 * **Cutoff smoothing is present but gated off (audit F5).** A
 CHARMM-style switching function (potential and force continuous to zero
 at the cutoff) is implemented for future condensed-phase use but is
@@ -1852,8 +1987,9 @@ to produce genuine emergent behavior.
 
 The v9 goal — testing whether the unmodified Coulomb+LJ engine extends
 to ion selectivity — was answered honestly: **it does not, in vacuum,
-with fixed charges.** Na⁺ wins at every KcsA site and across the radius
-scan, and the systematic elimination (generic typing first, then
+with fixed charges.** Na⁺ wins the vacuum site statics of both the
+constructed cage and the real filter (+0.21…+0.75 eV across the site
+legs), and the systematic elimination (generic typing first, then
 geometry-fit) makes that a genuine physics finding about the model's
 ceiling rather than a parameter bug.
 
@@ -1861,14 +1997,29 @@ v9R4 then built what the finding pointed at — polarizability (Thole-
 damped induction, self-consistent dipoles), explicit-solvent competition
 (octahedral 6-water clusters), charge equilibration with dipole feedback,
 Slater-Kirkwood dispersion, multi-ion knock-on configurations, and
-umbrella-sampled free energies. Single-ion vacuum filter statics still
-favor Na⁺ (+0.2…+0.4 eV across six legs — correct Coulomb physics, kept
-as the honest baseline); K⁺ wins the computed exchange (−0.578 eV
-deterministic rigid-filter leg), the SCF-polar transit barrier
-(−0.36 eV), and the knock-on landscape over valid geometries
-(−1.62 eV). Sampled polar kinetics (+0.33 ± 0.06 Na⁺) disagrees with the
-single-point barrier — reported as an open bracket, not averaged away.
-Details in the v9R4 supplement below and `release_note_v9R4.md`.
+umbrella-sampled free energies. The current record reads, in the forensic
+table's own convention (+ = Na⁺ favored):
+
+* site legs +0.21…+0.75 eV (Na⁺ favored);
+* computed exchange: rigid-filter −0.5762 eV and relaxed
+  −0.1557 ± 0.9041 eV (K⁺ favored), two-ion −0.2706 eV;
+* single-point SCF-polar U(z) barrier d(K−Na) = +2.5912 eV;
+* polar-WHAM barrier gap −0.0422 ± 0.2332 eV vs the fixed-charge
+  reference +0.1572 eV;
+* knock-on pair +1.54, conductive +4.76, and landscape barrier +9.99 eV
+  (Na⁺ favored);
+* measured dehydration: K⁺ enters 0.726 eV cheaper (two-leg sum
+  −0.7255 eV against the experimental −0.179 eV reference).
+
+The legs disagree, and the disagreement is the result: only the measured
+dehydration free energy is a robust K⁺ advantage in this model, and no
+quantitative selectivity free energy is claimed. *(Second-pass
+reconciliation: an earlier version of this paragraph quoted a set of legs
+that no longer exist in the record — "−0.578 deterministic", "−0.36
+transit barrier", "−1.62 landscape", "+0.33 ± 0.06 sampled kinetics" —
+with one sign inversion; the list above is the record's own forensic
+table.)* Details in the v9R4 supplement below and
+`release_note_v9R4.md`.
 
 The honest next steps, in the order the project's own record supports:
 
@@ -2374,10 +2525,13 @@ code. Record digest moves from `9eb32e54…` to the contents of
 * **N7 the TUI kept a private copy of the AMBER O literals.** `tui.c`'s
   demo-12 self-test carried `0.2100 * KCAL_MOL_TO_EV` and the literal
   `2.959921901149463` for the carbonyl-O LJ pair while the same file's
-  cage builder already used `LJ_AMBER_O_EPS/LJ_AMBER_O_SIGMA` and the
-  engine had consolidated every other spelling into `amber_lj.h`. The
-  two lines now use the shared names; value-identical, and `s2tui` is
-  outside the record path so nothing else moves.
+  cage builder already used `LJ_AMBER_O_EPS/LJ_AMBER_O_SIGMA`, and its
+  demo-2 LJ-minimum test spelled `2^(1/6)` as `1.122462048309373`. The
+  engine had consolidated every other spelling into `amber_lj.h`; the
+  TUI, written after that pass, quietly reintroduced these. All three
+  now use the shared names (`TWOPOW_SIXTH` for the numeral);
+  value-identical, and `s2tui` is outside the record path so nothing
+  else moves.
 
 **Programming hardening (non-record unless noted).**
 
