@@ -168,7 +168,7 @@ static int test_d2(void) {
     Simulation *s = sim_create(8, 8);
     if (!s) return t_fail("2", "alloc");
     double sig = 2.5711, eps = 0.00191;
-    double rmin = sig * 1.122462048309373;
+    double rmin = sig * TWOPOW_SIXTH;
     int a = sim_add_atom(s, 1, vec3(0, 0, 0), 0.0);
     int b = sim_add_atom(s, 1, vec3(rmin, 0, 0), 0.0);
     if (a < 0 || b < 0) { sim_destroy(s); return t_fail("2", "place"); }
