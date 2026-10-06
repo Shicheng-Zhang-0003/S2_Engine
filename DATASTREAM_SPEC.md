@@ -74,12 +74,14 @@ Columns: `key  value  unit  provenance`
 - `unit`: `eV`, `A`, `A^3`, `K`, `fs`, `e` (elementary charge),
   `dimensionless`, or `-`
 - `provenance`: `computed`, `computed-jc2008-params` (JC ion sizes),
-  `computed-ecc-scaled`, or a citation tag — `Marcus1997-TATB`
-  (absolute single-ion hydration, unified full-audit M1; legacy files may
-  carry `Marcus1991` for the conventional 295/365 set — verifiers accept
-  both but new writers must use `Marcus1997-TATB`), `1K4C-LINK`,
-  `Aduri2007`, `expt-1000:1@300K`, etc. `JC2008` alone is deprecated:
-  JC numbers are computed with JC parameters, not measured by JC.
+  `computed-ecc-scaled`, or a citation tag — `Marcus1991-TATB`
+  (TATB-based absolute single-ion hydration FREE energies, Marcus 1991
+  Faraday Trans. 87, 2995; full-audit N1 corrects the earlier
+  `Marcus1997-TATB` tag, whose -322/-454 values were old absolute-scale
+  hydration ENTHALPIES; legacy files may carry `Marcus1997-TATB` —
+  verifiers accept both but new writers must use `Marcus1991-TATB`),
+  `1K4C-LINK`, `Aduri2007`, `expt-1000:1@300K`, etc. `JC2008` alone is
+  deprecated: JC numbers are computed with JC parameters, not measured by JC.
 
 ### 3.5 `[end]` — required
 - `payload-sha256:` SHA-256 over the payload (defined in §2).
@@ -110,8 +112,8 @@ lower-case key form; legacy upper-case files accepted):
 kcsa.antiprism.e_k         <eV>    eV  computed
 kcsa.antiprism.e_na        <eV>    eV  computed
 kcsa.antiprism.ddg_vacuum  <eV>    eV  computed      # e_k - e_na; + means Na+ favored
-kcsa.dehyd.k               +3.057  eV  Marcus1991
-kcsa.dehyd.na              +3.783  eV  Marcus1991
+kcsa.dehyd.k               +3.061  eV  Marcus1991-TATB
+kcsa.dehyd.na              +3.786  eV  Marcus1991-TATB
 kcsa.ddg_corrected         <eV>    eV  computed      # ddg_vacuum + dehyd.k - dehyd.na
 kcsa.ddg_experimental      -0.179  eV  expt-1000:1@300K
 kcsa.ddg_deviation         <eV>    eV  computed      # corrected - experimental

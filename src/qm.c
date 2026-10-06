@@ -1158,7 +1158,7 @@ int qm_solve_dipoles(const Simulation *sim, double dielectric, Vec3 *mu_out) {
      * simultaneously too small for the system it claimed to solve and larger
      * than the region it zeroed). */
     const int M3 = 3 * N;
-    double rhs[3 * 256];
+    double rhs[3 * QM_SOLVE_MAX_ATOMS];
     for (int i = 0; i < N; i++) {
         double s = alpha[i] / COULOMB_MD;
         rhs[3*i + 0] = E0[i].x * s;
@@ -1261,7 +1261,7 @@ int qm_solve_dipoles(const Simulation *sim, double dielectric, Vec3 *mu_out) {
      * directly, which is correct only because mu_out is written in the same
      * order it is needed - but it did so on an N-long index into an array of
      * 3N unknowns, so it solved three N-long systems for a 3N-long answer. */
-    double sol[3 * 256];
+    double sol[3 * QM_SOLVE_MAX_ATOMS];
     for (int r = M3 - 1; r >= 0; r--) {
         double acc = rhs[r];
         for (int k = r + 1; k < M3; k++) acc -= M[r * M3 + k] * sol[k];

@@ -1018,20 +1018,21 @@ static void test_kcsa_ion_sigma(void) {
     }
 }
 
-/* AUDIT FIX D3: aminoacids.c claimed, in three places, that the charge
- * tables sum to zero and were "verified by sum-to-zero assertion". There is
- * no assertion in the file and glycine sums to +0.257 e. Pin the MEASURED
- * sums so the tables cannot drift again, and so the one table that really is
- * neutral stays the control case. */
+/* AUDIT FIX D3 pinned the old, wrong glycine sum. AUDIT FIX N2 then fixed
+ * the table itself: the "adjusted for exact neutrality" HXT correction had
+ * its sign inverted, so the pin becomes the physically required value - a
+ * complete free neutral molecule sums to zero. Alanine was already neutral
+ * and stays the control case; the dipeptide's -0.043 e is the real
+ * condensation capping and is pinned as before. */
 static void test_aminoacid_charge_sums(void) {
-    grp("Amino-acid charge tables: pin the sums that were never verified (D3)");
+    grp("Amino-acid charge tables: free molecules are neutral (D3/N2)");
     char d[224];
     {
         Simulation *s = sim_create(64, 64);
         sim_place_glycine(s, vec3(0, 0, 0));
         double sum = 0; for (int i = 0; i < s->num_atoms; i++) sum += s->atoms[i].partial_charge;
         snprintf(d, sizeof d, "%d atoms, sum(q) = %+.6f e", s->num_atoms, sum);
-        ok("free glycine sums to +0.257 e (capped fragment, not neutral)", fabs(sum - 0.257) < 1e-9, d);
+        ok("free glycine is neutral after the N2 HXT correction", fabs(sum) < 1e-12, d);
         sim_destroy(s);
     }
     {
@@ -1416,13 +1417,15 @@ static void test_ion_size_and_hydration(void) {
     sim_destroy(s);
     okrel("K+  cation radius 1.51 A (Shannon VIII, full-audit M3)", kcsa_cation_radius(19), 1.51, 1e-12);
     okrel("Na+ cation radius 1.18 A (Shannon VIII, full-audit M3)", kcsa_cation_radius(11), 1.18, 1e-12);
-    /* hydration free energies, and the K+ advantage they imply */
-    okrel("K+  hydration -322 kJ/mol", kcsa_hydration_free_energy_kJmol(19), -322.0, 1e-12);
-    okrel("Na+ hydration -454 kJ/mol", kcsa_hydration_free_energy_kJmol(11), -454.0, 1e-12);
-    okrel("K+ dehydration cost 3.337 eV", kcsa_dehydration_cost_eV(19), 322.0/96.48533212, 1e-9);
-    okrel("Na+ dehydration cost 4.705 eV", kcsa_dehydration_cost_eV(11), 454.0/96.48533212, 1e-9);
-    okrel("K+ enters 1.368 eV cheaper than Na+",
-          kcsa_dehydration_cost_eV(11) - kcsa_dehydration_cost_eV(19), 1.3680, 2e-3);
+    /* hydration free energies on the Marcus 1991 TATB free-energy scale,
+     * and the K+ advantage they imply (N1 corrected these from the
+     * old-scale enthalpies -322/-454 which full-audit M1 had unified on) */
+    okrel("K+  hydration -295.3 kJ/mol (Marcus 1991 TATB dG)", kcsa_hydration_free_energy_kJmol(19), -295.3, 1e-12);
+    okrel("Na+ hydration -365.3 kJ/mol (Marcus 1991 TATB dG)", kcsa_hydration_free_energy_kJmol(11), -365.3, 1e-12);
+    okrel("K+ dehydration cost 3.061 eV", kcsa_dehydration_cost_eV(19), 295.3/96.48533212, 1e-9);
+    okrel("Na+ dehydration cost 3.786 eV", kcsa_dehydration_cost_eV(11), 365.3/96.48533212, 1e-9);
+    okrel("K+ enters 0.7255 eV cheaper than Na+",
+          kcsa_dehydration_cost_eV(11) - kcsa_dehydration_cost_eV(19), 0.7255, 2e-3);
 }
 
 int main(void) {

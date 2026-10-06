@@ -310,18 +310,34 @@ int kcsa_coord_stats(const Simulation *sim, int filter_first,
  * cost of DEHYDRATING the ion to put it in the site, and it is not a
  * force-field term at all - it is a measured bulk thermodynamic quantity.
  *
- * Standard single-ion hydration free energies (absolute scale, Marcus
- * 1997; TATB convention as used throughout ion solvation free-energy
- * work):
+ * Standard single-ion hydration FREE energies, TATB-based absolute
+ * scale, 298.15 K (Marcus 1991, J. Chem. Soc. Faraday Trans. 87,
+ * 2995):
  *
- *     Na+   -454 kJ/mol
- *     K+    -322 kJ/mol
+ *     Li+   -475.1 kJ/mol
+ *     Na+   -365.3 kJ/mol
+ *     K+    -295.3 kJ/mol
+ *     Rb+   -275.3 kJ/mol
+ *     Cs+   -250.7 kJ/mol
  *
- * Desolvating K+ to enter the filter therefore costs 132 kJ/mol LESS than
- * desolvating Na+ - 1.368 eV at 96.485 kJ/mol per eV. That is a large,
+ * Desolvating K+ to enter the filter therefore costs 70.0 kJ/mol LESS than
+ * desolvating Na+ - 0.7255 eV at 96.485 kJ/mol per eV. That is a large,
  * real, measured advantage for K+, and it is the term the previous
  * model could not see because the previous model had neither the real
  * geometry nor any solvent at all.
+ *
+ * AUDIT FIX N1 (a free-energy leg was carrying enthalpies). Earlier
+ * revisions used -322/-454 kJ/mol for K+/Na+ and labelled them
+ * "Marcus 1997 TATB". Those are the old absolute-scale ENTHALPIES of
+ * hydration (the set quoted in Hille's Ion Channels of Excitable
+ * Membranes and in the CRC hydration tables), not the TATB free
+ * energies. The two differ by TΔS, which is -26.7 kJ/mol for K+ and
+ * -88.7 kJ/mol for Na+ at 298.15 K (ΔS = -89.6 and -297.6 J/(mol K)).
+ * Using ΔH where the leg is a ΔG overstated the K+/Na+ dehydration
+ * advantage by 62 kJ/mol (1.368 eV instead of 0.7255 eV) and moved the
+ * two-leg sum AWAY from the experimental -0.179 eV reference
+ * (-1.368 eV, deviation -1.190 eV) rather than toward it (-0.726 eV,
+ * deviation -0.547 eV). A free energy needs ΔG.
  *
  * Run without this term, a rigid K+-sized cage will ALWAYS appear to
  * prefer Na+, because the smaller cation has more negative Coulomb
@@ -332,17 +348,24 @@ int kcsa_coord_stats(const Simulation *sim, int filter_first,
 
 double kcsa_hydration_free_energy_kJmol(int Z) {
     switch (Z) {
-        case 11: return -454.0;   /* Na+ */
-        case 19: return -322.0;   /* K+  */
-        case 37: return -293.0;   /* Rb+ */
-        case 55: return -264.0;   /* Cs+ */
-        case 3:  return -520.0;   /* Li+ */
+        case 11: return -365.3;   /* Na+ (Marcus 1991 TATB dG) */
+        case 19: return -295.3;   /* K+  */
+        case 37: return -275.3;   /* Rb+ */
+        case 55: return -250.7;   /* Cs+ */
+        case 3:  return -475.1;   /* Li+ */
         default: return 0.0;
     }
 }
 
+/* kJ/mol per eV, from CODATA primaries: N_A*e/1000 (96.48533212...).
+ * Derived rather than a hand literal so the divisor and every table it
+ * divides cannot drift apart; this is the single copy (N1 keeps the
+ * full-audit M4 property while removing the second spelling from
+ * main.c). */
+#define KCSA_KJ_PER_EV (AVOGADRO_N * ELEM_CHARGE / 1000.0)
+
 double kcsa_dehydration_cost_eV(int Z) {
-    return -kcsa_hydration_free_energy_kJmol(Z) / 96.48533212;
+    return -kcsa_hydration_free_energy_kJmol(Z) / KCSA_KJ_PER_EV;
 }
 
 /*
@@ -377,7 +400,13 @@ double kcsa_cation_radius(int Z) {
     }
 }
 
-/* Oxygen radius used for the contact distance. */
+/* Oxygen radius used for the contact distance. The cation radius is the
+ * 8-coordinate Shannon value; the coordinating O here is a carbonyl
+ * oxygen whose own coordination is ~2 (one covalent C, one ion
+ * contact), so the standard Shannon O2- (VI) value 1.40 A is used as
+ * the conventional proxy. Shannon's O2- (VIII) is 1.42 A: using it
+ * would move each preferred contact by +0.02 A, immaterial beside the
+ * 0.36 A K/Na signal the comparison rests on. */
 #define KCSA_O_RADIUS   1.40
 /* Shared ion–O well depth, kcal/mol. One value for all alkalis, so the
  * K/Na comparison has no per-ion strength to lean on. */

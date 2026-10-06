@@ -29,12 +29,15 @@
  * retyped, so the two cannot drift apart again. Worked examples:
  *   H  2.886 / 1.12246 = 2.57113   (UFF σ_H  = 2.571)
  *   C  3.851 / 1.12246 = 3.43085   (UFF σ_C3 = 3.431)
- *   K  3.812 / 1.12246 = 3.39531   (UFF σ_K  = 3.395)
+ *   K  3.812 / 1.12246 = 3.39611   (UFF σ_K  = 3.396)
  *
- * This also makes the periodic table consistent with the AMBER ff99
- * conversions already used for amino acids and nucleobases, which apply
- * the same 2^(1/6) factor via AMBER_RSTAR_TO_SIGMA in aminoacids.c and
- * nucleobases.c and reproduce AMBER's published σ exactly.
+ * This conversion is NOT the same expression as AMBER_RSTAR_TO_SIGMA in
+ * amber_lj.h (which computes 2*Rstar/2^(1/6)): UFF tabulates x1 = the
+ * FULL distance of the potential minimum, while AMBER tabulates Rstar =
+ * HALF of it. Both reproduce their own force field's published σ
+ * exactly; the factor of 2 is the difference between the two tabulated
+ * conventions, not an inconsistency, and neither expression may be
+ * swapped for the other.
  */
 
 /* ── Madelung sequence: pairs of (n, l) in filling order ─────────────────── */
