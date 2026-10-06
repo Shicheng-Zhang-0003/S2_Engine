@@ -179,10 +179,18 @@ all eight ligands. The dominant energetic term is desolvation, a measured bulk
 quantity rather than a force-field term:
 
 ```
-K+   -322 kJ/mol  ->  3.337 eV to dehydrate
-Na+  -454 kJ/mol  ->  4.705 eV
-K+ enters 1.368 eV cheaper
+K+   -295.3 kJ/mol  ->  3.061 eV to dehydrate
+Na+  -365.3 kJ/mol  ->  3.786 eV
+K+ enters 0.726 eV cheaper
 ```
+
+*(Second-pass audit N1: this block previously carried -322/-454 kJ/mol and
+1.368 eV. Those are the old absolute-scale hydration ENTHALPIES, not the
+TATB FREE energies; the TATB free energies are Marcus 1991's -295.3/-365.3.
+The enthalpy set overstated the K⁺ advantage by 62 kJ/mol and moved the
+two-leg sum away from the experimental -0.1786 eV reference; with ΔG the
+deviation is -0.547 eV instead of -1.190 eV. The code comment, the record,
+and every document that quoted 1.368 eV now carry the free-energy value.)*
 
 But the honest result is that the **rigid cage separates the two cations by
 only 0.0098 eV** (was 0.0130 eV with VI radii; VIII gives 0.0393/4),
