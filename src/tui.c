@@ -1077,10 +1077,11 @@ static char *sh_capture(Tui *t, const char *cmd, int depth) {
 /* ── termios line editor (TTY only; piped input uses fgets) ── */
 static const char *sh_complete(const char *w0, int first) {
     static const char *cmds[] = {
-        "help", "list", "ls", "test", "new", "spawn", "del", "rm", "bond",
-        "detect", "restrain", "clear", "set", "init", "step", "run", "show",
-        "minimize", "heat", "mol", "rxn", "neuron", "render", "view", "cam", "slice", "watch",
-        "dd", "ps", "vi", "more", "sync",
+        "man", "ls", "test", "env", "rm", "ln", "fsck", "unlink", "set", "export",
+        "sleep", "df", "du", "kill", "nice", "touch", "dd", "ps", "vi", "more",
+        "sync", "make", "cat", "cp", "mv", "mkdir", "rmdir", "head", "tail", "wc",
+        "sort", "uniq", "cut", "tr", "grep", "tee", "find", "date", "uname", "fc",
+        "tput", "sh", "true", "false", "printf", "echo", "pwd", "cd", "read", "exit",
         "echo", "export", "unset", "env", "history", "source", "sleep",
         "time", "save", "load", "printf", "true", "false", "wait",
         "cat", "pwd", "cd", "mkdir", "cp", "mv", "head", "tail", "wc",
@@ -1429,7 +1430,7 @@ int tui_main(void) {
     view_cam_reset(&t.cam);
     tui_new(&t, 512, 512);
     if (!t.sim) { sh_err("  alloc failed\n"); return 1; }
-    sh_err("  s2tui — type `help` (batch `./carbonsim` record untouched)\n");
+    sh_err("  s2tui — type `man` (batch `./carbonsim` record untouched)\n");
     while (!t.quit) {
         char *line = tui_readline(t.srcdepth == 0 ? "s2> " : NULL);
         if (!line) break;
@@ -4318,6 +4319,7 @@ static int cmd_dd(Tui *t, char **a, int n) {
     const char *src = NULL, *dst = NULL;
     int count = 1;
     double x = 0, y = 0, z = 0, temp = -1;
+    double q = 1e30, eps = -1.0, sig = -1.0;
     unsigned long seed = 0;
     for (int i = 0; i < n; i++) {
         char *eq = strchr(a[i], '=');
@@ -4334,10 +4336,34 @@ static int cmd_dd(Tui *t, char **a, int n) {
         else if (!strcmp(key, "z")) parse_double(val, &z);
         else if (!strcmp(key, "temp")) parse_double(val, &temp);
         else if (!strcmp(key, "seed")) parse_ulong(val, &seed);
+        else if (!strcmp(key, "q")) parse_double(val, &q);
+        else if (!strcmp(key, "eps")) parse_double(val, &eps);
+        else if (!strcmp(key, "sigma")) parse_double(val, &sig);
     }
-    if (!src) { sh_err("  usage: dd if=<preset|species|file> of=world [count=N] [x= y= z=]\n"); return 2; }
+    if (!src && !dst) { sh_err("  usage: dd if=<preset|species|file> of=world [count=N] [x= y= z=]\n"); return 2; }
     if (count < 1) count = 1;
     if (count > 4096) count = 4096;
+    if (src && (!strcmp(src, "urandom") || !strcmp(src, "thermal") || !strcmp(src, "velocities"))) {
+        double T = (temp > 0) ? temp : 300.0;
+        if (!t->sim) { sh_err("  dd: no world\n"); return 1; }
+        integrator_maxwell_boltzmann(t->sim, T, seed ? seed : 7UL);
+        sh_err("  dd: thermalized %d atoms at %.1f K\n", t->sim->num_atoms, T);
+        return 0;
+    }
+    if (dst && !strncmp(dst, "atom:", 5)) {
+        int ai = -1;
+        if (!parse_int(dst + 5, &ai) || !t->sim || ai < 0 || ai >= t->sim->num_atoms) {
+            sh_err("  dd: bad atom target `%s`\n", dst);
+            return 1;
+        }
+        if (q <= 1e29) t->sim->atoms[ai].partial_charge = q;
+        if (eps >= 0.0 && sig > 0.0) sim_set_atom_lj(t->sim, ai, eps, sig);
+        sh_err("  dd: atom %d q=%.4f eps=%.5f sigma=%.4f\n", ai,
+               t->sim->atoms[ai].partial_charge, t->sim->atoms[ai].lj_epsilon,
+               t->sim->atoms[ai].lj_sigma);
+        return 0;
+    }
+    if (!src) { sh_err("  dd: missing if=\n"); return 2; }
     if ((!dst || !strcmp(dst, "world")) && (!strcmp(src, "petri") || !strcmp(src, "empty")))
         return world_preset(t, src, seed);
     {
@@ -4424,7 +4450,412 @@ static int cmd_sync(Tui *t, char **a, int n) {
     return cmd_save(t, (n >= 1) ? a[0] : "s2world.s2");
 }
 
+/* ── POSIX command surface ───────────────────────────────────────────
+ * User-visible command names are POSIX commands and their structure is
+ * POSIX (options, operands, stdin/stdout/stderr, exit status). Operands
+ * are S2 words. Old non-POSIX names are refused. This layer rewrites the
+ * POSIX surface onto the internal verbs the dispatch chain implements.
+ * ─────────────────────────────────────────────────────────────────── */
+
+static int posix_is_species(const char *s) {
+    static const char *sp[] = {
+        "water", "h2o", "nh3", "methane", "ch4", "co2", "h2", "glycine", "gly",
+        "alanine", "ala", "uracil", "cytosine", "thymine", "adenine", "guanine",
+        "deoxyribose", "sugar", "Na+", "na", "K+", "k", "Cl-", "cl", "Ca2+", "ca", NULL
+    };
+    for (int i = 0; sp[i]; i++) if (!strcmp(s, sp[i])) return 1;
+    return live_z_from_name(s) >= 1;
+}
+
+static int posix_is_spawner(const char *s) {
+    static const char *w[] = {
+        "atom", "ion", "h2o", "h2", "nh3", "ch4", "methane", "co2", "kcsa",
+        "demo", "quantum", "water", "trimer", "base", "pair", "dinucleotide",
+        "neuron", "dipeptide", "helix", "cage", "filter", "duplex", NULL
+    };
+    for (int i = 0; w[i]; i++) if (!strcmp(s, w[i])) return 1;
+    return 0;
+}
+
+/* 1 = rewritten (use out/outn), 0 = unchanged, -1 = refuse (not POSIX) */
+static int posix_rewrite(char **tok, int nt, char **out, int *outn) {
+    const char *c = tok[0];
+    static const char *refuse[] = {
+        "new", "spawn", "del", "bond", "detect", "restrain", "clear", "init",
+        "step", "run", "show", "minimize", "heat", "mol", "rxn", "neuron",
+        "render", "view", "cam", "slice", "watch", "list", "help", "quit",
+        "history", NULL
+    };
+    for (int i = 0; refuse[i]; i++)
+        if (!strcmp(c, refuse[i])) return -1;
+    if (c[0] == '!') return -1;   /* host escape is `sh -c '...'` now */
+
+    if (!strcmp(c, "env") && nt >= 2 && !strcmp(tok[1], "-i")) {
+        out[0] = "new";
+        for (int i = 2; i < nt; i++) out[i - 1] = tok[i];
+        *outn = nt - 1;
+        return 1;
+    }
+    if (!strcmp(c, "touch") && nt >= 2 &&
+        (posix_is_species(tok[1]) || posix_is_spawner(tok[1]))) {
+        out[0] = posix_is_spawner(tok[1]) ? "spawn" : "addsp";
+        for (int i = 1; i < nt; i++) out[i] = tok[i];
+        *outn = nt;
+        return 1;
+    }
+    if (!strcmp(c, "ln") && nt >= 3) {
+        if (!strcmp(tok[1], "-s")) {
+            out[0] = "restrain";
+            for (int i = 2; i < nt; i++) out[i - 1] = tok[i];
+            *outn = nt - 1;
+            return 1;
+        }
+        out[0] = "bond";
+        for (int i = 1; i < nt; i++) out[i] = tok[i];
+        *outn = nt;
+        return 1;
+    }
+    if (!strcmp(c, "fsck")) { out[0] = "detect"; out[1] = "bonds"; *outn = 2; return 1; }
+    if (!strcmp(c, "unlink")) { out[0] = "clear"; out[1] = "restraints"; *outn = 2; return 1; }
+    if (!strcmp(c, "man")) { out[0] = "manpage"; if (nt >= 2) { out[1] = tok[1]; *outn = 2; } else *outn = 1; return 1; }
+    if (!strcmp(c, "fc")) { out[0] = "history"; *outn = 1; return 1; }
+    if (!strcmp(c, "tput") && nt >= 2 && !strcmp(tok[1], "clear")) { out[0] = "clear"; *outn = 1; return 1; }
+    if (!strcmp(c, "sh") && nt >= 3 && !strcmp(tok[1], "-c")) { out[0] = "!"; out[1] = tok[2]; *outn = 2; return 1; }
+    if (!strcmp(c, "nice")) { out[0] = "minimize"; *outn = 1; return 1; }
+    if (!strcmp(c, "df")) { out[0] = "show"; out[1] = "thermo"; *outn = 2; return 1; }
+    if (!strcmp(c, "ls") && nt >= 2 &&
+        (!strcmp(tok[1], "demos") || !strcmp(tok[1], "atoms") ||
+         !strcmp(tok[1], "bonds") || !strcmp(tok[1], "summary"))) {
+        for (int i = 0; i < nt; i++) out[i] = tok[i];
+        out[0] = "list";
+        *outn = nt;
+        return 1;
+    }
+    if (!strcmp(c, "cat") && nt == 2) {
+        if (!strcmp(tok[1], "neuron")) { out[0] = "neuron"; out[1] = "show"; *outn = 2; return 1; }
+        if (!strcmp(tok[1], "energy")) { out[0] = "show"; out[1] = "energy"; *outn = 2; return 1; }
+        if (!strcmp(tok[1], "world"))  { out[0] = "show"; out[1] = "thermo"; *outn = 2; return 1; }
+        if (!strcmp(tok[1], "atoms"))  { out[0] = "list"; out[1] = "atoms"; *outn = 2; return 1; }
+        if (!strcmp(tok[1], "bonds"))  { out[0] = "list"; out[1] = "bonds"; *outn = 2; return 1; }
+    }
+    if (!strcmp(c, "cp") && nt == 3 && posix_is_species(tok[1])) {
+        out[0] = "species-export"; out[1] = tok[1]; out[2] = tok[2];
+        *outn = 3;
+        return 1;
+    }
+    return 0;
+}
+
+/* export a built-in species to a MOL1 template file (cp <species> x.mol) */
+static int species_export(Tui *t, const char *species, const char *path) {
+    Tui tmp;
+    Simulation *s;
+    Vec3 c = vec3_zero();
+    int n, rc;
+    memset(&tmp, 0, sizeof tmp);
+    tmp.seed = t->seed;
+    tmp.sim = sim_create(64, 64);
+    if (!tmp.sim) { sh_err("  cp: alloc failed\n"); return 1; }
+    if (live_species_add(&tmp, species, vec3_zero()) < 0) { sim_destroy(tmp.sim); return 1; }
+    s = tmp.sim;
+    n = s->num_atoms < MOL_MAXA ? s->num_atoms : MOL_MAXA;
+    for (int i = 0; i < n; i++) c = vec3_add(c, s->atoms[i].position);
+    if (n > 0) c = vec3_scale(c, 1.0 / n);
+    mol.na = n;
+    for (int i = 0; i < n; i++) {
+        mol.a[i].Z = s->atoms[i].Z;
+        mol.a[i].pos = vec3_sub(s->atoms[i].position, c);
+        mol.a[i].q = s->atoms[i].partial_charge;
+        mol.a[i].eps = s->atoms[i].lj_epsilon;
+        mol.a[i].sig = s->atoms[i].lj_sigma;
+        mol.a[i].has_lj = 1;
+    }
+    {
+        int nb = 0;
+        for (int b = 0; b < s->num_bonds && nb < MOL_MAXA; b++) {
+            if (s->bonds[b].atom_a < n && s->bonds[b].atom_b < n) {
+                mol.b[nb].a = s->bonds[b].atom_a;
+                mol.b[nb].b = s->bonds[b].atom_b;
+                mol.b[nb].order = s->bonds[b].order;
+                nb++;
+            }
+        }
+        mol.nb = nb;
+    }
+    snprintf(mol.name, sizeof mol.name, "%s", species);
+    rc = mol_save(path);
+    sim_destroy(tmp.sim);
+    if (rc == 0) sh_err("  cp: `%s` -> `%s` (%d atoms, %d bonds)\n", species, path, mol.na, mol.nb);
+    return rc;
+}
+
+/* kill [-SIGNAL] <world|neuron|atom:N> [dE=|cur=] (POSIX signals as events) */
+static int cmd_kill(Tui *t, char **a, int n) {
+    const char *sig = "TERM", *target;
+    int i = 0, is_world = 0, atom = -1;
+    double dE = 5.0, cur = 10.0;
+    if (n >= 1 && a[0][0] == '-') { sig = a[0] + 1; i = 1; }
+    if (i >= n) { sh_err("  usage: kill [-TERM|-STOP|-CONT|-USR1|-USR2] <world|neuron|atom:N> [dE=|cur=]\n"); return 2; }
+    target = a[i];
+    for (int j = i + 1; j < n; j++) {
+        if (!strncmp(a[j], "dE=", 3)) parse_double(a[j] + 3, &dE);
+        else if (!strncmp(a[j], "cur=", 4)) parse_double(a[j] + 4, &cur);
+    }
+    if (!strcmp(target, "world") || !strcmp(target, "all")) is_world = 1;
+    else if (!strncmp(target, "atom:", 5)) parse_int(target + 5, &atom);
+    else if (!strcmp(target, "neuron")) atom = -3;
+    else parse_int(target, &atom);
+
+    if (!strcmp(sig, "USR2")) { live_heat(t, dE); return 0; }            /* thermal kick */
+    if (!strcmp(sig, "USR1")) {                                          /* stimulus */
+        if (!t->has_nrn) { sh_err("  kill: no neuron (touch neuron)\n"); return 1; }
+        t->nrn.I_ext += cur;
+        return 0;
+    }
+    if (!strcmp(sig, "STOP") || !strcmp(sig, "CONT")) {
+        if (atom >= 0) { live_freeze_toggle(t, atom); return 0; }
+        sh_err("  kill: freeze/unfreeze targets one atom (atom:N)\n");
+        return 1;
+    }
+    if (is_world) {                                                      /* TERM world */
+        if (t->sim) { sim_destroy(t->sim); t->sim = NULL; }
+        t->has_nrn = 0;
+        sh_err("  kill: world terminated\n");
+        return 0;
+    }
+    if (atom == -3) { t->has_nrn = 0; return 0; }
+    if (atom >= 0) {
+        if (!t->sim || !sim_remove_terminal_atom(t->sim, atom) ) {
+            sh_err("  kill: atom %d is not removable (terminal atoms only)\n", atom);
+            return 1;
+        }
+        return 0;
+    }
+    sh_err("  kill: unknown target `%s`\n", target);
+    return 1;
+}
+
+/* du — energy and population share per element (the world's disk usage) */
+static int cmd_du(Tui *t) {
+    long cnt[37] = {0};
+    double ke[37] = {0.0}, tot = 0.0;
+    if (!t->sim || t->sim->num_atoms < 1) { sh_err("  du: no world\n"); return 1; }
+    for (int i = 0; i < t->sim->num_atoms; i++) {
+        int Z = t->sim->atoms[i].Z;
+        double v2 = vec3_dot(t->sim->atoms[i].velocity, t->sim->atoms[i].velocity);
+        double e = 0.5 * t->sim->atoms[i].mass * v2 * AMU_AFS2_TO_EV;
+        if (Z < 0 || Z > 36) Z = 0;
+        cnt[Z]++;
+        ke[Z] += e;
+        tot += e;
+    }
+    printf("  species   atoms     KE_eV    share\n");
+    for (int Z = 1; Z <= 36; Z++) {
+        if (!cnt[Z]) continue;
+        printf("  %-8s %6ld %10.4f %7.1f%%\n",
+               pt_element(Z) ? pt_element(Z)->symbol : "?", cnt[Z], ke[Z],
+               tot > 1e-12 ? 100.0 * ke[Z] / tot : 0.0);
+    }
+    printf("  total    %6d %10.4f\n", t->sim->num_atoms, tot);
+    return 0;
+}
+
+/* make <file.rxn> [-n] — load a reaction rule, optionally arm it, fire once */
+static int cmd_make(Tui *t, char **a, int n) {
+    int once = 0;
+    const char *path = NULL;
+    for (int i = 0; i < n; i++) {
+        if (!strcmp(a[i], "-n")) once = 1;
+        else if (!path) path = a[i];
+    }
+    if (!path) { sh_err("  usage: make <file.rxn> [-n]\n"); return 2; }
+    if (rxn_load(path) != 0) return 1;
+    if (!once) {
+        t->rxn_armed = 1;
+        if (t->rxn_every <= 0) t->rxn_every = 50;
+    }
+    return rxn_fire(t) == 0 ? 0 : 1;
+}
+
+/* apply an exported NAME=VALUE to the world (env vars ARE the world params).
+ * Returns 0 when applied, 1 when the name is not a world parameter. */
+static int world_set_param(Tui *t, const char *name, const char *val) {
+    double d;
+    int n;
+    if (!t->sim) return 1;
+    if (!strcmp(name, "dt") && parse_double(val, &d)) t->sim->dt = d;
+    else if (!strcmp(name, "cutoff") && parse_double(val, &d)) t->sim->cutoff = d;
+    else if (!strcmp(name, "dielectric") && parse_double(val, &d)) t->sim->dielectric = d;
+    else if (!strcmp(name, "temp") && parse_double(val, &d)) t->sim->thermostat.target_temperature = d;
+    else if (!strcmp(name, "thermostat"))
+        t->sim->thermostat.type = !strcmp(val, "andersen") ? THERMOSTAT_ANDERSEN
+                                : !strcmp(val, "berendsen") ? THERMOSTAT_BERENDSEN
+                                : THERMOSTAT_NONE;
+    else if (!strcmp(name, "tau") && parse_double(val, &d)) t->sim->thermostat.tau = d;
+    else if (!strcmp(name, "nu") && parse_double(val, &d)) t->sim->thermostat.nu = d;
+    else if (!strcmp(name, "seed")) parse_ulong(val, &t->seed);
+    else if (!strcmp(name, "yaw") && parse_double(val, &d)) t->cam.yaw_deg = d;
+    else if (!strcmp(name, "pitch") && parse_double(val, &d)) t->cam.pitch_deg = d;
+    else if (!strcmp(name, "zoom") && parse_double(val, &d)) t->cam.zoom = d;
+    else if (!strcmp(name, "slice")) {
+        if (!strcmp(val, "off")) t->cam.slice = 0.0;
+        else if (parse_double(val, &d)) t->cam.slice = d;
+    }
+    else if (!strcmp(name, "barostat")) t->baro_on = (!strcmp(val, "on") || !strcmp(val, "1"));
+    else if (!strcmp(name, "press") && parse_double(val, &d)) t->p0_bar = d;
+    else if (!strcmp(name, "tau-p") && parse_double(val, &d)) t->taup_fs = d;
+    else if (!strcmp(name, "rxn-every") && parse_int(val, &n)) t->rxn_every = n;
+    else if (!strcmp(name, "box")) {
+        double bx, by, bz;
+        if (sscanf(val, "%lf,%lf,%lf", &bx, &by, &bz) == 3)
+            t->sim->box.dimensions = vec3(bx, by, bz);
+        else if (parse_double(val, &d))
+            t->sim->box.dimensions = vec3(d, d, d);
+    }
+    else if (!strcmp(name, "pbc")) {
+        int on = (!strcmp(val, "on") || !strcmp(val, "1"));
+        t->sim->box.periodic[0] = t->sim->box.periodic[1] = t->sim->box.periodic[2] = on;
+    }
+    else return 1;
+    return 0;
+}/* ── the POSIX manual ──────────────────────────────────────────────── */
+static void man_index(void) {
+    printf("S2TUI(1) - POSIX terminal over the live simulation\n\n");
+    printf("WORLD      env -i [petri|empty]   ls [scope]            cat <entity>\n");
+    printf("           dd if=... of=...       sync [file]           more [scope]\n");
+    printf("MATTER     touch <species>        rm atom <i>           cp <sp> <f>.mol\n");
+    printf("           ln <a> <b>             ln -s <i> x y z k    unlink [all]\n");
+    printf("           fsck                   kill [-SIG] <target> du\n");
+    printf("TIME       sleep <steps>           df\n");
+    printf("PROCESSES  ps [-l]                 nice                 make <file.rxn> [-n]\n");
+    printf("LIVE       vi world                ps\n");
+    printf("SHELL      export NAME=value       env                  set\n");
+    printf("           man [cmd]              fc -l                tput clear\n");
+    printf("           sh -c 'cmd'            exit                 [all POSIX text tools]\n\n");
+    printf("Signals as events: kill -STOP/-CONT atom:N freezes/thaws one atom;\n");
+    printf("-USR1 neuron cur=N stimulates; -USR2 world dE=N is a thermal kick;\n");
+    printf("plain TERM removes the target (world, neuron, or a terminal atom:N).\n");
+    printf("World parameters for export: dt cutoff dielectric temp thermostat tau nu\n");
+    printf("seed box pbc press tau-p barostat yaw pitch zoom slice rxn-every\n");
+}
+
+static int man_page(const char *topic) {
+    if (!strcmp(topic, "touch")) {
+        printf("TOUCH(1)\ntouch <species> [x y z]   create matter: molecules (water, nh3, ch4,\n  co2, glycine, alanine, uracil, cytosine, thymine, adenine, guanine,\n  deoxyribose), ions (Na+ K+ Cl- Ca2+), bare elements (C, O, Fe, ...), or\n  composites (kcsa, demo <id>, base <name>, pair, helix, filter, duplex).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "rm")) {
+        printf("RM(1)\nrm atom <i>   remove a terminal atom (leaving-group atoms only).\nrm <file>     remove a file (POSIX rm semantics).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "ln")) {
+        printf("LN(1)\nln <a> <b> [order]        covalent/topological link (refuses dupes).\nln -s <i> x y z k         positional restraint: anchor atom i at (x,y,z),\n  spring k eV/A^2. Restraints are the world's symlinks; `unlink` clears.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "fsck")) {
+        printf("FSCK(1)\nfsck   detect bonds from geometry and rebuild the topology\n  (angles rebuilt). Bonds only where the engine's criteria match.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "dd")) {
+        printf("DD(1)\ndd if=<src> of=<dst> [count=N] [x= y= z=] [temp=] [seed=] [q= eps= sigma=]\n  src: a world preset (petri, empty), a save file (S2SAVE1), a MOL1\n  template, `urandom` (thermalise the world), or a species name.\n  of=world for creation; of=atom:N writes q=/eps=/sigma= onto atom N.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "sync")) {
+        printf("SYNC(1)\nsync [file]   flush the world to an S2SAVE1 file (default s2world.s2).\n  Restore with: dd if=<file> of=world\n");
+        return 0;
+    }
+    if (!strcmp(topic, "more")) {
+        printf("MORE(1)\nmore [world|atoms|bonds|summary|file]   one grid frame or a listing.\n  Interactive viewing belongs to `vi world` and `ps`.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "sleep")) {
+        printf("SLEEP(1)\nsleep <steps>   advance the world by N integration steps (world time,\n  not wall time): integrates matter, thermostat, barostat, reactions and\n  the HH neuron. Real-time stepping is `sleep N &`-free by design; for\n  continuous motion use `ps` or `vi world`.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "df")) {
+        printf("DF(1)\ndf   world capacity and thermodynamics: T, N, KE, box volume, density,\n  pressure (virial, COM-relative), barostat state. `du` gives per-element\n  population and kinetic-energy share.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "du")) {
+        printf("DU(1)\ndu   per-element atom count and kinetic-energy share of the world.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "kill")) {
+        printf("KILL(1)\nkill [-TERM|-STOP|-CONT|-USR1|-USR2] <world|neuron|atom:N> [cur=|dE=]\n  TERM remove; STOP/CONT freeze/thaw (atom:N); USR1 neural stimulus;\n  USR2 thermal kick in eV (world). Signals are the POSIX way to poke a\n  running process, and here the processes are matter and agents.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "nice")) {
+        printf("NICE(1)\nnice   run a steepest-descent minimisation pass over the world\n  (clash relief after assembling matter; `vi world` also has `m`).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "make")) {
+        printf("MAKE(1)\nmake <file.rxn> [-n]   load a reaction rule (RXN1 text file) and fire\n  it once; without -n it stays armed and auto-fires every `rxn-every`\n  steps. Rules are files: create them with echo/redirection, edit with\n  any editor. The live keybind is `e` in `ps`/`vi`.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "ps")) {
+        printf("PS(1)\nps        on a terminal: the live control monitor. Single keys create\n  (w water, i Na+, K K+, C Cl-, u base, a alanine, g glycine, d sugar),\n  augment (H/L heat/cool, f freeze, r replace, p clone, x delete,\n  m minimise) and adapt processes (n neuron, e catalysis). Piped, `ps`\n  prints one snapshot instead of taking the screen.\nps -l     process table (world, neuron, reaction rule).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "vi")) {
+        printf("VI(1)\nvi world   modal editor over the living world. Normal mode: hjkl pan,\n  w/b select, i insert, r replace, x delete, p clone, f freeze, u undo,\n  / search, n next, c center, z/Z zoom, H/L heat/cool, m minimise,\n  space run/pause, s step, q quit. `:` runs any shell command against\n  the same world. stdout stays DATA; the editor draws on stderr.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "ls")) {
+        printf("LS(1)\nls [atoms|bonds|summary|demos]   list the world scope; `ls` alone\n  lists files. Scope listings compose with pipes (`ls atoms | wc -l`).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "cat")) {
+        printf("CAT(1)\ncat <entity|file>   cat neuron (HH state), cat energy (full energy\n  ledger), cat world (thermodynamics), cat atoms|bonds (listings), or any\n  file. Text tools (grep/sort/cut/wc/...) compose in pipelines.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "cp")) {
+        printf("CP(1)\ncp <src> <dst>           copy a file (POSIX).\ncp <species> <dst>.mol   export a built-in species as a MOL1 template;\n  instantiate later with dd if=<dst>.mol of=world. Template text is a\n  plain file; edit with shell redirection or any editor.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "env")) {
+        printf("ENV(1)\nenv             list environment/world variables.\nenv -i [preset]  a fresh world: `petri` (the pure-simulator dish) or\n  `empty` (custom capacity: env -i <atoms> <bonds>).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "export")) {
+        printf("EXPORT(1)\nexport NAME=value   shell variables and world parameters. World:\n  dt cutoff dielectric temp thermostat tau nu seed box pbc press tau-p\n  barostat yaw pitch zoom slice rxn-every.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "set")) {
+        printf("SET(1)\nset   POSIX shell built-in; in S2 the parameter objects are the world\n  (see export) and per-atom writes go through dd of=atom:N.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "sh")) {
+        printf("SH(1)\nsh -c 'command'   run a command on the HOST shell, outside the world\n  (the honest escape hatch: no S2 rewriting applies).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "unlink")) {
+        printf("UNLINK(1)\nunlink [all]   remove positional restraints (the world's symlinks).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "man")) {
+        printf("MAN(1)\nman [command]   this manual. Every command in this terminal is a\n  POSIX command; operands are S2 words (species, atom indices, scopes).\n");
+        return 0;
+    }
+    printf("man: no page for `%s`; try `man` for the index. POSIX text tools keep\n"
+           "their host semantics; sim commands are listed in the index.\n", topic);
+    return 0;
+}
+
 static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
+    char *rtok[SH_MAXARG];
+    int releg[SH_MAXARG];
+    int rn = 0, rr;
+    if (nt == 0) return 0;
+    if ((rr = posix_rewrite(tok, nt, rtok, &rn)) < 0) {
+        sh_err("  %s: not a POSIX command — see `man`\n", tok[0]);
+        return 127;
+    }
+    if (rr > 0) {
+        for (int i = 0; i < rn; i++) releg[i] = 0;
+        tok = rtok;
+        nt = rn;
+        eleg = releg;
+    }
     if (nt == 0) return 0;
     if (!strcmp(tok[0], "quit") || !strcmp(tok[0], "exit")) {
         int c = last_status;
@@ -4476,7 +4907,44 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
         else if (!strcmp(tok[0], "sync")) {
             return cmd_sync(t, tok + 1, nt - 1);
         }
+        else if (!strcmp(tok[0], "manpage")) {
+            if (nt >= 2) return man_page(tok[1]);
+            man_index();
+            return 0;
+        }
+        else if (!strcmp(tok[0], "sleep")) {
+            int n = 1;
+            if (nt >= 2 && !parse_int(tok[1], &n)) { sh_err("  usage: sleep <steps>\n"); return 2; }
+            if (n < 0) n = 0;
+            if (n > 100000) n = 100000;
+            live_advance(t, n);
+            show_energy(t);
+            return 0;
+        }
+        else if (!strcmp(tok[0], "kill")) {
+            return cmd_kill(t, tok + 1, nt - 1);
+        }
+        else if (!strcmp(tok[0], "du")) {
+            return cmd_du(t);
+        }
+        else if (!strcmp(tok[0], "make")) {
+            return cmd_make(t, tok + 1, nt - 1);
+        }
+        else if (!strcmp(tok[0], "addsp")) {
+            double x = 0, y = 0, z = 0;
+            if (nt >= 3) parse_double(tok[2], &x);
+            if (nt >= 4) parse_double(tok[3], &y);
+            if (nt >= 5) parse_double(tok[4], &z);
+            return live_species_add(t, tok[1], vec3(x, y, z)) > 0 ? 0 : 1;
+        }
+        else if (!strcmp(tok[0], "species-export")) {
+            return species_export(t, tok[1], tok[2]);
+        }
         else if (!strcmp(tok[0], "new")) {
+            if (nt >= 2 && (!strcmp(tok[1], "petri") || !strcmp(tok[1], "empty") || !strcmp(tok[1], "void"))) {
+                world_preset(t, tok[1], 0);
+                return 0;
+            }
             int a = 512, b = 512;
             if (nt >= 2) parse_int(tok[1], &a);
             if (nt >= 3) parse_int(tok[2], &b);
@@ -4665,6 +5133,17 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
             int a, b, o = 1;
             if (!parse_int(tok[1], &a) || !parse_int(tok[2], &b)) { sh_err("  usage: bond <a> <b> [order]\n"); return 1; }
             if (nt >= 4) parse_int(tok[3], &o);
+            if (!t->sim || a < 0 || b < 0 || a >= t->sim->num_atoms || b >= t->sim->num_atoms) {
+                sh_err("  ln: atom index out of range\n");
+                return 1;
+            }
+            for (int i = 0; i < t->sim->num_bonds; i++) {
+                if ((t->sim->bonds[i].atom_a == a && t->sim->bonds[i].atom_b == b) ||
+                    (t->sim->bonds[i].atom_a == b && t->sim->bonds[i].atom_b == a)) {
+                    sh_err("  ln: already linked (bond %d)\n", i);
+                    return 1;
+                }
+            }
             int r = sim_add_bond(t->sim, a, b, o);
             sh_err(r >= 0 ? "  bond %d\n" : "  bond failed (%d)\n", r);
             if (r >= 0) maybe_render(t);
@@ -5000,15 +5479,21 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
             int rc = 0;
             for (int i = 1; i < nt; i++) {
                 char *eq = strchr(tok[i], '=');
-                if (!eq || eq == tok[i] || !sh_valid_name(tok[i], (size_t)(eq - tok[i]))) {
+                char nm[64];
+                size_t nl;
+                int shok, wok;
+                if (!eq || eq == tok[i] || (nl = (size_t)(eq - tok[i])) >= sizeof nm) {
                     sh_err("  usage: export NAME[=value] ...\n");
                     rc = 2;
-                } else {
-                    char nm[64];
-                    size_t nl = (size_t)(eq - tok[i]);
-                    memcpy(nm, tok[i], nl);
-                    nm[nl] = '\0';
-                    if (sh_set(nm, eq + 1)) rc = 1;
+                    continue;
+                }
+                memcpy(nm, tok[i], nl);
+                nm[nl] = '\0';
+                shok = (sh_valid_name(nm, nl) && sh_set(nm, eq + 1) == 0);
+                wok = (world_set_param(t, nm, eq + 1) == 0);
+                if (!shok && !wok) {
+                    sh_err("  export: `%s` is not a shell name or a world parameter\n", nm);
+                    rc = 1;
                 }
             }
             return rc;
@@ -5501,10 +5986,10 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
                  !strcmp(tok[0], "ln") || !strcmp(tok[0], "date") || !strcmp(tok[0], "uname") ||
                  !strcmp(tok[0], "find") || !strcmp(tok[0], "wait") || !strcmp(tok[0], "true") ||
                  !strcmp(tok[0], "false")) {
-            sh_err("  usage: try `help %s` or `man %s`\n", tok[0], tok[0]);
+            sh_err("  usage: man %s\n", tok[0]);
             return 2;
         }
-        else { sh_err("  unknown `%s` (try `help`)\n", tok[0]); return 127; }
+        else { sh_err("  unknown `%s` (try `man`)\n", tok[0]); return 127; }
     return 0;
 }
 
