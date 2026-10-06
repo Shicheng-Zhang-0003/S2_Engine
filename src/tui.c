@@ -1080,6 +1080,7 @@ static const char *sh_complete(const char *w0, int first) {
         "help", "list", "ls", "test", "new", "spawn", "del", "rm", "bond",
         "detect", "restrain", "clear", "set", "init", "step", "run", "show",
         "minimize", "heat", "mol", "rxn", "neuron", "render", "view", "cam", "slice", "watch",
+        "dd", "ps", "vi", "more", "sync",
         "echo", "export", "unset", "env", "history", "source", "sleep",
         "time", "save", "load", "printf", "true", "false", "wait",
         "cat", "pwd", "cd", "mkdir", "cp", "mv", "head", "tail", "wc",
@@ -3685,6 +3686,744 @@ static int cmd_spawn_demo(Tui *t, const char *id, const char *extra, Vec3 o) {
     return 2;
 }
 
+/* ══════════════════════════════════════════════════════════════════════
+ * PURE SIMULATOR MODE — petri world + live keybind surfaces
+ *
+ * A world of biological and organic matter that interacts under the
+ * engine's own MD, and two live keybind surfaces over the SAME world the
+ * shell operates on:
+ *
+ *   ps            live control monitor (single keys, no modes)
+ *   vi world      vi-style world editor (modal; `:` runs shell commands)
+ *
+ * Both draw to stderr, so stdout stays DATA (the stream contract) and a
+ * piped session never gets escape codes. Both step the shared Simulation
+ * directly, so every shell command, reaction, template and job remains
+ * live while the world runs.
+ *
+ * World generation lives in world_preset() behind named presets; "petri"
+ * is the current default and the switch is the extension point for future
+ * presets (cell, tissue, ...). Nothing here is linked into carbonsim.
+ * ═════════════════════════════════════════════════════════════════════= */
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+#define LIVE_KEY_UP    1001
+#define LIVE_KEY_DOWN  1002
+#define LIVE_KEY_RIGHT 1003
+#define LIVE_KEY_LEFT  1004
+
+static struct termios live_tio_saved;
+static int live_tio_active = 0;
+
+static int live_raw_on(void) {
+    struct termios raw;
+    if (live_tio_active) return 0;
+    if (!isatty(STDIN_FILENO)) return -1;
+    if (tcgetattr(STDIN_FILENO, &live_tio_saved) != 0) return -1;
+    raw = live_tio_saved;
+    raw.c_lflag &= (unsigned)~(ICANON | ECHO | ISIG);
+    raw.c_iflag &= (unsigned)~(IXON | ICRNL);
+    raw.c_cc[VMIN] = 1;
+    raw.c_cc[VTIME] = 0;
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) != 0) return -1;
+    live_tio_active = 1;
+    return 0;
+}
+
+static void live_raw_off(void) {
+    if (!live_tio_active) return;
+    tcsetattr(STDIN_FILENO, TCSANOW, &live_tio_saved);
+    live_tio_active = 0;
+}
+
+/* one byte, with arrow keys decoded; -1 when nothing is ready */
+static int live_getch(void) {
+    unsigned char c = 0;
+    ssize_t r;
+    if (!live_tio_active) return -1;
+    r = read(STDIN_FILENO, &c, 1);
+    if (r <= 0) return -1;
+    if (c != 0x1b) return (int)c;
+    {
+        struct termios t0, t1;
+        unsigned char b = 0, d = 0;
+        if (tcgetattr(STDIN_FILENO, &t0) != 0) return 0x1b;
+        t1 = t0;
+        t1.c_cc[VMIN] = 0;
+        t1.c_cc[VTIME] = 1;   /* 100 ms window for the sequence */
+        tcsetattr(STDIN_FILENO, TCSANOW, &t1);
+        if (read(STDIN_FILENO, &b, 1) == 1 && b == '[' &&
+            read(STDIN_FILENO, &d, 1) == 1) {
+            tcsetattr(STDIN_FILENO, TCSANOW, &t0);
+            switch (d) {
+                case 'A': return LIVE_KEY_UP;
+                case 'B': return LIVE_KEY_DOWN;
+                case 'C': return LIVE_KEY_RIGHT;
+                case 'D': return LIVE_KEY_LEFT;
+                default:  return 0x1b;
+            }
+        }
+        tcsetattr(STDIN_FILENO, TCSANOW, &t0);
+    }
+    return 0x1b;
+}
+
+/* poll=1 returns -1 after ~100 ms instead of blocking (running frames) */
+static int live_getch_poll(int poll) {
+    struct termios t0, t1;
+    int r;
+    if (!poll || !live_tio_active) return live_getch();
+    if (tcgetattr(STDIN_FILENO, &t0) != 0) return live_getch();
+    t1 = t0;
+    t1.c_cc[VMIN] = 0;
+    t1.c_cc[VTIME] = 1;
+    tcsetattr(STDIN_FILENO, TCSANOW, &t1);
+    r = live_getch();
+    tcsetattr(STDIN_FILENO, TCSANOW, &t0);
+    return r;
+}
+
+/* ── world generation ──────────────────────────────────────────────── */
+
+static unsigned long long live_rng_state = 88172645463325252ull;
+
+static double live_rand01(void) {
+    live_rng_state ^= live_rng_state << 13;
+    live_rng_state ^= live_rng_state >> 7;
+    live_rng_state ^= live_rng_state << 17;
+    return (double)(live_rng_state >> 11) / 9007199254740992.0;
+}
+static double live_rand(double lo, double hi) { return lo + (hi - lo) * live_rand01(); }
+
+static int live_z_from_name(const char *s) {
+    const Element *e = pt_by_symbol(s);
+    if (e) return e->Z;
+    {
+        int Z = -1;
+        if (parse_int(s, &Z) && Z >= 1 && Z <= 36) return Z;
+    }
+    if (!strcmp(s, "na")) return 11;
+    if (!strcmp(s, "k")) return 19;
+    if (!strcmp(s, "cl")) return 17;
+    if (!strcmp(s, "ca")) return 20;
+    return -1;
+}
+
+/* add one entity (molecule, ion, or bare atom); returns atoms added */
+static int live_species_add(Tui *t, const char *name, Vec3 at) {
+    Simulation *s = t->sim;
+    int first, added, ok = 0;
+    if (!s || !name) return -1;
+    if (!sp_room(t, 20, 20)) return -1;
+    first = s->num_atoms;
+    if (!strcmp(name, "water") || !strcmp(name, "h2o")) ok = sim_place_h2o(s, at) >= 0;
+    else if (!strcmp(name, "nh3")) ok = sim_place_nh3(s, at) >= 0;
+    else if (!strcmp(name, "methane") || !strcmp(name, "ch4")) ok = sim_place_ch4(s, at) >= 0;
+    else if (!strcmp(name, "co2")) ok = sim_place_co2(s, at) >= 0;
+    else if (!strcmp(name, "h2")) ok = sim_place_h2(s, at) >= 0;
+    else if (!strcmp(name, "glycine") || !strcmp(name, "gly")) ok = sim_place_glycine(s, at) >= 0;
+    else if (!strcmp(name, "alanine") || !strcmp(name, "ala")) ok = sim_place_alanine(s, at) >= 0;
+    else if (!strcmp(name, "uracil")) ok = sim_place_uracil(s, at) >= 0;
+    else if (!strcmp(name, "cytosine")) ok = sim_place_cytosine(s, at) >= 0;
+    else if (!strcmp(name, "thymine")) ok = sim_place_thymine(s, at) >= 0;
+    else if (!strcmp(name, "adenine")) ok = sim_place_adenine(s, at) >= 0;
+    else if (!strcmp(name, "guanine")) ok = sim_place_guanine(s, at) >= 0;
+    else if (!strcmp(name, "deoxyribose") || !strcmp(name, "sugar")) ok = sim_place_deoxyribose(s, at) >= 0;
+    else if (!strcmp(name, "Na+") || !strcmp(name, "na")) ok = sim_add_ion(s, 11, 1, at, 1.0) >= 0;
+    else if (!strcmp(name, "K+") || !strcmp(name, "k")) ok = sim_add_ion(s, 19, 1, at, 1.0) >= 0;
+    else if (!strcmp(name, "Cl-") || !strcmp(name, "cl")) ok = sim_add_ion(s, 17, -1, at, -1.0) >= 0;
+    else if (!strcmp(name, "Ca2+") || !strcmp(name, "ca")) ok = sim_add_ion(s, 20, 2, at, 2.0) >= 0;
+    else {
+        int Z = live_z_from_name(name);
+        if (Z >= 1) ok = sim_add_atom(s, Z, at, 0.0) >= 0;
+    }
+    if (!ok) { sh_err("  unknown species `%s`\n", name); return -1; }
+    added = s->num_atoms - first;
+    sim_rebuild_angles(s);
+    forces_calculate(s);
+    return added;
+}
+
+static void live_rotate_block(Simulation *s, int first, int count) {
+    Vec3 c = vec3_zero(), axis;
+    double ang;
+    if (!s || first < 0 || count < 1 || first + count > s->num_atoms) return;
+    for (int i = 0; i < count; i++) c = vec3_add(c, s->atoms[first + i].position);
+    c = vec3_scale(c, 1.0 / count);
+    axis = vec3(live_rand(-1, 1), live_rand(-1, 1), live_rand(-1, 1));
+    if (vec3_norm(axis) < 1e-6) axis = vec3(0, 0, 1);
+    ang = live_rand(0.0, 2.0 * M_PI);
+    for (int i = 0; i < count; i++) {
+        Vec3 rel = vec3_sub(s->atoms[first + i].position, c);
+        s->atoms[first + i].position = vec3_add(c, vec3_rotate_axis_angle(rel, axis, ang));
+    }
+}
+
+static Vec3 live_open_site(const Simulation *s, double clearance) {
+    for (int tries = 0; tries < 64; tries++) {
+        Vec3 p = vec3(live_rand(4.0, 44.0), live_rand(4.0, 44.0), live_rand(4.0, 44.0));
+        int clear = 1;
+        for (int i = 0; i < s->num_atoms; i++) {
+            if (vec3_dist(p, s->atoms[i].position) < clearance) { clear = 0; break; }
+        }
+        if (clear) return p;
+    }
+    return vec3(live_rand(4.0, 44.0), live_rand(4.0, 44.0), live_rand(4.0, 44.0));
+}
+
+/* Named world presets. "petri" is the current pure-simulator default;
+ * future presets (cell, tissue, ...) slot in here. */
+static int world_preset(Tui *t, const char *name, unsigned long seed) {
+    Simulation *s;
+    if (!t) return -1;
+    if (!strcmp(name, "empty") || !strcmp(name, "void")) {
+        tui_new(t, 2000, 4000);
+        if (!t->sim) return -1;
+        t->sim->dt = 0.5;
+        t->sim->cutoff = 12.0;
+        t->sim->dielectric = 1.0;
+        sh_err("  world: empty (%d atom cap)\n", t->sim->capacity_atoms);
+        return 0;
+    }
+    if (strcmp(name, "petri")) {
+        sh_err("  unknown world preset `%s` (have: petri, empty)\n", name);
+        return -1;
+    }
+    tui_new(t, 4000, 8000);
+    if (!t->sim) return -1;
+    s = t->sim;
+    live_rng_state = seed ? (unsigned long long)seed : 88172645463325252ull;
+    if (!live_rng_state) live_rng_state = 1;
+    s->dt = 0.5;
+    s->cutoff = 12.0;
+    s->dielectric = 1.0;
+    s->box.dimensions = vec3(48.0, 48.0, 48.0);
+    s->box.periodic[0] = s->box.periodic[1] = s->box.periodic[2] = 1;
+    s->thermostat.type = THERMOSTAT_ANDERSEN;
+    s->thermostat.target_temperature = 310.0;
+    s->thermostat.tau = 50.0;
+    s->thermostat.nu = 0.02;
+    /* 216 waters on a jittered 6x6x6 lattice (8 A spacing, no clashes) */
+    for (int i = 0; i < 6; i++)
+        for (int j = 0; j < 6; j++)
+            for (int k = 0; k < 6; k++)
+                sim_place_h2o(s, vec3(4.0 + 8.0 * i + live_rand(-0.8, 0.8),
+                                      4.0 + 8.0 * j + live_rand(-0.8, 0.8),
+                                      4.0 + 8.0 * k + live_rand(-0.8, 0.8)));
+    /* ions */
+    {
+        static const int ion_Z[3] = {11, 19, 17};
+        static const double ion_q[3] = {1.0, 1.0, -1.0};
+        for (int n = 0; n < 24; n++)
+            sim_add_ion(s, ion_Z[n % 3], n % 3 == 2 ? -1 : 1, live_open_site(s, 3.4), ion_q[n % 3]);
+    }
+    /* organic monomers, randomly oriented */
+    {
+        static const char *org[] = {"alanine", "glycine", "uracil", "adenine",
+                                    "deoxyribose", "alanine", "glycine", "uracil"};
+        for (unsigned n = 0; n < sizeof org / sizeof org[0]; n++) {
+            Vec3 p = live_open_site(s, 4.5);
+            int first = s->num_atoms;
+            if (live_species_add(t, org[n], p) > 0)
+                live_rotate_block(s, first, s->num_atoms - first);
+        }
+    }
+    hh_init(&t->nrn);
+    t->has_nrn = 1;
+    integrator_maxwell_boltzmann(s, 310.0, seed ? seed : 7UL);
+    sim_rebuild_angles(s);
+    forces_calculate(s);
+    sh_err("  world: petri  N=%d atoms, %d bonds, 48 A periodic box, 310 K Andersen, HH neuron\n",
+           s->num_atoms, s->num_bonds);
+    return 0;
+}
+
+/* ── live actions (shared by ps and vi) ────────────────────────────── */
+
+static Vec3 live_cam_pos(const Tui *t) {
+    return t->cam.has_center ? t->cam.center : vec3_zero();
+}
+
+static void live_advance(Tui *t, int steps) {
+    if (!t->sim || steps < 1) return;
+    for (int i = 0; i < steps; i++) {
+        integrator_step(t->sim);
+        tui_barostat_step(t);
+        rxn_autocheck(t);
+    }
+    if (t->has_nrn) hh_step(&t->nrn, 0.01 * (double)steps);
+    forces_calculate(t->sim);
+}
+
+static void live_heat(Tui *t, double dE) {
+    Simulation *s = t->sim;
+    double ke = 0.0, target, lam;
+    if (!s || s->num_atoms < 1) return;
+    for (int i = 0; i < s->num_atoms; i++) {
+        double v2 = vec3_dot(s->atoms[i].velocity, s->atoms[i].velocity);
+        ke += 0.5 * s->atoms[i].mass * v2 * AMU_AFS2_TO_EV;
+    }
+    target = ke + dE;
+    if (target < 1e-6) target = 1e-6;
+    lam = (ke > 1e-12) ? sqrt(target / ke) : 1.0;
+    for (int i = 0; i < s->num_atoms; i++)
+        s->atoms[i].velocity = vec3_scale(s->atoms[i].velocity, lam);
+}
+
+static int live_transmute(Tui *t, int atom, int Z) {
+    const Element *e = pt_element(Z);
+    Atom *a;
+    if (!t->sim || atom < 0 || atom >= t->sim->num_atoms || !e) return -1;
+    a = &t->sim->atoms[atom];
+    a->Z = Z;
+    a->element = e;
+    a->mass = e->mass;
+    a->lj_epsilon = e->lj_epsilon;
+    a->lj_sigma = e->lj_sigma;
+    return 0;
+}
+
+static int live_freeze_toggle(Tui *t, int atom) {
+    Simulation *s = t->sim;
+    if (!s || atom < 0 || atom >= s->num_atoms) return -1;
+    for (int i = 0; i < s->num_restraints; i++) {
+        if (s->restraint_atom[i] == atom) {
+            for (int j = i; j < s->num_restraints - 1; j++) {
+                s->restraint_atom[j] = s->restraint_atom[j + 1];
+                s->restraint_anchor[j] = s->restraint_anchor[j + 1];
+                s->restraint_k[j] = s->restraint_k[j + 1];
+            }
+            s->num_restraints--;
+            return 0;   /* unfrozen */
+        }
+    }
+    return sim_add_restraint(s, atom, s->atoms[atom].position, 5.0) >= 0 ? 1 : -1;
+}
+
+/* duplicate the connected molecule containing `root`; returns new first idx */
+static int live_clone_molecule(Tui *t, int root) {
+    Simulation *s = t->sim;
+    int n, qh = 0, qt = 0, nc = 0, first;
+    int *mark, *queue, *comp, *map;
+    Vec3 shift;
+    if (!s || root < 0 || root >= s->num_atoms) return -1;
+    n = s->num_atoms;
+    mark = (int *)calloc((size_t)n, sizeof(int));
+    queue = (int *)malloc(sizeof(int) * (size_t)n);
+    comp = (int *)malloc(sizeof(int) * (size_t)n);
+    map = (int *)malloc(sizeof(int) * (size_t)n);
+    if (!mark || !queue || !comp || !map) {
+        free(mark); free(queue); free(comp); free(map);
+        return -1;
+    }
+    for (int i = 0; i < n; i++) map[i] = -1;
+    mark[root] = 1;
+    queue[qt++] = root;
+    while (qh < qt) {
+        int a = queue[qh++];
+        comp[nc++] = a;
+        for (int b = 0; b < s->atoms[a].num_bonds; b++) {
+            int p = s->atoms[a].bond_partners[b];
+            if (p >= 0 && p < n && !mark[p]) { mark[p] = 1; queue[qt++] = p; }
+        }
+    }
+    if (!sp_room(t, nc, nc + 8)) { free(mark); free(queue); free(comp); free(map); return -1; }
+    shift = vec3(live_rand(-2.5, 2.5), live_rand(-2.5, 2.5), live_rand(-2.5, 2.5));
+    if (vec3_norm(shift) < 1.5) shift = vec3(2.0, 0.0, 0.0);
+    first = s->num_atoms;
+    for (int i = 0; i < nc; i++) {
+        int a = comp[i];
+        map[a] = sim_add_atom(s, s->atoms[a].Z,
+                              vec3_add(s->atoms[a].position, shift),
+                              s->atoms[a].partial_charge);
+        if (map[a] >= 0)
+            sim_set_atom_lj(s, map[a], s->atoms[a].lj_epsilon, s->atoms[a].lj_sigma);
+    }
+    for (int i = 0; i < nc; i++) {
+        int a = comp[i];
+        for (int b = 0; b < s->atoms[a].num_bonds; b++) {
+            int p = s->atoms[a].bond_partners[b];
+            if (p > a && p >= 0 && p < n && map[p] >= 0)
+                sim_add_bond(s, map[a], map[p], s->atoms[a].bond_orders[b]);
+        }
+    }
+    free(mark); free(queue); free(comp); free(map);
+    sim_rebuild_angles(s);
+    forces_calculate(s);
+    return first;
+}
+
+static void live_status(const Tui *t, const char *title, int paused, int speed, int sel) {
+    const Simulation *s = t->sim;
+    fprintf(stderr, "%s  %s  speed=%d  N=%d  step=%llu  t=%.1f fs  T=%.1f K  E=%.3f eV\n",
+            title, paused ? "PAUSED " : "RUNNING", speed,
+            s ? s->num_atoms : 0, s ? (unsigned long long)s->step : 0ull,
+            s ? s->time : 0.0, s ? s->temperature : 0.0,
+            s ? s->total_energy : 0.0);
+    if (t->has_nrn)
+        fprintf(stderr, "process neuron  V=%+7.2f mV  I_ext=%+.1f  %s\n",
+                t->nrn.V, t->nrn.I_ext,
+                hh_is_spiking(&t->nrn, -20.0) ? "SPIKE" : "");
+    if (s && s->num_restraints > 0)
+        fprintf(stderr, "links: %d restrained atom(s)\n", s->num_restraints);
+    if (sel >= 0 && s && sel < s->num_atoms) {
+        const Atom *a = &s->atoms[sel];
+        fprintf(stderr, "selection: atom %d  %s  q=%+.3f  bonds=%d\n", sel,
+                (a->element && a->element->symbol[0]) ? a->element->symbol : "?",
+                a->partial_charge, a->num_bonds);
+    } else {
+        fprintf(stderr, "selection: none (Tab / w,b to pick)\n");
+    }
+}
+
+static int live_pick_next(const Simulation *s, int cur, int dir) {
+    int n = s ? s->num_atoms : 0;
+    if (n <= 0) return -1;
+    int i = cur + dir;
+    if (i < 0) i = n - 1;
+    if (i >= n) i = 0;
+    return i;
+}
+
+static void live_center_on(Tui *t, int sel) {
+    if (t->sim && sel >= 0 && sel < t->sim->num_atoms) {
+        t->cam.center = t->sim->atoms[sel].position;
+        t->cam.has_center = 1;
+    }
+}
+
+static void live_add_at_cam(Tui *t, const char *species) {
+    Vec3 at = live_cam_pos(t);
+    int first = t->sim ? t->sim->num_atoms : -1;
+    int added = live_species_add(t, species, at);
+    if (added > 1 && first >= 0) live_rotate_block(t->sim, first, added);
+}
+
+/* ── ps: live control monitor ──────────────────────────────────────── */
+
+static int live_monitor(Tui *t) {
+    int sel, paused = 0, speed = 4;
+    if (!t->sim) { sh_err("  ps: no world (try `dd if=petri of=world`)\n"); return 1; }
+    if (!isatty(STDIN_FILENO) || !isatty(STDERR_FILENO)) {
+        live_status(t, "ps", 1, 0, -1);   /* piped: one snapshot, POSIX-like */
+        return 0;
+    }
+    sel = t->sim->num_atoms > 0 ? 0 : -1;
+    if (live_raw_on() != 0) { sh_err("  ps: cannot enter raw terminal mode\n"); return 1; }
+    for (;;) {
+        int k;
+        if (!paused) live_advance(t, speed);
+        view_render_to(stderr, t->sim, &t->cam, 1);
+        live_status(t, "ps", paused, speed, sel);
+        fprintf(stderr,
+            "keys: space run/pause  s step  +/- speed  hjkl pan  z/Z zoom  Tab sel  c center\n"
+            "      w water  i Na+  K K+  C Cl-  u base  a ala  g gly  d sugar  x del  f freeze\n"
+            "      p clone  r replace  H/L heat/cool  m minimize  n neuron  e catalysis  q quit\n");
+        fflush(stderr);
+        k = live_getch_poll(!paused);
+        if (k < 0) continue;
+        switch (k) {
+            case 'q': goto done;
+            case ' ': paused = !paused; break;
+            case 's': live_advance(t, 1); break;
+            case '+': case '=': speed += (speed < 10 ? 1 : 10); if (speed > 200) speed = 200; break;
+            case '-': speed -= (speed < 11 ? 1 : 10); if (speed < 1) speed = 1; break;
+            case 'h': case LIVE_KEY_LEFT:  t->cam.yaw_deg += 8.0; break;
+            case 'l': case LIVE_KEY_RIGHT: t->cam.yaw_deg -= 8.0; break;
+            case 'j': case LIVE_KEY_DOWN:  t->cam.pitch_deg -= 5.0; break;
+            case 'k': case LIVE_KEY_UP:    t->cam.pitch_deg += 5.0; break;
+            case 'z': t->cam.zoom *= 0.85; if (t->cam.zoom < 0.1) t->cam.zoom = 0.1; break;
+            case 'Z': t->cam.zoom *= 1.15; if (t->cam.zoom > 20.0) t->cam.zoom = 20.0; break;
+            case '\t': sel = live_pick_next(t->sim, sel, 1); break;
+            case 'c': live_center_on(t, sel); break;
+            case 'w': live_add_at_cam(t, "water"); break;
+            case 'i': live_add_at_cam(t, "Na+"); break;
+            case 'K': live_add_at_cam(t, "K+"); break;
+            case 'C': live_add_at_cam(t, "Cl-"); break;
+            case 'u': live_add_at_cam(t, "uracil"); break;
+            case 'a': live_add_at_cam(t, "alanine"); break;
+            case 'g': live_add_at_cam(t, "glycine"); break;
+            case 'd': live_add_at_cam(t, "deoxyribose"); break;
+            case 'x':
+                if (sel >= 0 && sim_remove_terminal_atom(t->sim, sel))
+                    sel = live_pick_next(t->sim, sel, 1);
+                break;
+            case 'f': live_freeze_toggle(t, sel); break;
+            case 'p': if (sel >= 0) live_clone_molecule(t, sel); break;
+            case 'r': {
+                char *line = tui_readline("replace with: ");
+                if (line) {
+                    int Z = live_z_from_name(line);
+                    if (Z >= 1 && sel >= 0) live_transmute(t, sel, Z);
+                    free(line);
+                }
+                break;
+            }
+            case 'H': live_heat(t, +5.0); break;
+            case 'L': live_heat(t, -5.0); break;
+            case 'm': if (t->sim) integrator_minimize(t->sim, 300, 0.005, 0.05); break;
+            case 'n': hh_init(&t->nrn); t->has_nrn = 1; break;
+            case 'e':
+                if (!rxn.defined) {
+                    rxn.Z1 = 6; rxn.Z2 = 8; rxn.rcut = 1.6;
+                    rxn.dobreak = 0; rxn.make_order = 1;
+                    rxn.delrole = 0; rxn.setq = 0; rxn.q1 = rxn.q2 = 0.0;
+                    rxn.defined = 1;
+                    snprintf(rxn.name, sizeof rxn.name, "C-O proximity");
+                }
+                t->rxn_armed = !t->rxn_armed;
+                if (t->rxn_armed && t->rxn_every <= 0) t->rxn_every = 50;
+                break;
+            default: break;
+        }
+    }
+done:
+    live_raw_off();
+    fprintf(stderr, "\x1b[0m");
+    return 0;
+}
+
+/* ── vi world: modal editor over the live world ────────────────────── */
+
+static int live_vi(Tui *t, char *undopath, size_t cap) {
+    int sel, paused = 0;
+    char msg[128];
+    if (!t->sim) { sh_err("  vi: no world (try `dd if=petri of=world`)\n"); return 1; }
+    if (!isatty(STDIN_FILENO) || !isatty(STDERR_FILENO)) {
+        sh_err("  vi: world editor needs a TTY; use `more world` for a one-frame render\n");
+        return 1;
+    }
+    sel = t->sim->num_atoms > 0 ? 0 : -1;
+    snprintf(undopath, cap, "%s/s2tui-undo-%ld.s2",
+             getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp", (long)getpid());
+    snprintf(msg, sizeof msg, "normal mode");
+    if (live_raw_on() != 0) { sh_err("  vi: cannot enter raw terminal mode\n"); return 1; }
+    for (;;) {
+        int k;
+        if (!paused) live_advance(t, 4);
+        view_render_to(stderr, t->sim, &t->cam, 1);
+        live_status(t, "vi world", paused, 4, sel);
+        fprintf(stderr, "%s\n", msg);
+        fprintf(stderr,
+            "hjkl pan  w/b select  i insert  r replace  x delete  p clone  f freeze  u undo\n"
+            "/ search  n next  c center  z/Z zoom  H/L heat/cool  m min  space run/pause  s step\n"
+            ": command   q quit   (create/augment/adapt; every `:` command is the shell)\n");
+        fflush(stderr);
+        k = live_getch_poll(!paused);
+        if (k < 0) continue;
+        switch (k) {
+            case 'q': goto done;
+            case ' ': paused = !paused; break;
+            case 's': live_advance(t, 1); break;
+            case 'h': case LIVE_KEY_LEFT:  t->cam.yaw_deg += 8.0; break;
+            case 'l': case LIVE_KEY_RIGHT: t->cam.yaw_deg -= 8.0; break;
+            case 'j': case LIVE_KEY_DOWN:  t->cam.pitch_deg -= 5.0; break;
+            case 'k': case LIVE_KEY_UP:    t->cam.pitch_deg += 5.0; break;
+            case 'z': t->cam.zoom *= 0.85; if (t->cam.zoom < 0.1) t->cam.zoom = 0.1; break;
+            case 'Z': t->cam.zoom *= 1.15; if (t->cam.zoom > 20.0) t->cam.zoom = 20.0; break;
+            case 'w': sel = live_pick_next(t->sim, sel, 1); break;
+            case 'b': sel = live_pick_next(t->sim, sel, -1); break;
+            case 'c': live_center_on(t, sel); break;
+            case 'f': live_freeze_toggle(t, sel); break;
+            case 'H': live_heat(t, +5.0); break;
+            case 'L': live_heat(t, -5.0); break;
+            case 'm': if (t->sim) integrator_minimize(t->sim, 300, 0.005, 0.05); break;
+            case 'i': {
+                char *line = tui_readline("insert species: ");
+                if (line) {
+                    cmd_save(t, undopath);
+                    live_add_at_cam(t, line);
+                    free(line);
+                    sel = t->sim->num_atoms - 1;
+                    snprintf(msg, sizeof msg, "inserted; undo with u");
+                }
+                break;
+            }
+            case 'r': {
+                char *line = tui_readline("replace with: ");
+                if (line) {
+                    int Z = live_z_from_name(line);
+                    if (Z >= 1 && sel >= 0) {
+                        cmd_save(t, undopath);
+                        live_transmute(t, sel, Z);
+                        snprintf(msg, sizeof msg, "atom %d -> %s", sel, line);
+                    }
+                    free(line);
+                }
+                break;
+            }
+            case 'x':
+                if (sel >= 0 && sim_remove_terminal_atom(t->sim, sel)) {
+                    sel = live_pick_next(t->sim, sel, 1);
+                    snprintf(msg, sizeof msg, "deleted (terminal atoms only)");
+                } else {
+                    snprintf(msg, sizeof msg, "not deletable: atom is not terminal");
+                }
+                break;
+            case 'p':
+                if (sel >= 0) {
+                    cmd_save(t, undopath);
+                    live_clone_molecule(t, sel);
+                    snprintf(msg, sizeof msg, "cloned molecule; undo with u");
+                }
+                break;
+            case 'u':
+                if (cmd_load(t, undopath) == 0) sel = live_pick_next(t->sim, -1, 1);
+                snprintf(msg, sizeof msg, "undo");
+                break;
+            case '/': {
+                char *line = tui_readline("/");
+                if (line && line[0]) {
+                    int Z = live_z_from_name(line), found = -1;
+                    for (int i = 1; i <= t->sim->num_atoms; i++) {
+                        int a = (sel + i + t->sim->num_atoms) % t->sim->num_atoms;
+                        if (t->sim->atoms[a].Z == Z) { found = a; break; }
+                    }
+                    if (found >= 0) { sel = found; live_center_on(t, sel); }
+                    if (found >= 0) snprintf(msg, sizeof msg, "match atom %d", found);
+                    else            snprintf(msg, sizeof msg, "no match");
+                }
+                free(line);
+                break;
+            }
+            case 'n': break;
+            case ':': {
+                char *line = tui_readline(":");
+                if (line) {
+                    sh_hist_push(line);
+                    last_status = run_line(t, line);
+                    free(line);
+                    if (t->quit) goto done;
+                    snprintf(msg, sizeof msg, "status %d", last_status);
+                }
+                break;
+            }
+            default: break;
+        }
+    }
+done:
+    live_raw_off();
+    fprintf(stderr, "\x1b[0m");
+    return 0;
+}
+
+/* ── POSIX-named entry points ──────────────────────────────────────── */
+
+/* dd if=<preset|species|save|file.mol> of=<world|name> [count=N]
+ *    [x=] [y=] [z=] [temp=] [seed=] */
+static int cmd_dd(Tui *t, char **a, int n) {
+    const char *src = NULL, *dst = NULL;
+    int count = 1;
+    double x = 0, y = 0, z = 0, temp = -1;
+    unsigned long seed = 0;
+    for (int i = 0; i < n; i++) {
+        char *eq = strchr(a[i], '=');
+        char *key, *val;
+        if (!eq) continue;
+        *eq = '\0';
+        key = a[i];
+        val = eq + 1;
+        if (!strcmp(key, "if")) src = val;
+        else if (!strcmp(key, "of")) dst = val;
+        else if (!strcmp(key, "count")) { int c = 1; if (parse_int(val, &c)) count = c; }
+        else if (!strcmp(key, "x")) parse_double(val, &x);
+        else if (!strcmp(key, "y")) parse_double(val, &y);
+        else if (!strcmp(key, "z")) parse_double(val, &z);
+        else if (!strcmp(key, "temp")) parse_double(val, &temp);
+        else if (!strcmp(key, "seed")) parse_ulong(val, &seed);
+    }
+    if (!src) { sh_err("  usage: dd if=<preset|species|file> of=world [count=N] [x= y= z=]\n"); return 2; }
+    if (count < 1) count = 1;
+    if (count > 4096) count = 4096;
+    if ((!dst || !strcmp(dst, "world")) && (!strcmp(src, "petri") || !strcmp(src, "empty")))
+        return world_preset(t, src, seed);
+    {
+        FILE *probe = fopen(src, "r");
+        if (probe) {
+            char magic[8] = {0};
+            size_t got = fread(magic, 1, 7, probe);
+            fclose(probe);
+            if (got == 7 && !strncmp(magic, "S2SAVE1", 7)) return cmd_load(t, src);
+            if (mol_load(src) == 0) {
+                int made = 0;
+                for (int c = 0; c < count; c++) {
+                    Vec3 o = vec3(x + live_rand(-1.5, 1.5), y + live_rand(-1.5, 1.5), z);
+                    if (mol_place(t, o) != 0) break;
+                    made++;
+                }
+                sh_err("  dd: placed %d x `%s` at %.2f %.2f %.2f\n", made, src, x, y, z);
+                return made > 0 ? 0 : 1;
+            }
+        }
+    }
+    {
+        int made = 0;
+        for (int c = 0; c < count; c++) {
+            Vec3 at;
+            if (count == 1) at = vec3(x, y, z);
+            else {
+                Vec3 base = vec3(x, y, z);
+                at = vec3_add(base, vec3(live_rand(-6, 6), live_rand(-6, 6), live_rand(-6, 6)));
+            }
+            if (live_species_add(t, src, at) < 0) break;
+            made++;
+        }
+        if (made && temp > 0)
+            integrator_maxwell_boltzmann(t->sim, temp, seed ? seed : 7UL);
+        sh_err("  dd: %d x `%s` (%d atoms) [%s]\n", made, src,
+               t->sim ? t->sim->num_atoms : 0, made == count ? "ok" : "partial");
+        return made > 0 ? 0 : 1;
+    }
+}
+
+/* ps [ -l ] — process/world table; on a TTY with no args, live monitor */
+static int cmd_ps(Tui *t, char **a, int n) {
+    int longform = (n >= 1 && !strcmp(a[0], "-l"));
+    if (!longform && n == 0 && isatty(STDIN_FILENO) && isatty(STDERR_FILENO))
+        return live_monitor(t);
+    live_status(t, "ps", 1, 0, -1);
+    if (t->has_nrn)
+        printf("  PID 2  neuron   V=%+.2f mV  I_ext=%+.2f  spiking=%d\n",
+               t->nrn.V, t->nrn.I_ext, hh_is_spiking(&t->nrn, -20.0));
+    if (rxn.defined)
+        printf("  PID 3  reaction %s  pair Z%d-Z%d < %.2f A  %s  every %d steps\n",
+               rxn.name, rxn.Z1, rxn.Z2, rxn.rcut,
+               t->rxn_armed ? "ARMED" : "disarmed", t->rxn_every);
+    return 0;
+}
+
+/* vi [world] — modal world editor; `:` runs any shell command */
+static int cmd_vi(Tui *t, char **a, int n) {
+    char path[128];
+    if (n >= 1 && strcmp(a[0], "world") != 0) {
+        sh_err("  vi: only `vi world` exists right now (template editing comes with `ed`)\n");
+        return 2;
+    }
+    return live_vi(t, path, sizeof path);
+}
+
+/* more [world|atoms|bonds|summary|file] — one frame / a listing */
+static int cmd_more(Tui *t, char **a, int n) {
+    const char *what = (n >= 1) ? a[0] : "world";
+    if (!strcmp(what, "world")) {
+        if (!t->sim) { sh_err("  more: no world\n"); return 1; }
+        view_render(t->sim, &t->cam, 0);
+        return 0;
+    }
+    if (!strcmp(what, "atoms")) { sim_print_atoms(t->sim); return 0; }
+    if (!strcmp(what, "bonds")) { sim_print_bonds(t->sim); return 0; }
+    if (!strcmp(what, "summary")) { sim_print_summary(t->sim); return 0; }
+    return cmd_cat(a, n);
+}
+
+/* sync [file] — flush the world to a S2SAVE1 file (default s2world.s2) */
+static int cmd_sync(Tui *t, char **a, int n) {
+    return cmd_save(t, (n >= 1) ? a[0] : "s2world.s2");
+}
+
 static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
     if (nt == 0) return 0;
     if (!strcmp(tok[0], "quit") || !strcmp(tok[0], "exit")) {
@@ -3721,6 +4460,21 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
         }
         else if (!strcmp(tok[0], "false")) {
             return 1;
+        }
+        else if (!strcmp(tok[0], "dd")) {
+            return cmd_dd(t, tok + 1, nt - 1);
+        }
+        else if (!strcmp(tok[0], "ps")) {
+            return cmd_ps(t, tok + 1, nt - 1);
+        }
+        else if (!strcmp(tok[0], "vi")) {
+            return cmd_vi(t, tok + 1, nt - 1);
+        }
+        else if (!strcmp(tok[0], "more")) {
+            return cmd_more(t, tok + 1, nt - 1);
+        }
+        else if (!strcmp(tok[0], "sync")) {
+            return cmd_sync(t, tok + 1, nt - 1);
         }
         else if (!strcmp(tok[0], "new")) {
             int a = 512, b = 512;

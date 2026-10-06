@@ -24,4 +24,9 @@ void view_cam_reset(ViewCam *cam);
  * force_ansi: emit ANSI clears even when not a TTY (for `render`). */
 void view_render(const Simulation *sim, const ViewCam *cam, int force_ansi);
 
+/* Same render, written to an explicit stream. The live simulator modes
+ * draw to stderr so stdout stays DATA (the stream contract). */
+void view_render_to(FILE *fp, const Simulation *sim, const ViewCam *cam,
+                    int force_ansi);
+
 #endif /* TUI_VIEW_H */
