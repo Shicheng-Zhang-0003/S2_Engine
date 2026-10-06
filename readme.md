@@ -4,7 +4,7 @@
 
 ## In addition, S2 will not follow the R1 R2 R3 developmental scheme of Lancius and Mathlib. Instead, the v9 to v10 period for S2 will be marked by however many RC releases are necessary to achieve a OpenWorm similar display for visualising bonds occuring.
 
-*Documentation history: s38 record regenerated without `-march=native`; s39 re-synced to include Demo 17 and the s37 dehydration block; s42-physics-fix record regenerated after derivation-based equation fixes (thymine methyl orientation, cytosine H6 bisector, live −1 charge conservation, conservative duplex restraints, global r_mp, HH bounds, derived unit conversions); 2026-09-24 v9R4-release (KcsA 3D→xy cage, JC/ECC/U(z)/QM-Sref, CO2 zero-strain, QEq thread-local, per-axis PBC, datastream lower-case keys); 2026-09-29 V0.9RC4 — deep audit, physics corrections, the real deposited KcsA filter, and the streamlining pass.*
+*Documentation history: s38 record regenerated without `-march=native`; s39 re-synced to include Demo 17 and the s37 dehydration block; s42-physics-fix record regenerated after derivation-based equation fixes (thymine methyl orientation, cytosine H6 bisector, live −1 charge conservation, conservative duplex restraints, global r_mp, HH bounds, derived unit conversions); 2026-09-24 v9R4-release (KcsA 3D→xy cage, JC/ECC/U(z)/QM-Sref, CO2 zero-strain, QEq thread-local, per-axis PBC, datastream lower-case keys); 2026-09-29 V0.9RC4 — deep audit, physics corrections, the real deposited KcsA filter, and the streamlining pass; 2026-10-05 second-pass audit — the dehydration leg was a hydration *enthalpy* labelled TATB free energy (N1, record-moving), free-glycine neutrality (N2), and the conversion-prose corrections (N3–N6).*
 
 *Every record digest before the one in `CURRENT_BASELINE_SHA.txt` was produced by a binary that the committed source could not rebuild, or by a binary solving a system it did not document (see the coupled-dipole and QEq findings). See the audit section: the tree did not compile at any point in the v9R4 cycle, twice over, and the tracked build artifacts concealed it. Treat the earlier digests as history, not as reproducible baselines.*
 
@@ -1286,12 +1286,12 @@ sample size, and the `ERROR BAR DEFINITION` block states exactly what the
 
 -- Dehydration legs side by side (s37; not a dG validation) --
 Filter binding dU_vac(K)-dU_vac(Na) [antiprism] = +0.0000 eV (no vacuum selectivity (point-charge ions, same cage; expected))
-Dehydration ΔG: K+ = +3.337 eV  Na+ = +4.705 eV (Marcus 1997 TATB absolute)
-Two-leg sum (vacuum ΔU + dehyd ΔG) = -1.3681 eV (K+ favored in sum)
+Dehydration ΔG: K+ = +3.061 eV  Na+ = +3.786 eV (Marcus 1991 TATB absolute)
+Two-leg sum (vacuum ΔU + dehyd ΔG) = -0.7255 eV (K+ favored in sum)
 Experimental ΔG (1000:1 at 300 K) = -0.1786 eV (reference scale;
  single-point ΔU lacks TΔS/sampling/reorganization, so the
  difference below is a scale comparison, not an error bar)
-Sum minus experimental dG: -1.1895 eV
+Sum minus experimental dG: -0.5469 eV
   JC K+  E_LJ =   0.162757 eV   E_Coulomb =   7.812595 eV   E_restr =   0.000000 eV   E_pol =  -0.714855 eV   E_ecc =   4.557342 eV   Total =   7.975352 eV
   JC Na+ E_LJ =  -0.167849 eV   E_Coulomb =   7.812595 eV   E_restr =   0.000000 eV   E_pol =  -0.714855 eV   E_ecc =   4.226735 eV   Total =   7.644746 eV
 --- JC-ion antiprism (restrained scaffold, Joung-Cheatham size) ---
@@ -1387,7 +1387,7 @@ Sum minus experimental dG: -1.1895 eV
   hyd Na+ fixed: E_init= -4.6308 E_min= -4.6805 eV (6-water octahedral, d=2.35 A)
   hyd Na+ polar: E_min= -4.6887 E_pol= -0.0080 eV
 --- Explicit hydration (6-water cluster ΔU) ---
-  K+: -3.7681 (polar -3.7819) | Na+: -4.6805 (polar -4.6887) | ΔΔU(K-Na)=+0.9124 eV (Marcus ΔΔG=-1.3681)
+  K+: -3.7681 (polar -3.7819) | Na+: -4.6805 (polar -4.6887) | ΔΔU(K-Na)=+0.9124 eV (Marcus ΔΔG=-0.7255)
   Note: cluster ΔU vs bulk ΔG — scale comparison only.
     sampling: 2400.0 samples/window, mean tau = 87.3 samples, N_eff = 15.4 independent samples/window
     bins: 17 retained, 11 dropped by min_count=10
@@ -1483,10 +1483,10 @@ Sum minus experimental dG: -1.1895 eV
     (full-audit M3: was 1.38/1.02 A VI, 2.78/2.42 A, 0.35 A).
 
     Dehydration cost to enter the site, from measured single-ion
-    hydration free energies (absolute scale):
-      K+   -322 kJ/mol -> 3.337 eV
-      Na+  -454 kJ/mol -> 4.705 eV
-      K+ therefore enters 1.368 eV cheaper. This is a measured bulk
+    hydration free energies (TATB absolute, Marcus 1991):
+      K+   -295.3 kJ/mol -> 3.061 eV
+      Na+  -365.3 kJ/mol -> 3.786 eV
+      K+ therefore enters 0.725 eV cheaper. This is a measured bulk
     thermodynamic quantity, not a force-field term, and it is the
     dominant contribution.
 
@@ -1499,13 +1499,13 @@ Sum minus experimental dG: -1.1895 eV
     interaction (rigid cage, ion radius + Coulomb + LJ):
       K+  -27.5020 eV      Na+ -27.4627 eV      difference -0.0393 eV
     plus the measured dehydration cost:
-      K+  -14.1528 eV      Na+ -8.6412 eV      difference -5.5116 eV
+      K+  -15.2597 eV      Na+ -12.3184 eV      difference -2.9413 eV
 
   --- what this does and does not show ---
     SHOWS: the filter is now the real KcsA TVGYG filter, with the
     real geometry, the real symmetry and the real Thr75 inner gate.
     The K+/Na+ preference in THIS model is carried essentially
-    entirely by the measured dehydration free energy (1.368 eV); the
+    entirely by the measured dehydration free energy (0.725 eV); the
     rigid-cage electrostatics separate the two ions by only
     0.0098 eV, because a symmetric 8-oxygen cage pulls both cations
     to the same axis position.
@@ -1789,8 +1789,9 @@ to balance it); only the Delta is the meaningful selectivity signal.
   changed. The historical "Na+ in every test" statements elsewhere in this
   file describe the pre-fix record and are marked as such. Neither direction
 is a selectivity result: with a 0.0098 eV site separation (was 0.0130 eV with
-VI radii) and a 1.368 eV
-dehydration term dominating, this model is not positioned to adjudicate
+VI radii) and the measured dehydration term (0.726 eV on the true TATB free
+energies; N1 — the earlier 1.368 eV came from a hydration-enthalpy table,
+not a free energy) dominating, this model is not positioned to adjudicate
 K⁺/Na⁺ at all.
 * **Base-pairing energetics (Demo 7) are qualitative.** G–C correctly
   binds more strongly than A–U and both pairs are correctly
@@ -2240,8 +2241,10 @@ Anyone quoting these barriers should quote the larger of the two and state
 
   **What the model still cannot do.** The K⁺/Na⁺ preference here is carried
   essentially entirely by the measured single-ion hydration free energy
-  (K⁺ −322, Na⁺ −454 kJ/mol → K⁺ enters 1.368 eV cheaper; unified full-audit
-  M1 on the Marcus 1997 TATB absolute scale). The rigid
+  (K⁺ −295.3, Na⁺ −365.3 kJ/mol → K⁺ enters 0.726 eV cheaper; Marcus 1991
+  TATB absolute free energies; full-audit N1 corrects the M1 "unification",
+  which had used the old-scale enthalpies −322/−454 kJ/mol and 1.368 eV).
+  The rigid
   eight-oxygen cage separates the two ions by only 0.0098 eV (was 0.0130 eV
   with VI radii; VIII radii K 1.51/Na 1.18 give 0.0393/4), because a
   symmetric cage pulls both cations to the same axis position regardless of
@@ -2287,12 +2290,17 @@ code. Record digest moves from `9eb32e54…` to the contents of
 
 **Mathematical truth fixes (record-moving).**
 
-* **M1 hydration unification (CRITICAL).** Demo 12 used Marcus 1991
+* **M1 hydration unification (CRITICAL — superseded by N1 below).** Demo 12 used Marcus 1991
   conventional (−295/−365 kJ/mol, 3.057/3.783 eV, Δ 0.726 eV) while Demo 12b
   used Marcus absolute TATB (−322/−454, 3.337/4.705, Δ 1.368 eV). Gap error
   0.642 eV > expt 0.179 eV. Unified on TATB via `KCSA_KJ_PER_EV=N_A·e/1000`
   derived; provenance `Marcus1997-TATB` (spec accepts legacy `Marcus1991`).
   Two-leg sum −0.726 → −1.368 eV; deviation −0.547 → −1.190 eV.
+  **The M1 choice was wrong and N1 corrects it: the −322/−454 set is the old
+  absolute-scale hydration *enthalpy*, not the TATB *free energy*. The
+  −295/−365 pair it replaced was the correct ΔG, so M1 moved the deviation
+  *away* from experiment (−0.547 → −1.190 eV) while claiming to unify on the
+  better scale.**
 * **M2 `wham_tau` off-by-one (MAJOR).** Summed k=0 and formed
   0.5·(1+2·sum/v)=1.5+Σρ (white 1.493 not 0.500). Fixed to 0.5+Σρ with
   terminating negative excluded. Tau −1.0 on all windows
@@ -2312,6 +2320,57 @@ code. Record digest moves from `9eb32e54…` to the contents of
   (0.05²/0.21, 4×); WHAM mislabelled MBAR, steps 1500→12000,
   SE 76%→52% (1/√(2(n−1))=50%, χ² exact 52%); a01 HARTREE note marked
   historical; Lorentz comment fixed (dimensionless taken as A³).
+
+**Second-pass audit (N1–N6): citations, tables, and one thermodynamic quantity.**
+
+* **N1 the hydration leg was an enthalpy (CRITICAL, record-moving).**
+  M1 unified every leg on −322/−454 kJ/mol and labelled it "Marcus 1997
+  TATB". Those are the old absolute-scale *enthalpies* of hydration (the
+  Hille/CRC table); the TATB absolute *free energies* are Marcus 1991's
+  −295.3/−365.3 kJ/mol for K⁺/Na⁺ (with ΔS −89.6/−297.6 J mol⁻¹ K⁻¹,
+  TΔS = −26.7/−88.7 kJ/mol at 298.15 K — the exact bridge between the two
+  tables). A free-energy leg needs ΔG. Corrected dehydration costs are
+  3.061/3.786 eV; K⁺ enters 0.726 eV cheaper (was 1.368); the two-leg sum
+  is −0.7255 eV and the deviation from the experimental −0.1786 eV
+  reference falls from −1.190 eV to −0.5469 eV. The values now live in
+  one table (`kcsa_filter.c`); `main.c`'s macros read that table and its
+  duplicated divisor is gone. Datastream provenance is now
+  `Marcus1991-TATB`; the spec accepts legacy `Marcus1997-TATB`.
+* **N2 free glycine was not neutral (record-neutral).** The HXT entry
+  carried "adjusted for exact neutrality" with value 0.4924, but the sum
+  without HXT is −0.2354, so the neutrality correction it describes is
+  +0.2354: 0.4924 = 0.2354 + 0.2570, the residual added back instead of
+  removed. D3 had pinned the wrong +0.2570 e and attributed it to a
+  capping convention; a complete free molecule must sum to zero. HXT is
+  now 0.2354 and free glycine sums to exactly 0.00 e. The Gly-Ala
+  dipeptide is provably unchanged (it deletes OXT+HXT), so the record
+  does not move for N2. The false charge citations ("Cornell et al.
+  1995, Wang et al. 2000, JACS 127:16154" — volume 127 is 2005 and
+  neither paper tabulates neutral free-molecule charges) were removed
+  rather than replaced with another guess; only neutrality is pinned,
+  and the LJ types (which *are* AMBER ff99) stay verified atom-by-atom
+  against `parm99.dat`.
+* **N3 `qm.c` workspace constants.** The coupled-dipole solve's
+  `rhs[]`/`sol[]` were `3*256` while the operator beside them was sized
+  `3*QM_SOLVE_MAX_ATOMS` (64). Harmless (the arrays were larger) but the
+  comment claimed the 64-atom bound; both are now the same constant.
+* **N4 conversion prose contradicted its own macro.** `amber_lj.h` said
+  "σ = Rstar/2^(1/6)" one line and "the factor of 2 is required" the
+  next; the macro was (and is) correct at 2·Rstar/2^(1/6), which
+  reproduces AMBER's published σ exactly (N 1.8240 → 3.24979 vs 3.2500).
+  The UFF sentence also called UFF's x1 a "half distance" — it is the
+  FULL minimum distance, which is why the periodic table legitimately
+  uses x1/2^(1/6) and not the AMBER expression. The K worked example in
+  `periodic_table.c` also showed a wrong quotient (3.39531; 3.812/2^(1/6)
+  = 3.39611).
+* **N5 stale FIRE prose.** The FIRE header still advertised the old
+  absolute −50000 eV floor (replaced by the per-atom −60 eV floor in
+  F11); the history paragraph stays, the stale current-tense claim is
+  gone (integrator.c and integrator.h).
+* **N6 O-radius rationale.** `KCSA_O_RADIUS` 1.40 Å is Shannon O²⁻ (VI);
+  the coordinating carbonyl O is ~2-coordinate, so 1.40 Å is the
+  conventional proxy and Shannon's O²⁻ (VIII) 1.42 Å would move each
+  preferred contact by 0.02 Å — documented rather than silently changed.
 
 **Programming hardening (non-record unless noted).**
 
@@ -2338,8 +2397,9 @@ code. Record digest moves from `9eb32e54…` to the contents of
   (`.d` untracked, `output.asan.txt` ignored, digest now via ledger);
   `release_note` adds missing external-49 and drops duplicated digest;
   stale `kcsa.cvmds.parent-level` deprecated in-file; `DATASTREAM_SPEC`
-  adds `Marcus1997-TATB`; `kcsa.cvmds` regenerated with new legs
-  (dehyd 3.337/4.705, pol −0.714855, per-site 0.0098 eV) and seal intact.
+  adds `Marcus1991-TATB` (legacy `Marcus1997-TATB` accepted; N1);
+  `kcsa.cvmds` regenerated with the N1 legs
+  (dehyd 3.061/3.786, pol −0.714855, per-site 0.0098 eV) and seal intact.
   `wallclock` remains live by default (`SOURCE_DATE_EPOCH` for stable);
   record run used `SOURCE_DATE_EPOCH=0` (1970) for a stable artifact —
   seal covers it, verifier accepts either.
