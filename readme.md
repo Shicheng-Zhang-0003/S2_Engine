@@ -210,13 +210,36 @@ unsealed output is never written.
 
 ### Interactive terminal — `s2tui`
 A separate binary so the record path can never leak wall time or keystrokes
-into stdout. One live `Simulation` plus one HH neuron, ~60 commands, demos as
-live system tests (`test all` = 14/14 in ~2 s), molecule and reaction
-templates (`MOL1`/`RXN1`), a gas/NPT layer (virial pressure, Berendsen
-barostat), a POSIX-shell layer with pipes/redirection/globs/`$( )` and real
-utilities, and an orthographic ASCII grid with depth shading, bonds, restraint
-anchors and a z-slab cutaway for the 164-atom filter. The stream contract is
-the same as the batch engine: stdout is DATA, stderr is diagnostics.
+into stdout. It is a **fully POSIX command surface** over one live
+`Simulation` plus one HH neuron: every command name is a POSIX command and
+the shell grammar is POSIX (pipes, redirection, `&&`/`||`, `$( )`, globs,
+`fc -l`, `tput`, `sh -c '...'` to reach the host), while operands are S2
+words — species, atom indices, scopes. Non-POSIX names are refused with
+status 127.
+
+The centrepiece is the **pure simulator mode**: `dd if=petri of=world`
+builds a 48 Å periodic dish at 310 K holding ~780 atoms of interacting
+matter (waters, Na/K/Cl ions, organic monomers) plus an HH neuron, and two
+keybind surfaces edit that same world:
+
+* `ps` — live control monitor (space run/pause, `s` step, `+/-` speed,
+  camera keys, and create/augment/adapt keys: `w` water, `i` Na⁺, `K` K⁺,
+  `C` Cl⁻, `u` base, `a` alanine, `g` glycine, `d` sugar, `H`/`L`
+  heat/cool, `f` freeze, `r` replace, `p` clone, `x` delete, `m`
+  minimise, `n` neuron, `e` catalysis). Piped, it prints one snapshot.
+* `vi world` — modal editor (hjkl pan, `w`/`b` select, `i` insert,
+  `r` replace, `x` delete, `p` clone, `u` undo, `/` search, `:` command
+  mode running any shell command against the live world).
+
+The POSIX mapping for the rest of the world: `touch` creates matter,
+`ln` links, `ln -s` restrains, `unlink` clears, `rm atom <i>` deletes,
+`fsck` detects topology, `sleep <n>` advances world time, `kill -SIG`
+freezes / stimulates / heats, `nice` minimises, `df`/`du` report state,
+`cp <species> x.mol` exports a template and `dd if=x.mol` instantiates it,
+`make x.rxn` fires a reaction rule, `sync` saves, `man` documents. Demos
+remain live system tests (`test all` = 14/14). The orthographic ASCII grid
+has depth shading, bonds, restraint anchors and a z-slab cutaway. Stream
+contract: stdout is DATA, stderr is diagnostics.
 
 ---
 
