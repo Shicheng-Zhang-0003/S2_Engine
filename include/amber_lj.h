@@ -23,33 +23,40 @@
  *
  * THE CONVERSION, ONCE
  *
- * AMBER's prm files tabulate Rstar and write the potential as
+ * AMBER/TINKER prm files tabulate a parameter R* (Rstar = Rmin/2: HALF
+ * the distance of the 12-6 well minimum) and write the potential as
  *
- *     E = eps * [ 2 (Rstar/r)^12 - (Rstar/r)^6 ]
+ *     E = eps * [ (Rmin/r)^12 - 2 (Rmin/r)^6 ],   Rmin = 2 Rstar
  *
- * whose MINIMUM sits at r = Rstar. The standard 12-6 form used by
+ * whose MINIMUM sits at r = Rmin. The standard 12-6 form used by
  * pair_nonbonded_core() is
  *
  *     E = 4 eps [ (sigma/r)^12 - (sigma/r)^6 ]
  *
- * whose minimum sits at r = 2^(1/6) sigma. Matching the two minima gives
- * sigma = Rstar / 2^(1/6).
+ * whose minimum sits at r = 2^(1/6) sigma. Matching the two minima,
+ * 2 Rstar = 2^(1/6) sigma, gives
  *
- * Note this is NOT the naive Rstar/2^(1/6) that the comment above once
- * suggested: AMBER's Rstar is a HALF-distance, so the factor of 2 is
- * required. Verified against AMBER's published sigmas — this macro
- * reproduces them exactly:
+ *     sigma = 2 Rstar / 2^(1/6) = Rstar * 2^(5/6).
+ *
+ * The factor of 2 is required because AMBER's Rstar is a HALF-distance:
+ * dropping it (sigma = Rstar / 2^(1/6)) would halve every sigma. This
+ * macro computes the full expression and reproduces AMBER's published
+ * sigmas exactly:
  *
  *     N  amide   Rstar 1.8240 -> 3.24979  (AMBER 3.2500)
  *     C  sp2     Rstar 1.9080 -> 3.39967  (AMBER 3.3997)
  *     O  carbonyl Rstar 1.6612 -> 2.96000 (AMBER 2.9600)
  *     CT sp3     Rstar 1.9080 -> 3.39967  (AMBER 3.3997)
  *
- * The periodic table was NOT using this macro during the v9R4 audit and
- * that was a real bug: it stored UFF's Rmin (which is a HALF distance in
- * UFF's own convention) directly in a field declared as sigma, putting
- * every effective LJ well 12.2% too far out. periodic_table.c now divides
- * by 2^(1/6) itself, which is the same operation as this macro.
+ * The periodic table converts with a DIFFERENT expression because UFF
+ * tabulates a different quantity: UFF's x1 is the FULL distance of the
+ * potential minimum, not half of it, so its correct conversion is
+ * sigma = x1 / 2^(1/6). The v9R4 audit found periodic_table.c storing
+ * UFF's x1 directly in a field declared as sigma, putting every
+ * effective LJ well 12.2% too far out; it now divides by 2^(1/6)
+ * itself. The two expressions differ by the factor of 2 precisely
+ * because the tabulated inputs differ - neither may be swapped for the
+ * other.
  */
 
 #include "constants.h"

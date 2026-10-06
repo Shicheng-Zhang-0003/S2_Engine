@@ -155,8 +155,9 @@ double integrator_minimize_frozen(Simulation *sim, const int *frozen,
  * inertial dynamics with velocity mixing toward forces and adaptive
  * timestep; faster than steepest descent on stiff/ill-conditioned
  * landscapes. Velocities and dt are saved and restored (FIRE owns them
- * during the run). Same divergence guards (displacement cap, -50000 eV
- * floor) as steepest descent. Returns the final potential energy.
+ * during the run). Same divergence guards (displacement cap, size-
+ * relative per-atom eV floor; see audit fix F11 in integrator.c) as
+ * steepest descent. Returns the final potential energy.
  * tests/test_fire.c asserts minimum-agreement with steepest descent.
  * SCOPE: use for smooth-basin polishing (KcsA relax legs); prefer
  * steepest descent for fresh-condensation clash relief, where FIRE's

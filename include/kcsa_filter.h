@@ -176,8 +176,9 @@ double kcsa_cation_radius(int Z);
 void kcsa_set_ion_radius(Simulation *sim, int ion, int Z);
 
 /*
- * Measured single-ion hydration free energy in kJ/mol on the standard
- * absolute (TATB/Marcus) scale. This is the term that actually decides
+ * Measured single-ion hydration free energy in kJ/mol on the TATB-based
+ * absolute scale (Marcus 1991, Faraday Trans. 87, 2995). This is the
+ * term that actually decides
  * K+/Na+ selectivity in the real filter, and it is a bulk thermodynamic
  * measurement rather than anything a vacuum force field can produce.
  * Returns 0.0 for an ion with no tabulated value.
@@ -185,8 +186,10 @@ void kcsa_set_ion_radius(Simulation *sim, int ion, int Z);
 double kcsa_hydration_free_energy_kJmol(int Z);
 
 /* Cost of desolvating the ion to enter the site, in eV (positive).
- * 1 eV = 96.48533212 kJ/mol. K+ costs 3.34 eV, Na+ 4.71 eV, so K+ enters
- * 1.368 eV cheaper. That difference is larger than the electrostatic
+ * 1 eV = 96.48533212... kJ/mol (N_A*e/1000). K+ costs 3.061 eV,
+ * Na+ 3.786 eV, so K+ enters 0.726 eV cheaper (AUDIT FIX N1: the
+ * earlier -322/-454 set was hydration ENTHALPY and made this 1.368 eV).
+ * That difference is larger than the electrostatic
  * preference of the smaller Na+ cation, and it is why KcsA is
  * potassium-selective. */
 double kcsa_dehydration_cost_eV(int Z);

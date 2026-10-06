@@ -610,7 +610,7 @@ double integrator_minimize_frozen(Simulation *sim, const int *frozen,
  * Inertial MD with velocity mixing: v -> (1-a)v + a|v|Fhat whenever
  * power P = F.v > 0 (accelerate along downhill direction, dt grows),
  * full stop (v = 0, dt shrinks) on uphill. Same safety rails as the
- * steepest minimizers above: per-step displacement cap, -50000 eV
+ * steepest minimizers above: per-step displacement cap, size-relative
  * divergence floor with rollback, NaN guards. Velocities and dt are
  * saved on entry and restored on exit (FIRE owns them while running).
  * ══════════════════════════════════════════════════════════════════════════ */

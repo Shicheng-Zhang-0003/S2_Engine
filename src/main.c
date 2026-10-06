@@ -1628,29 +1628,27 @@ static void demo_helix(void) {
  * the real Thr75-O -> antiprism-site K+ distance computing to 2.70 A exactly. */
 #define KCSA_RING_Z_SEP 3.084
 
-/* ══ KcsA dehydration penalty (s37, unified full-audit M1) ══════════════
+/* ══ KcsA dehydration penalty (s37; N1 corrects full-audit M1) ═════════
  * Hydration free energies -> dehydration cost. The thermodynamic leg the
  * vacuum model cannot represent.
  *
- * UNIFICATION: this leg previously used Marcus 1991 conventional values
- * (K -295, Na -365 kJ/mol => 3.057/3.783 eV, diff 0.726 eV) while Demo 12b
- * and kcsa_filter.c used Marcus absolute TATB values (K -322, Na -454
- * kJ/mol => 3.337/4.705 eV, diff 1.368 eV). Dataset delta is 27 kJ K
- * (0.280 eV) + 89 kJ Na (0.922 eV); gap discrepancy 0.642 eV exceeds the
- * experimental 0.179 eV. Both cannot be right in one binary.
- *
- * Fixed by unifying EVERY leg on the absolute TATB set tabulated in
- * kcsa_filter.c (Marcus 1997; TATB convention as used throughout ion
- * solvation work), which is the scale appropriate for single-ion transfer
- * and the only set that covers Li/Na/K/Rb/Cs. Conversion uses
- * KCSA_KJ_PER_EV = N_A*e/1000 derived from CODATA primaries, not the
- * hand literal 96.48533212 (diff 3.3e-09, negligible but closes the class).
- *   K+:  dG_hyd = -322 kJ/mol -> dG_dehyd = +3.337 eV
- *   Na+: dG_hyd = -454 kJ/mol -> dG_dehyd = +4.705 eV
- * Na+ pays 1.368 eV MORE to dehydrate - this is the selectivity term. */
-#define KCSA_KJ_PER_EV    (AVOGADRO_N * ELEM_CHARGE / 1000.0)
-#define KCSA_DEHYD_K_EV   (322.0 / KCSA_KJ_PER_EV)
-#define KCSA_DEHYD_NA_EV  (454.0 / KCSA_KJ_PER_EV)
+ * HISTORY: this leg and kcsa_filter.c once disagreed (K -295/Na -365 vs
+ * a -322/-454 set), and full-audit M1 "unified" every leg on -322/-454.
+ * AUDIT FIX N1 corrects that choice: -322/-454 are the old absolute-
+ * scale ENTHALPIES of hydration, not TATB FREE energies. The TATB
+ * absolute free energies (Marcus 1991, Faraday Trans. 87, 2995) are
+ *   K+:  dG_hyd = -295.3 kJ/mol -> dG_dehyd = +3.061 eV
+ *   Na+: dG_hyd = -365.3 kJ/mol -> dG_dehyd = +3.786 eV
+ * Na+ pays 0.726 eV MORE to dehydrate - this is the selectivity term.
+ * The earlier enthalpy set added 62 kJ/mol (0.642 eV) of spurious K+
+ * advantage and pushed the two-leg sum from -0.726 eV to -1.368 eV,
+ * i.e. AWAY from the experimental -0.179 eV reference rather than
+ * toward it. The values live in kcsa_filter.c's table only; these
+ * macros read that one table, so the two legs cannot drift apart again.
+ * Conversion uses KCSA_KJ_PER_EV = N_A*e/1000 derived from CODATA
+ * primaries in kcsa_filter.c. */
+#define KCSA_DEHYD_K_EV   kcsa_dehydration_cost_eV(19)
+#define KCSA_DEHYD_NA_EV  kcsa_dehydration_cost_eV(11)
 /* Experimental K+/Na+ selectivity ~1000:1 for KcsA. At 300 K the free
  * energy is -kT*ln(1000) = -0.179 eV (K+ favored). Reference scale only:
  * a vacuum single-point ΔU cannot validate against a ΔG (missing TΔS,
@@ -2352,11 +2350,12 @@ static void demo_kcsa_filter(void) {
             "  multi-ion occupancy, remain missing physics. No size offset\n"
             "  is imposed on Na+.\n");
 
-    /* ══ DEHYDRATION-CORRECTED SELECTIVITY (s37) ══════════════════════
+    /* ══ DEHYDRATION-CORRECTED SELECTIVITY (s37; N1) ══════════════════
      * The vacuum tests above compute only the filter-binding leg (a 0 K
      * single-point ΔU, no sampling/entropy/reorganization/multi-ion).
-     * The dehydration cost is a bulk-ion ΔG leg (Marcus 1997 TATB absolute,
-     * unified full-audit M1). Their sum
+     * The dehydration cost is a bulk-ion ΔG leg (Marcus 1991 TATB
+     * absolute free energies; N1 replaces the enthalpy set full-audit
+     * M1 had unified on). Their sum
      * is a two-leg estimate, NOT a computed ΔG: do not validate it
      * against the experimental ΔG as pass/fail. Both legs and the
      * experimental reference scale are reported side by side. */
@@ -2367,7 +2366,7 @@ static void demo_kcsa_filter(void) {
         double k_filt  = k_e3;
         double na_filt = na_e3;
         double vac_ddG  = k_filt - na_filt;                       /* + = Na+ favored */
-        double dehyd    = KCSA_DEHYD_K_EV - KCSA_DEHYD_NA_EV;     /* -1.368 eV unified TATB */
+        double dehyd    = KCSA_DEHYD_K_EV - KCSA_DEHYD_NA_EV;     /* -0.726 eV, Marcus 1991 TATB */
         double corr_ddG = vac_ddG + dehyd;                        /* - = K+ favored */
         double expt_ddG = -KCSA_KB_EV * KCSA_T_KELVIN * log(KCSA_EXPT_RATIO);
 
@@ -2376,7 +2375,7 @@ static void demo_kcsa_filter(void) {
         printf("Filter binding dU_vac(K)-dU_vac(Na) [antiprism] = %+.4f eV (%s)\n",
                vac_ddG, (fabs(vac_ddG) < 1e-9) ? "no vacuum selectivity (point-charge ions, same cage; expected)"
               : vac_ddG > 0 ? "Na+ favored in vacuum leg" : "K+ favored in vacuum leg");
-        printf("Dehydration ΔG: K+ = +%.3f eV  Na+ = +%.3f eV (Marcus 1997 TATB absolute)\n",
+        printf("Dehydration ΔG: K+ = +%.3f eV  Na+ = +%.3f eV (Marcus 1991 TATB absolute)\n",
                KCSA_DEHYD_K_EV, KCSA_DEHYD_NA_EV);
         printf("Two-leg sum (vacuum ΔU + dehyd ΔG) = %+.4f eV (%s)\n",
                corr_ddG, corr_ddG < 0 ? "K+ favored in sum"
@@ -3229,8 +3228,8 @@ static void demo_kcsa_filter(void) {
             ds_add_claim(w, "kcsa.antiprism.e_k", k_e3, "eV", "computed");
             ds_add_claim(w, "kcsa.antiprism.e_na", na_e3, "eV", "computed");
             ds_add_claim(w, "kcsa.antiprism.ddg_vacuum", vac_dd, "eV", "computed");
-            ds_add_claim(w, "kcsa.dehyd.k", KCSA_DEHYD_K_EV, "eV", "Marcus1997-TATB");
-            ds_add_claim(w, "kcsa.dehyd.na", KCSA_DEHYD_NA_EV, "eV", "Marcus1997-TATB");
+            ds_add_claim(w, "kcsa.dehyd.k", KCSA_DEHYD_K_EV, "eV", "Marcus1991-TATB");
+            ds_add_claim(w, "kcsa.dehyd.na", KCSA_DEHYD_NA_EV, "eV", "Marcus1991-TATB");
             ds_add_claim(w, "kcsa.ddg_corrected", corr, "eV", "computed");
             ds_add_claim(w, "kcsa.ddg_experimental", expt, "eV", "expt-1000:1@300K");
             ds_add_claim(w, "kcsa.ddg_deviation", corr - expt, "eV", "computed");
@@ -3451,10 +3450,10 @@ static void demo_kcsa_real_filter(void) {
     printf("    (1.18 A + 1.40 A = 2.58 A) by 0.19-0.35 A on all eight ligands\n");
     printf("    (full-audit M3: was 1.38/1.02 A VI, 2.78/2.42 A, 0.35 A).\n");
     printf("\n    Dehydration cost to enter the site, from measured single-ion\n");
-    printf("    hydration free energies (absolute scale):\n");
-    printf("      K+   %+.0f kJ/mol -> %.3f eV\n",
+    printf("    hydration free energies (TATB absolute, Marcus 1991):\n");
+    printf("      K+   %+.1f kJ/mol -> %.3f eV\n",
            kcsa_hydration_free_energy_kJmol(19), kcsa_dehydration_cost_eV(19));
-    printf("      Na+  %+.0f kJ/mol -> %.3f eV\n",
+    printf("      Na+  %+.1f kJ/mol -> %.3f eV\n",
            kcsa_hydration_free_energy_kJmol(11), kcsa_dehydration_cost_eV(11));
     printf("      K+ therefore enters %.3f eV cheaper. This is a measured bulk\n",
            kcsa_dehydration_cost_eV(11) - kcsa_dehydration_cost_eV(19));
