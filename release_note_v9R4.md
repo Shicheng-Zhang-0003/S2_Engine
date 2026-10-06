@@ -211,8 +211,13 @@ respond cannot hold a +1 ion's Coulomb field — and is documented rather than
 tuned away. Demo 12's constructed cage is retained and explicitly labelled as
 the legacy artefact it is, so the before and after can be compared.
 
-The poly-alanine chain in Demo 12 is still not a protein. That sentence stays
-in the limitations section, because it is still true.
+*(Second-pass audit: the sentence this paragraph defended — "the protein is
+poly-alanine, so the real TVGYG selectivity chemistry is not present" — is
+no longer true and has been removed from the limitations. Demo 12's legacy
+constructed cage never contained a poly-alanine chain in its final form, and
+Demo 12b is the real deposited TVGYG filter, held rigid. The limitation that
+survives is the one that matters: no quantitative selectivity free energy is
+claimed.)*
 
 ## 4. Streamlining
 
@@ -220,8 +225,12 @@ in the limitations section, because it is still true.
   every biomolecular atom, and the `2^(1/6)` conversion that turns an AMBER
   Rstar into a standard collision diameter. Before this pass those numbers
   existed in four private copies, and the literal `1.6612 * 2.0 /
-  1.122462048309373` was written out in **fourteen** places in `main.c`.
-  `2^(1/6)` is now written exactly once in the tree. `aminoacids.c` had
+  1.122462048309373` was written out in **sixteen** places in `main.c`
+  (fourteen carbonyl-sigma expressions plus two JC macros; the second-pass
+  audit measured nineteen literal occurrences across the four files, where
+  the header's own note had said thirteen). `2^(1/6)` is now written exactly
+  once in executable code (`TWOPOW_SIXTH`); the second pass also removed the
+  one straggler copy in `tui.c`. `aminoacids.c` had
   admitted the duplication in its own comment — "duplicated here rather than
   shared via a header refactor to avoid touching already-validated, working
   code under time pressure" — a debt never paid.
