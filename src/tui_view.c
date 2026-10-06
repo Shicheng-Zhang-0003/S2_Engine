@@ -63,6 +63,11 @@ static void term_size(int *cols, int *rows) {
 }
 
 void view_render(const Simulation *sim, const ViewCam *cam, int force_ansi) {
+    view_render_to(stdout, sim, cam, force_ansi);
+}
+
+void view_render_to(FILE *fp, const Simulation *sim, const ViewCam *cam, int force_ansi) {
+    if (!fp) return;
     int cols, rows;
     term_size(&cols, &rows);
     int use_ansi = force_ansi || isatty(STDOUT_FILENO);
@@ -203,35 +208,36 @@ void view_render(const Simulation *sim, const ViewCam *cam, int force_ansi) {
         }
     }
 
-    if (use_ansi) printf("\x1b[H\x1b[2J");
-    printf("+");
-    for (int x = 0; x < vw; x++) printf("-");
-    printf("+ %s\n", (sim ? "s2 grid" : "empty"));
+    if (use_ansi) fprintf(fp, "\x1b[H\x1b[2J");
+    fputc('+', fp);
+    for (int x = 0; x < vw; x++) fputc('-', fp);
+    fprintf(fp, "+ %s\n", (sim ? "s2 grid" : "empty"));
     for (int y = 0; y < vh; y++) {
-        printf("|");
+        fputc('|', fp);
         int curfg = -1, curbr = -1;
         for (int x = 0; x < vw; x++) {
             int i = y * vw + x;
             if (use_ansi && (fg[i] != curfg || br[i] != curbr)) {
-                if (br[i]) printf("\x1b[1;%dm", fg[i]);
-                else printf("\x1b[0;%dm", fg[i]);
+                if (br[i]) fprintf(fp, "\x1b[1;%dm", fg[i]);
+                else fprintf(fp, "\x1b[0;%dm", fg[i]);
                 curfg = fg[i]; curbr = br[i];
             }
-            putchar(ch[i]);
+            fputc(ch[i], fp);
         }
-        if (use_ansi) printf("\x1b[0m");
+        if (use_ansi) fprintf(fp, "\x1b[0m");
         /* side panel */
-        if (y == 0) printf("| N=%d", sim ? sim->num_atoms : 0);
-        else if (y == 1 && sim) printf("| step=%llu", (unsigned long long)sim->step);
-        else if (y == 2 && sim) printf("| T=%.1fK E=%.3f", sim->temperature, sim->potential_energy);
-        else if (y == 3) printf("| yaw=%.0f pit=%.0f z=%.2f", c.yaw_deg, c.pitch_deg, c.zoom);
-        else if (y == 4) printf("| h c n o N p K =H C N O Na P K");
-        else if (y == 5) printf("| view %s%s", c.has_center ? "centered" : "fit", c.slice > 0 ? " slice" : "");
-        printf("\n");
+        if (y == 0) fprintf(fp, "| N=%d", sim ? sim->num_atoms : 0);
+        else if (y == 1 && sim) fprintf(fp, "| step=%llu", (unsigned long long)sim->step);
+        else if (y == 2 && sim) fprintf(fp, "| T=%.1fK E=%.3f", sim->temperature, sim->potential_energy);
+        else if (y == 3) fprintf(fp, "| yaw=%.0f pit=%.0f z=%.2f", c.yaw_deg, c.pitch_deg, c.zoom);
+        else if (y == 4) fprintf(fp, "| h c n o N p K =H C N O Na P K");
+        else if (y == 5) fprintf(fp, "| view %s%s", c.has_center ? "centered" : "fit", c.slice > 0 ? " slice" : "");
+        fputc('\n', fp);
     }
-    printf("+");
-    for (int x = 0; x < vw; x++) printf("-");
-    printf("+\n");
+    fputc('+', fp);
+    for (int x = 0; x < vw; x++) fputc('-', fp);
+    fprintf(fp, "+\n");
+    fflush(fp);
 
     free(pr); free(order); free(ch); free(fg); free(br);
 }
