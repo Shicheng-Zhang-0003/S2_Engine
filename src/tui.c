@@ -333,17 +333,21 @@ static int test_d11(void) {
 static int test_d12(void) {
     Simulation *s = sim_create(64, 64);
     if (!s) return t_fail("12", "alloc");
-    /* 8-O antiprism single-point legs (no WHAM): must be finite, JC splits K/Na. */
+    /* 8-O antiprism single-point legs (no WHAM): must be finite, JC splits K/Na.
+     * LJ types via the shared header (N7): these two lines used to carry
+     * 0.2100*KCAL_MOL_TO_EV and the literal 2.959921901149463, the same
+     * duplicated-spelling the amber_lj.h consolidation removed from the
+     * engine - the TUI had kept a private copy. Values are identical. */
     s->cutoff = 30.0;
     for (int i = 0; i < 4; i++) {
         double a = i * 1.5707963267948966;
         int o = sim_add_atom(s, 8, vec3(2.2 * cos(a), 2.2 * sin(a), -1.542), -0.5462);
-        sim_set_atom_lj(s, o, 0.2100 * KCAL_MOL_TO_EV, 2.959921901149463);
+        sim_set_atom_lj(s, o, LJ_AMBER_O_EPS, LJ_AMBER_O_SIGMA);
     }
     for (int i = 0; i < 4; i++) {
         double a = i * 1.5707963267948966 + 0.7853981633974483;
         int o = sim_add_atom(s, 8, vec3(2.37 * cos(a), 2.37 * sin(a), 1.542), -0.5462);
-        sim_set_atom_lj(s, o, 0.2100 * KCAL_MOL_TO_EV, 2.959921901149463);
+        sim_set_atom_lj(s, o, LJ_AMBER_O_EPS, LJ_AMBER_O_SIGMA);
     }
     int k = sim_add_ion(s, 19, 1, vec3(0, 0, 0), 1.0);
     forces_calculate(s);

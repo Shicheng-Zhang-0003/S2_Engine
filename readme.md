@@ -4,7 +4,7 @@
 
 ## In addition, S2 will not follow the R1 R2 R3 developmental scheme of Lancius and Mathlib. Instead, the v9 to v10 period for S2 will be marked by however many RC releases are necessary to achieve a OpenWorm similar display for visualising bonds occuring.
 
-*Documentation history: s38 record regenerated without `-march=native`; s39 re-synced to include Demo 17 and the s37 dehydration block; s42-physics-fix record regenerated after derivation-based equation fixes (thymine methyl orientation, cytosine H6 bisector, live −1 charge conservation, conservative duplex restraints, global r_mp, HH bounds, derived unit conversions); 2026-09-24 v9R4-release (KcsA 3D→xy cage, JC/ECC/U(z)/QM-Sref, CO2 zero-strain, QEq thread-local, per-axis PBC, datastream lower-case keys); 2026-09-29 V0.9RC4 — deep audit, physics corrections, the real deposited KcsA filter, and the streamlining pass; 2026-10-05 second-pass audit — the dehydration leg was a hydration *enthalpy* labelled TATB free energy (N1, record-moving), free-glycine neutrality (N2), and the conversion-prose corrections (N3–N6).*
+*Documentation history: s38 record regenerated without `-march=native`; s39 re-synced to include Demo 17 and the s37 dehydration block; s42-physics-fix record regenerated after derivation-based equation fixes (thymine methyl orientation, cytosine H6 bisector, live −1 charge conservation, conservative duplex restraints, global r_mp, HH bounds, derived unit conversions); 2026-09-24 v9R4-release (KcsA 3D→xy cage, JC/ECC/U(z)/QM-Sref, CO2 zero-strain, QEq thread-local, per-axis PBC, datastream lower-case keys); 2026-09-29 V0.9RC4 — deep audit, physics corrections, the real deposited KcsA filter, and the streamlining pass; 2026-10-05 second-pass audit — the dehydration leg was a hydration *enthalpy* labelled TATB free energy (N1, record-moving), free-glycine neutrality (N2), and the conversion-prose corrections (N3–N7).*
 
 *Every record digest before the one in `CURRENT_BASELINE_SHA.txt` was produced by a binary that the committed source could not rebuild, or by a binary solving a system it did not document (see the coupled-dipole and QEq findings). See the audit section: the tree did not compile at any point in the v9R4 cycle, twice over, and the tracked build artifacts concealed it. Treat the earlier digests as history, not as reproducible baselines.*
 
@@ -2371,6 +2371,13 @@ code. Record digest moves from `9eb32e54…` to the contents of
   the coordinating carbonyl O is ~2-coordinate, so 1.40 Å is the
   conventional proxy and Shannon's O²⁻ (VIII) 1.42 Å would move each
   preferred contact by 0.02 Å — documented rather than silently changed.
+* **N7 the TUI kept a private copy of the AMBER O literals.** `tui.c`'s
+  demo-12 self-test carried `0.2100 * KCAL_MOL_TO_EV` and the literal
+  `2.959921901149463` for the carbonyl-O LJ pair while the same file's
+  cage builder already used `LJ_AMBER_O_EPS/LJ_AMBER_O_SIGMA` and the
+  engine had consolidated every other spelling into `amber_lj.h`. The
+  two lines now use the shared names; value-identical, and `s2tui` is
+  outside the record path so nothing else moves.
 
 **Programming hardening (non-record unless noted).**
 
