@@ -754,12 +754,12 @@
 
 -- Dehydration legs side by side (s37; not a dG validation) --
 Filter binding dU_vac(K)-dU_vac(Na) [antiprism] = +0.0000 eV (no vacuum selectivity (point-charge ions, same cage; expected))
-Dehydration ΔG: K+ = +3.337 eV  Na+ = +4.705 eV (Marcus 1997 TATB absolute)
-Two-leg sum (vacuum ΔU + dehyd ΔG) = -1.3681 eV (K+ favored in sum)
+Dehydration ΔG: K+ = +3.061 eV  Na+ = +3.786 eV (Marcus 1991 TATB absolute)
+Two-leg sum (vacuum ΔU + dehyd ΔG) = -0.7255 eV (K+ favored in sum)
 Experimental ΔG (1000:1 at 300 K) = -0.1786 eV (reference scale;
  single-point ΔU lacks TΔS/sampling/reorganization, so the
  difference below is a scale comparison, not an error bar)
-Sum minus experimental dG: -1.1895 eV
+Sum minus experimental dG: -0.5469 eV
   JC K+  E_LJ =   0.162757 eV   E_Coulomb =   7.812595 eV   E_restr =   0.000000 eV   E_pol =  -0.714855 eV   E_ecc =   4.557342 eV   Total =   7.975352 eV
   JC Na+ E_LJ =  -0.167849 eV   E_Coulomb =   7.812595 eV   E_restr =   0.000000 eV   E_pol =  -0.714855 eV   E_ecc =   4.226735 eV   Total =   7.644746 eV
 --- JC-ion antiprism (restrained scaffold, Joung-Cheatham size) ---
@@ -855,7 +855,7 @@ Sum minus experimental dG: -1.1895 eV
   hyd Na+ fixed: E_init= -4.6308 E_min= -4.6805 eV (6-water octahedral, d=2.35 A)
   hyd Na+ polar: E_min= -4.6887 E_pol= -0.0080 eV
 --- Explicit hydration (6-water cluster ΔU) ---
-  K+: -3.7681 (polar -3.7819) | Na+: -4.6805 (polar -4.6887) | ΔΔU(K-Na)=+0.9124 eV (Marcus ΔΔG=-1.3681)
+  K+: -3.7681 (polar -3.7819) | Na+: -4.6805 (polar -4.6887) | ΔΔU(K-Na)=+0.9124 eV (Marcus ΔΔG=-0.7255)
   Note: cluster ΔU vs bulk ΔG — scale comparison only.
     sampling: 2400.0 samples/window, mean tau = 87.3 samples, N_eff = 15.4 independent samples/window
     bins: 17 retained, 11 dropped by min_count=10
@@ -951,10 +951,10 @@ Sum minus experimental dG: -1.1895 eV
     (full-audit M3: was 1.38/1.02 A VI, 2.78/2.42 A, 0.35 A).
 
     Dehydration cost to enter the site, from measured single-ion
-    hydration free energies (absolute scale):
-      K+   -322 kJ/mol -> 3.337 eV
-      Na+  -454 kJ/mol -> 4.705 eV
-      K+ therefore enters 1.368 eV cheaper. This is a measured bulk
+    hydration free energies (TATB absolute, Marcus 1991):
+      K+   -295.3 kJ/mol -> 3.061 eV
+      Na+  -365.3 kJ/mol -> 3.786 eV
+      K+ therefore enters 0.725 eV cheaper. This is a measured bulk
     thermodynamic quantity, not a force-field term, and it is the
     dominant contribution.
 
@@ -967,13 +967,13 @@ Sum minus experimental dG: -1.1895 eV
     interaction (rigid cage, ion radius + Coulomb + LJ):
       K+  -27.5020 eV      Na+ -27.4627 eV      difference -0.0393 eV
     plus the measured dehydration cost:
-      K+  -14.1528 eV      Na+ -8.6412 eV      difference -5.5116 eV
+      K+  -15.2597 eV      Na+ -12.3184 eV      difference -2.9413 eV
 
   --- what this does and does not show ---
     SHOWS: the filter is now the real KcsA TVGYG filter, with the
     real geometry, the real symmetry and the real Thr75 inner gate.
     The K+/Na+ preference in THIS model is carried essentially
-    entirely by the measured dehydration free energy (1.368 eV); the
+    entirely by the measured dehydration free energy (0.725 eV); the
     rigid-cage electrostatics separate the two ions by only
     0.0098 eV, because a symmetric 8-oxygen cage pulls both cations
     to the same axis position.
