@@ -13,9 +13,14 @@
  *     src/nucleobases.c   AMBER_RSTAR_TO_SIGMA + LJ_RING_N_*, LJ_SP2_C_*, ...
  *     src/aminoacids.c    AA_RSTAR_TO_SIGMA   + AA_LJ_N_*,  AA_LJ_C_*,  ...
  *     src/kcsa_filter.c   its own copies
- *     src/main.c          1.6612 * 2.0 / 1.122462048309373  x7
+ *     src/main.c          1.6612 * 2.0 / 1.122462048309373
+ *                         (14 occurrences across 7 functions)
  *
- * The literal 2^(1/6) appeared THIRTEEN times across four files. aminoacids.c
+ * The literal 2^(1/6) appeared NINETEEN times across four files before
+ * this consolidation (verified by grep against the pre-refactor tree:
+ * sixteen in main.c - fourteen carbonyl-sigma expressions plus the two
+ * JC ion-sigma macros - and one each in nucleobases.c, aminoacids.c and
+ * kcsa_filter.c). aminoacids.c
  * admitted the duplication in its own comment — "duplicated here rather than
  * shared via a header refactor to avoid touching already-validated, working
  * code under time pressure" — which is an honest note about a debt that was
