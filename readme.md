@@ -1,6 +1,6 @@
 # S2 Engine — Nano Chemistry & Biological Simulator
 
-**v9R4** (internal) · **V0.9RC4** (external) · C11 · no dependencies beyond libm
+**v9R4** (internal) · **V0.9RC4** (external) · C11 · record path: no dependencies beyond libm
 Repository: https://github.com/Shicheng-Zhang-0003/S2_Engine
 
 S2 is a self-contained computational chemistry and biology engine. It places
@@ -20,7 +20,10 @@ says so in the same sentence as the number.
 
 ## 1. Build, run, test
 
-Requirements: a C11 compiler (gcc or clang), `make`, libm. Nothing else.
+Requirements: a C11 compiler (gcc or clang), `make`, libm. Nothing else
+for the record. The fullscreen `screen` surface optionally uses ncursesw
+(detected via `ncursesw6-config`; without it `s2tui` still builds and
+every line command works, only the alternate-screen reports unavailable).
 
 | Command | Effect |
 |---|---|
@@ -85,11 +88,11 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **25 137 lines** (src 19 770 · include 2 774 · tests 2 593).
+Current tree: **25 507 lines** (src 20 066 · include 2 848 · tests 2 593).
 
 | File | Lines | Role |
 |---|---:|---|
-| `src/tui.c` | 6880 | interactive terminal: full POSIX shell ($(()), ${}, ``, ~, if/for/while/case), chemistry lab, gas/barostat, ASCII grid (not in the record) |
+| `src/tui.c` | 6953 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
 | `src/main.c` | 4189 | the 14-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs) |
 | `src/qm.c` | 1890 | QEq, induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
@@ -101,7 +104,8 @@ Current tree: **25 137 lines** (src 19 770 · include 2 774 · tests 2 593).
 | `src/aminoacids.c` | 513 | glycine/alanine/dipeptide/polyalanine builders |
 | `src/datastream.c` | 374 | schema-1 writer, self-contained FIPS 180-4 SHA-256, seal verifier |
 | `src/periodic_table.c` | 294 | H–Kr element data, UFF ε/σ, Madelung electron configurations |
-| `src/tui_view.c` | 243 | TUI viewport/renderer |
+| `src/tui_view.c` | 297 | viewport cell model shared by the ANSI frame and the curses screen |
+| `src/tui_screen.c` | 169 | ncursesw alternate-screen monitor (optional dep, TTY-gated, piped-safe) |
 | `src/neuron.c` | 164 | Hodgkin–Huxley 1952 (squid giant axon) |
 | `src/loop.c` | 76 | bio/QC/QM loop closure: Nernst, kT scale, LJ/Coulomb from same primaries |
 | `tests/test_regression.c` | 1466 | the 165-check in-repo oracle suite |
@@ -227,13 +231,20 @@ matter (waters, Na/K/Cl ions, organic monomers) plus an HH neuron, and two
 keybind surfaces edit that same world:
 
 * `ps` — live control monitor (space run/pause, `s` step, `+/-` speed,
-  camera keys, and create/augment/adapt keys: `w` water, `i` Na⁺, `K` K⁺,
+  `ijkl` rotate, arrows strafe across the environment, and
+  create/augment/adapt keys: `w` water, `N` Na⁺, `K` K⁺,
   `C` Cl⁻, `u` base, `a` alanine, `g` glycine, `d` sugar, `H`/`L`
   heat/cool, `f` freeze, `r` replace, `p` clone, `x` delete, `m`
   minimise, `n` neuron, `e` catalysis). Piped, it prints one snapshot.
 * `vi world` — modal editor (hjkl pan, `w`/`b` select, `i` insert,
   `r` replace, `x` delete, `p` clone, `u` undo, `/` search, `:` command
   mode running any shell command against the live world).
+* `screen` — fullscreen twin of `ps` on the alternate screen (ncursesw
+  build, real terminal required): same world, same keybinds, terminfo
+  colors, resize handling, status footer. Both surfaces consume the
+  same viewport cells, so the two pictures cannot disagree. Piped,
+  dumb-`TERM`, missing-lib or failed init degrades to a typed line
+  with status 0; `S2TUI_SCREEN=0` forces line mode. Esc quits like `q`.
 
 The POSIX mapping for the rest of the world: `touch` creates matter,
 `ln` links, `ln -s` restrains, `unlink` clears, `rm atom <i>` deletes,
