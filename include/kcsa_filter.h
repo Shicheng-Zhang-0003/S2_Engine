@@ -215,4 +215,29 @@ int kcsa_site_binding(Simulation *sim, int filter_first, int n_subunits,
                       int ion_Z, Vec3 site, int n_steps,
                       double *e_inter, double *e_total);
 
+/* Flexible-filter tethers (opt-in for KcsA drift fix): anchor every
+ * C-alpha in the built filter to its deposited position with spring k.
+ * Backbone breathes around the deposited geometry instead of being
+ * frozen by construction; k=0.5 eV/A^2 gives ~0.09 A RMS at 50 K.
+ * Returns tether count or -1 on bad input. Record path does not call
+ * this (rigid stays the record). */
+int kcsa_add_calpha_tethers(Simulation *sim, int filter_first,
+                            int n_subunits, double k);
+
+/* Side-chain hydrogen completion (the blatant missing piece).
+ *
+ * The deposited table carries heavy atoms + amide H + OXT only: 26 H
+ * per subunit (104 per channel) are absent — Thr/Val methyls, Gly CH2,
+ * Tyr ring + OH, Thr OG1-H. Heavy carbons carry fudged neutralizing
+ * charges while their H LJ bulk is missing, so the walls have no
+ * steric Pauli barrier and bare OG1/O (-0.65) overbind. This appends
+ * all 26 H per subunit with ideal geometry + AMBER charges/LJ
+ * (HC +0.06, HA +0.15, HO +0.42) and re-neutralizes each residue by
+ * uniform carbon shift (exact neutrality preserved). Opt-in: record
+ * path stays 41 atoms; flexible path calls this. Returns H count
+ * (104 for tetramer) or -1. With ions + zero-strain bonds/geometric
+ * angles + tethers + Langevin, the filter HOLDS (CN 8->8); empty it
+ * collapses (CN 8->1) — the 1K4D inactivated split, not an artefact. */
+int kcsa_add_hydrogens(Simulation *sim, int filter_first, int n_subunits);
+
 #endif /* KCSA_FILTER_H */
