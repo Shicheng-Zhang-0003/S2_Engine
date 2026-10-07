@@ -37,6 +37,7 @@
 #include "../include/kcsa_filter.h"
 #include "../include/tui.h"
 #include "../include/tui_view.h"
+#include "../include/tui_screen.h"
 
 /* Diagnostics go to stderr (see sh_err below); stdout is DATA. */
 static void sh_err(const char *fmt, ...);
@@ -105,9 +106,10 @@ static void show_energy(const Tui *t) {
     printf("  atoms=%d bonds=%d angles=%d step=%llu t=%.2f fs\n",
         t->sim->num_atoms, t->sim->num_bonds, t->sim->num_angles,
         (unsigned long long)t->sim->step, t->sim->time);
-    printf("  KE=%.6f PE=%.6f E=%.6f T=%.2f K  (LJ=%.4f Coul=%.4f restr=%.4f pol=%.4f pauli=%.4f disp=%.4f)\n",
+    printf("  KE=%.6f PE=%.6f E=%.6f T=%.2f K  (LJ=%.4f Coul=%.4f bond=%.4f ang=%.4f dih=%.4f restr=%.4f pol=%.4f pauli=%.4f disp=%.4f)\n",
         t->sim->kinetic_energy, t->sim->potential_energy, t->sim->total_energy,
         t->sim->temperature, t->sim->E_lj_total, t->sim->E_coulomb_total,
+        t->sim->E_bond_total, t->sim->E_angle_total, t->sim->E_dihedral_total,
         t->sim->E_restraint_total, t->sim->E_polar_total, t->sim->E_pauli_total,
         t->sim->E_disp_total);
 }
@@ -435,7 +437,7 @@ static void print_help(void) {
     printf("      (variants: demo 6 [U|C|T|A|G], demo 7 [gc|au]; pair/duplex set dielectric 4;\n");
     printf("       helix/duplex clash-relieved; pass origins — default 0,0,0 overlaps!)\n");
     printf("  --- live controls ---\n");
-    printf("    set dt|cutoff|... | set NAME=VALUE ... (streamlined)\n");
+    printf("    set dt|cutoff|...|maxtemp|gamma | set NAME=VALUE ... (streamlined)\n");
     printf("    set box|pbc|press|tau-p|barostat (gas NPT-ish) | show energy|pressure|thermo|temp\n");
     printf("    init velocities <T> [seed] | step [N] | run <N> | heat <dE_eV> | minimize ...\n");
     printf("    neuron init|inject|step|run|show\n");
@@ -496,7 +498,7 @@ static int print_help_topic(const char *t) {
           "  spawn demo <id> [variant] [x y z] (6:[U|C|T|A|G] 7:[gc|au])" },
         { "set",
           "  set dt|cutoff|dielectric|temp|tau|nu|seed <v> (cf. stty(1): tune device)\n"
-          "  set thermostat none|berendsen|andersen\n"
+          "  set thermostat none|berendsen|andersen|langevin\n"
           "  set lj <i> <eps_eV> <sig_A> | set charge <i> <q>\n"
           "  set box <lx> <ly> <lz> | set pbc on|off|x y z\n"
           "  set press <bar> | set tau-p <fs> | set barostat on|off" },
@@ -1401,7 +1403,7 @@ static const char *sh_complete(const char *w0, int first) {
         "quit", "exit",
         ":", "eval", "exec", "command", "type", "shift", "readonly", "umask",
         "trap", "alias", "unalias", "if", "then", "else", "fi", "for", "in",
-        "while", "until", "do", "done", "case", "esac", NULL
+        "while", "until", "do", "done", "case", "esac", "screen", NULL
     };
     if (!first) return NULL; /* filenames below */
     for (int i = 0; cmds[i]; i++)
@@ -4148,12 +4150,20 @@ static int sp_pair(Tui *t, int gc, Vec3 o) {
     return 0;
 }
 
-/* Demo 11: 5-alanine helix with textbook phi/psi/omega restraints */
+/* ── Demo 11: 5-alanine helix with textbook phi/psi/omega restraints ──
+ * Mirrors the batch Demo 11 protocol: clash-relax first (no restraints),
+ * then steer, then a long gentle minimize. Skipping the first step leaves
+ * ~14 eV of strain in the live world, which NVE dynamics converts to
+ * heat until the display overflows. Berendsen 50 K + MB start matches
+ * the other demo spawners (water at 300 K, pair/duplex legs at 50 K). */
 static int sp_helix(Tui *t, Vec3 o) {
     if (!sp_room(t, 60, 80)) return 1;
     AAResidue res[8];
     int f = sim_place_polyalanine(t->sim, o, 5, res);
     if (f < 0) { sh_err("  sim full\n"); return 1; }
+    t->sim->dt = 0.5;
+    forces_calculate(t->sim);
+    integrator_minimize(t->sim, 5000, 0.001, 0.01);
     double k = 80.0 * KCAL_MOL_TO_EV;
     double dphi = (-57.0 - 180.0) * 3.14159265358979323846 / 180.0;
     double dpsi = (-47.0 - 180.0) * 3.14159265358979323846 / 180.0;
@@ -4166,7 +4176,12 @@ static int sp_helix(Tui *t, Vec3 o) {
         sim_add_dihedral(t->sim, res[i].N, res[i].CA, res[i].C, res[i + 1].N, k, 1, dpsi);
     forces_calculate(t->sim);
     /* fresh chains carry steric clashes: relieve before any dynamics */
-    integrator_minimize(t->sim, 5000, 0.005, 0.02);
+    integrator_minimize(t->sim, 200000, 0.0002, 0.0001);
+    t->sim->thermostat.type = THERMOSTAT_BERENDSEN;
+    t->sim->thermostat.target_temperature = 50.0;
+    t->sim->thermostat.tau = 100.0;
+    integrator_maxwell_boltzmann(t->sim, 50.0, t->seed);
+    forces_calculate(t->sim);
     sh_err("  helix 5-ala @%d (phi/psi restrained, clash-relieved PE=%.3f)\n", f, t->sim->potential_energy);
     return 0;
 }
@@ -4451,6 +4466,50 @@ static int live_z_from_name(const char *s) {
     return -1;
 }
 
+/* bounding radius per species for open-site placement: the clearance
+ * point must clear the whole molecule, not one atom, or edges overlap
+ * and the next step detonates. Values are generous envelopes. */
+static double live_species_radius(const char *name) {
+    if (!name) return 3.0;
+    if (!strcmp(name, "water") || !strcmp(name, "h2o")) return 1.6;
+    if (!strcmp(name, "h2")) return 1.0;
+    if (!strcmp(name, "nh3")) return 1.7;
+    if (!strcmp(name, "ch4") || !strcmp(name, "methane")) return 2.0;
+    if (!strcmp(name, "co2")) return 2.4;
+    if (!strcmp(name, "glycine") || !strcmp(name, "gly")) return 3.0;
+    if (!strcmp(name, "alanine") || !strcmp(name, "ala")) return 3.5;
+    if (!strcmp(name, "uracil") || !strcmp(name, "cytosine") ||
+        !strcmp(name, "thymine") || !strcmp(name, "adenine") ||
+        !strcmp(name, "guanine")) return 4.0;
+    if (!strcmp(name, "deoxyribose") || !strcmp(name, "sugar")) return 3.5;
+    if (!strcmp(name, "Na+") || !strcmp(name, "na") ||
+        !strcmp(name, "K+") || !strcmp(name, "k") ||
+        !strcmp(name, "Cl-") || !strcmp(name, "cl") ||
+        !strcmp(name, "Ca2+") || !strcmp(name, "ca")) return 1.0;
+    if (live_z_from_name(name) >= 1) return 1.0;
+    return 3.0;
+}
+
+/* min nonbonded new-vs-old distance for block [first, num). New atoms
+ * share no bonds with old atoms, so every cross pair counts. */
+static double live_block_gap(const Simulation *s, int first) {
+    double best = 1e30;
+    if (!s) return best;
+    for (int i = first; i < s->num_atoms; i++) {
+        for (int j = 0; j < first; j++) {
+            double d = vec3_dist(s->atoms[i].position, s->atoms[j].position);
+            if (d < best) best = d;
+        }
+    }
+    return best;
+}
+
+static void live_move_block(Simulation *s, int first, Vec3 delta) {
+    if (!s) return;
+    for (int i = first; i < s->num_atoms; i++)
+        s->atoms[i].position = vec3_add(s->atoms[i].position, delta);
+}
+
 /* add one entity (molecule, ion, or bare atom); returns atoms added */
 static int live_species_add(Tui *t, const char *name, Vec3 at) {
     Simulation *s = t->sim;
@@ -4697,11 +4756,14 @@ static int live_clone_molecule(Tui *t, int root) {
 
 static void live_status(const Tui *t, const char *title, int paused, int speed, int sel) {
     const Simulation *s = t->sim;
-    fprintf(stderr, "%s  %s  speed=%d  N=%d  step=%llu  t=%.1f fs  T=%.1f K  E=%.3f eV\n",
+    char tb[32], eb[32], tm[32];
+    view_fmt_scalar(tb, sizeof tb, s ? s->temperature : 0.0, "%.1f", "");
+    view_fmt_scalar(eb, sizeof eb, s ? s->total_energy : 0.0, "%.3f", "");
+    view_fmt_scalar(tm, sizeof tm, s ? s->time : 0.0, "%.1f", "");
+    fprintf(stderr, "%s  %s  speed=%d  N=%d  step=%llu  t=%s fs  T=%s K  E=%s eV\n",
             title, paused ? "PAUSED " : "RUNNING", speed,
             s ? s->num_atoms : 0, s ? (unsigned long long)s->step : 0ull,
-            s ? s->time : 0.0, s ? s->temperature : 0.0,
-            s ? s->total_energy : 0.0);
+            tm, tb, eb);
     if (t->has_nrn)
         fprintf(stderr, "process neuron  V=%+7.2f mV  I_ext=%+.1f  %s\n",
                 t->nrn.V, t->nrn.I_ext,
@@ -4734,14 +4796,54 @@ static void live_center_on(Tui *t, int sel) {
     }
 }
 
+/* Strafe the look-at point across the environment in the view plane:
+ * dx = +1 view-right, dy = +1 view-up, in angstroms. Anchors first:
+ * strafing from auto-fit would be invisible, so the first strafe
+ * pins the current frame center. `c` re-anchors onto an atom. */
+static void live_strafe(Tui *t, double dx, double dy) {
+    double yaw, pitch, cy, sy, cp, sp;
+    Vec3 right, up;
+    if (!t || !t->sim) return;
+    if (!t->cam.has_center) {
+        if (!view_bbox_center(t->sim, &t->cam.center)) return;
+        t->cam.has_center = 1;
+    }
+    yaw = t->cam.yaw_deg * M_PI / 180.0;
+    pitch = t->cam.pitch_deg * M_PI / 180.0;
+    cy = cos(yaw); sy = sin(yaw);
+    cp = cos(pitch); sp = sin(pitch);
+    right = vec3(cy, -sy, 0.0);
+    up = vec3(sy * cp, cy * cp, -sp);
+    if (vec3_norm(right) > 1e-12)
+        t->cam.center = vec3_add(t->cam.center, vec3_scale(right, dx));
+    if (vec3_norm(up) > 1e-12)
+        t->cam.center = vec3_add(t->cam.center, vec3_scale(up, dy));
+}
+
 static void live_add_at_cam(Tui *t, const char *species) {
     Vec3 at = live_cam_pos(t);
     int first = t->sim ? t->sim->num_atoms : -1;
     int added = live_species_add(t, species, at);
     if (added > 1 && first >= 0) live_rotate_block(t->sim, first, added);
+    /* aimed at occupied space (camera inside a molecule): slide the new
+     * block to open space rather than spawn inside matter. */
+    if (t->sim && added > 0 && first >= 0 &&
+        live_block_gap(t->sim, first) < 1.2) {
+        double need = live_species_radius(species) + 2.0;
+        Vec3 open = live_open_site(t->sim, need);
+        live_move_block(t->sim, first, vec3_sub(open, t->sim->atoms[first].position));
+        if (live_block_gap(t->sim, first) < 1.2)
+            sh_err("  crowded world; `%s` placed tight\n", species);
+    }
 }
 
 /* ── ps: live control monitor ──────────────────────────────────────── */
+
+/* Shared ps keybinds for the raw-TTY monitor and the curses screen.
+ * Returns 1 when the surface should close (q). via_screen selects the
+ * prompt path for `r` (curses leaves the alternate screen to ask). */
+static int live_key_ps(Tui *t, int *sel, int *paused, int *speed, int k,
+                       int via_screen);
 
 static int live_monitor(Tui *t) {
     int sel, paused = 0, speed = 4;
@@ -4758,70 +4860,134 @@ static int live_monitor(Tui *t) {
         view_render_to(stderr, t->sim, &t->cam, 1);
         live_status(t, "ps", paused, speed, sel);
         fprintf(stderr,
-            "keys: space run/pause  s step  +/- speed  hjkl pan  z/Z zoom  Tab sel  c center\n"
-            "      w water  i Na+  K K+  C Cl-  u base  a ala  g gly  d sugar  x del  f freeze\n"
+            "keys: space run/pause  s step  +/- speed  ijkl rotate  arrows strafe  z/Z zoom  Tab sel  c center\n"
+            "      w water  N Na+  K K+  C Cl-  u base  a ala  g gly  d sugar  x del  f freeze\n"
             "      p clone  r replace  H/L heat/cool  m minimize  n neuron  e catalysis  q quit\n");
         fflush(stderr);
         k = live_getch_poll(!paused);
         if (k < 0) continue;
-        switch (k) {
-            case 'q': goto done;
-            case ' ': paused = !paused; break;
-            case 's': live_advance(t, 1); break;
-            case '+': case '=': speed += (speed < 10 ? 1 : 10); if (speed > 200) speed = 200; break;
-            case '-': speed -= (speed < 11 ? 1 : 10); if (speed < 1) speed = 1; break;
-            case 'h': case LIVE_KEY_LEFT:  t->cam.yaw_deg += 8.0; break;
-            case 'l': case LIVE_KEY_RIGHT: t->cam.yaw_deg -= 8.0; break;
-            case 'j': case LIVE_KEY_DOWN:  t->cam.pitch_deg -= 5.0; break;
-            case 'k': case LIVE_KEY_UP:    t->cam.pitch_deg += 5.0; break;
-            case 'z': t->cam.zoom *= 0.85; if (t->cam.zoom < 0.1) t->cam.zoom = 0.1; break;
-            case 'Z': t->cam.zoom *= 1.15; if (t->cam.zoom > 20.0) t->cam.zoom = 20.0; break;
-            case '\t': sel = live_pick_next(t->sim, sel, 1); break;
-            case 'c': live_center_on(t, sel); break;
-            case 'w': live_add_at_cam(t, "water"); break;
-            case 'i': live_add_at_cam(t, "Na+"); break;
-            case 'K': live_add_at_cam(t, "K+"); break;
-            case 'C': live_add_at_cam(t, "Cl-"); break;
-            case 'u': live_add_at_cam(t, "uracil"); break;
-            case 'a': live_add_at_cam(t, "alanine"); break;
-            case 'g': live_add_at_cam(t, "glycine"); break;
-            case 'd': live_add_at_cam(t, "deoxyribose"); break;
-            case 'x':
-                if (sel >= 0 && sim_remove_terminal_atom(t->sim, sel))
-                    sel = live_pick_next(t->sim, sel, 1);
-                break;
-            case 'f': live_freeze_toggle(t, sel); break;
-            case 'p': if (sel >= 0) live_clone_molecule(t, sel); break;
-            case 'r': {
-                char *line = tui_readline("replace with: ");
-                if (line) {
-                    int Z = live_z_from_name(line);
-                    if (Z >= 1 && sel >= 0) live_transmute(t, sel, Z);
-                    free(line);
-                }
-                break;
-            }
-            case 'H': live_heat(t, +5.0); break;
-            case 'L': live_heat(t, -5.0); break;
-            case 'm': if (t->sim) integrator_minimize(t->sim, 300, 0.005, 0.05); break;
-            case 'n': hh_init(&t->nrn); t->has_nrn = 1; break;
-            case 'e':
-                if (!rxn.defined) {
-                    rxn.Z1 = 6; rxn.Z2 = 8; rxn.rcut = 1.6;
-                    rxn.dobreak = 0; rxn.make_order = 1;
-                    rxn.delrole = 0; rxn.setq = 0; rxn.q1 = rxn.q2 = 0.0;
-                    rxn.defined = 1;
-                    snprintf(rxn.name, sizeof rxn.name, "C-O proximity");
-                }
-                t->rxn_armed = !t->rxn_armed;
-                if (t->rxn_armed && t->rxn_every <= 0) t->rxn_every = 50;
-                break;
-            default: break;
-        }
+        if (live_key_ps(t, &sel, &paused, &speed, k, 0)) goto done;
     }
 done:
     live_raw_off();
     fprintf(stderr, "\x1b[0m");
+    return 0;
+}
+
+/* Fullscreen twin of the monitor: same world, same keybinds, curses
+ * alternate screen with resize, colors and a status footer instead of
+ * the scrolling ANSI frames. Piped/dumb/missing-curses degrades to a
+ * typed line (status 0): a screen needs a human and a terminal. */
+static int live_screen(Tui *t) {
+    int sel, paused = 0, speed = 4;
+    char help1[128], help2[160], status[160];
+    if (!t->sim) { sh_err("  screen: no world (try `dd if=petri of=world`)\n"); return 1; }
+    if (!screen_available()) {
+        sh_err("  screen: needs a real terminal (TTY + TERM, ncursesw build); piped here\n");
+        return 0;
+    }
+    if (screen_init() != 0) {
+        sh_err("  screen: cannot open the alternate screen; staying in line mode\n");
+        return 0;
+    }
+    screen_help(help1, sizeof help1, help2, sizeof help2);
+    sel = t->sim->num_atoms > 0 ? 0 : -1;
+    for (;;) {
+        int k, cols, rows;
+        ViewCells *vc;
+        char tb[32], eb[32], tm[32];
+        if (!paused) live_advance(t, speed);
+        screen_size(&cols, &rows);
+        vc = view_compute(t->sim, &t->cam, cols, rows + 2);
+        view_fmt_scalar(tb, sizeof tb, t->sim->temperature, "%.1f", "");
+        view_fmt_scalar(eb, sizeof eb, t->sim->potential_energy, "%.3f", "");
+        view_fmt_scalar(tm, sizeof tm, t->sim->time, "%.1f", "");
+        snprintf(status, sizeof status, "screen %s speed=%d N=%d step=%llu t=%s fs T=%s K E=%s eV sel=%d",
+                 paused ? "PAUSED " : "RUNNING", speed, t->sim->num_atoms,
+                 (unsigned long long)t->sim->step, tm, tb, eb, sel);
+        screen_draw(vc, status, help1, help2, sel);
+        view_cells_free(vc);
+        k = screen_getch(paused ? -1 : 120);
+        if (k == -1) continue;   /* frame tick */
+        if (k == -3) continue;   /* resize: next draw refits */
+        if (k == -2) break;      /* backend lost */
+        if (k == 27) break;      /* Esc quits like q */
+        if (live_key_ps(t, &sel, &paused, &speed, k, 1)) break;
+    }
+    screen_shutdown();
+    return 0;
+}
+
+static int live_key_ps(Tui *t, int *sel, int *paused, int *speed, int k,
+                       int via_screen) {
+    switch (k) {
+        case 'q': return 1;
+        case ' ': *paused = !*paused; break;
+        case 's': live_advance(t, 1); break;
+        case '+': case '=': *speed += (*speed < 10 ? 1 : 10); if (*speed > 200) *speed = 200; break;
+        case '-': *speed -= (*speed < 11 ? 1 : 10); if (*speed < 1) *speed = 1; break;
+        /* ijkl rotates the camera (yaw/perspective); arrows strafe it
+         * across the environment. vi keeps hjkl (vim standard). */
+        case 'j': t->cam.yaw_deg += 8.0; break;
+        case 'l': t->cam.yaw_deg -= 8.0; break;
+        case 'k': t->cam.pitch_deg -= 5.0; break;
+        case 'i': t->cam.pitch_deg += 5.0; break;
+        case LIVE_KEY_LEFT:  live_strafe(t, -2.0, 0.0); break;
+        case LIVE_KEY_RIGHT: live_strafe(t, +2.0, 0.0); break;
+        case LIVE_KEY_UP:    live_strafe(t, 0.0, +2.0); break;
+        case LIVE_KEY_DOWN:  live_strafe(t, 0.0, -2.0); break;
+        case 'z': t->cam.zoom *= 0.85; if (t->cam.zoom < 0.1) t->cam.zoom = 0.1; break;
+        case 'Z': t->cam.zoom *= 1.15; if (t->cam.zoom > 20.0) t->cam.zoom = 20.0; break;
+        case '\t': *sel = live_pick_next(t->sim, *sel, 1); break;
+        case 'c': live_center_on(t, *sel); break;
+        case 'w': live_add_at_cam(t, "water"); break;
+        case 'N': live_add_at_cam(t, "Na+"); break;
+        case 'K': live_add_at_cam(t, "K+"); break;
+        case 'C': live_add_at_cam(t, "Cl-"); break;
+        case 'u': live_add_at_cam(t, "uracil"); break;
+        case 'a': live_add_at_cam(t, "alanine"); break;
+        case 'g': live_add_at_cam(t, "glycine"); break;
+        case 'd': live_add_at_cam(t, "deoxyribose"); break;
+        case 'x':
+            if (*sel >= 0 && sim_remove_terminal_atom(t->sim, *sel))
+                *sel = live_pick_next(t->sim, *sel, 1);
+            break;
+        case 'f': live_freeze_toggle(t, *sel); break;
+        case 'p': if (*sel >= 0) live_clone_molecule(t, *sel); break;
+        case 'r': {
+            if (via_screen) {
+                char buf[64];
+                if (screen_prompt("replace with: ", buf, sizeof buf) == 0) {
+                    int Z = live_z_from_name(buf);
+                    if (Z >= 1 && *sel >= 0) live_transmute(t, *sel, Z);
+                }
+            } else {
+                char *line = tui_readline("replace with: ");
+                if (line) {
+                    int Z = live_z_from_name(line);
+                    if (Z >= 1 && *sel >= 0) live_transmute(t, *sel, Z);
+                    free(line);
+                }
+            }
+            break;
+        }
+        case 'H': live_heat(t, +5.0); break;
+        case 'L': live_heat(t, -5.0); break;
+        case 'm': if (t->sim) integrator_minimize(t->sim, 300, 0.005, 0.05); break;
+        case 'n': hh_init(&t->nrn); t->has_nrn = 1; break;
+        case 'e':
+            if (!rxn.defined) {
+                rxn.Z1 = 6; rxn.Z2 = 8; rxn.rcut = 1.6;
+                rxn.dobreak = 0; rxn.make_order = 1;
+                rxn.delrole = 0; rxn.setq = 0; rxn.q1 = rxn.q2 = 0.0;
+                rxn.defined = 1;
+                snprintf(rxn.name, sizeof rxn.name, "C-O proximity");
+            }
+            t->rxn_armed = !t->rxn_armed;
+            if (t->rxn_armed && t->rxn_every <= 0) t->rxn_every = 50;
+            break;
+        default: break;
+    }
     return 0;
 }
 
@@ -5271,9 +5437,12 @@ static int cmd_kill(Tui *t, char **a, int n) {
         return 1;
     }
     if (is_world) {                                                      /* TERM world */
-        if (t->sim) { sim_destroy(t->sim); t->sim = NULL; }
+        /* Reset to a fresh empty world rather than NULL: every viewer
+         * and mutator assumes a live sim, and a NULL world turned the
+         * next `ls` into a segfault. `dd`/`new`/`env -i` build from here. */
+        tui_new(t, 512, 512);
         t->has_nrn = 0;
-        sh_err("  kill: world terminated\n");
+        sh_err("  kill: world terminated (fresh empty world)\n");
         return 0;
     }
     if (atom == -3) { t->has_nrn = 0; return 0; }
@@ -5343,7 +5512,9 @@ static int world_set_param(Tui *t, const char *name, const char *val) {
     else if (!strcmp(name, "thermostat"))
         t->sim->thermostat.type = !strcmp(val, "andersen") ? THERMOSTAT_ANDERSEN
                                 : !strcmp(val, "berendsen") ? THERMOSTAT_BERENDSEN
+                                : !strcmp(val, "langevin") ? THERMOSTAT_LANGEVIN
                                 : THERMOSTAT_NONE;
+    else if (!strcmp(name, "maxtemp") && parse_double(val, &d)) t->sim->max_temperature = d;
     else if (!strcmp(name, "tau") && parse_double(val, &d)) t->sim->thermostat.tau = d;
     else if (!strcmp(name, "nu") && parse_double(val, &d)) t->sim->thermostat.nu = d;
     else if (!strcmp(name, "seed")) parse_ulong(val, &t->seed);
@@ -5382,7 +5553,8 @@ static void man_index(void) {
     printf("           fsck                   kill [-SIG] <target> du\n");
     printf("TIME       sleep <steps>[fs]      sleep <sec>s         df\n");
     printf("PROCESSES  ps [-l]                 nice                 make <file.rxn> [-n]\n");
-    printf("LIVE       vi world                ps\n");
+    printf("           screen                 fullscreen twin of ps (alternate screen, resize)\n");
+    printf("LIVE       vi world                ps                   screen\n");
     printf("SHELL      export NAME=value       env                  set NAME=VALUE\n");
     printf("           : eval exec command type shift set-- readonly umask trap alias\n");
     printf("           if/for/while/until/case { } ( ) ! ~ $(( )) ${} `` $# $@\n");
@@ -5397,7 +5569,7 @@ static void man_index(void) {
 
 static int man_page(const char *topic) {
     if (!strcmp(topic, "touch")) {
-        printf("TOUCH(1)\ntouch <species> [x y z] [xN|:N|count=N]  create matter (N copies +2A x).\n  molecules (water, nh3, ch4, co2, glycine, ...), ions, elements, composites.\n  touch -- <file>..  explicit file stamp (no matter). touch -m <sp> explicit matter.\n");
+        printf("TOUCH(1)\ntouch <species> [x y z] [xN|:N|count=N]  create matter (open site\n  each copy, 3 A clearance, randomly oriented; explicit xyz honored\n  verbatim). molecules (water, nh3, ch4, co2, glycine, ...), ions,\n  elements by symbol or number 1..36, composites.\n  touch -- <file>..  explicit file stamp (no matter). touch -m <sp> explicit matter.\n");
         return 0;
     }
     if (!strcmp(topic, "rm")) {
@@ -5454,6 +5626,10 @@ static int man_page(const char *topic) {
     }
     if (!strcmp(topic, "ps")) {
         printf("PS(1)\nps        on a terminal: the live control monitor. Single keys create\n  (w water, i Na+, K K+, C Cl-, u base, a alanine, g glycine, d sugar),\n  augment (H/L heat/cool, f freeze, r replace, p clone, x delete,\n  m minimise) and adapt processes (n neuron, e catalysis). Piped, `ps`\n  prints one snapshot instead of taking the screen.\nps -l     process table (world, neuron, reaction rule).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "screen")) {
+        printf("SCREEN(1)\nscreen   fullscreen twin of `ps`: same world, same keybinds, on the\n  alternate screen with terminfo colors and resize (ncursesw build).\n  Needs a real terminal; piped, dumb, missing-lib or failed init prints\n  why and returns 0. Esc quits like q. S2TUI_SCREEN=0 forces line mode.\n");
         return 0;
     }
     if (!strcmp(topic, "vi")) {
@@ -5664,6 +5840,12 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
         else if (!strcmp(tok[0], "ps")) {
             return cmd_ps(t, tok + 1, nt - 1);
         }
+        else if (!strcmp(tok[0], "screen")) {
+            /* GNU screen(1) name, S2 operand: fullscreen twin of `ps`
+             * (same world, same keybinds, alternate screen + resize).
+             * Piped/dumb/missing-curses prints why and returns 0. */
+            return live_screen(t);
+        }
         else if (!strcmp(tok[0], "vi")) {
             return cmd_vi(t, tok + 1, nt - 1);
         }
@@ -5729,8 +5911,13 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
             return cmd_make(t, tok + 1, nt - 1);
         }
         else if (!strcmp(tok[0], "addsp")) {
-            /* streamlined counts: addsp water [x y z] [xN|:N|count=N] */
-            double x = 0, y = 0, z = 0;
+            /* streamlined counts: addsp SPEC [x y z] [xN|:N|count=N].
+             * No explicit xyz: one open site per copy (3 A clearance),
+             * randomly oriented. Stacking copies at the origin detonates
+             * the LJ core on the next step and prints absurd temperatures,
+             * so the origin is only used when explicitly asked for.
+             * Explicit xyz is honored verbatim (your coordinates, your
+             * clash). Single atoms need no rotation; molecules get one. */
             int count = 1, cidx = -1;
             /* scan trailing token for count forms */
             for (int i = 1; i < nt; i++) {
@@ -5746,6 +5933,7 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
                 }
             }
             /* origin = first three numbers after species, skipping count token */
+            double x = 0, y = 0, z = 0;
             int nums = 0;
             for (int i = 2; i < nt && nums < 3; i++) {
                 if (i == cidx) continue;
@@ -5754,10 +5942,38 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
                 if (nums == 0) x = v; else if (nums == 1) y = v; else z = v;
                 nums++;
             }
+            int explicit_xyz = (nums == 3);
+            if (nums > 0 && nums != 3) {
+                sh_err("  usage: touch <species> [x y z] [xN|:N|count=N]\n");
+                return 2;
+            }
+            /* clearance covers the whole molecule, not one atom */
+            double need = live_species_radius(tok[1]) + 2.0;
             int fails = 0;
             for (int k = 0; k < count; k++) {
-                Vec3 at = vec3(x + 2.0 * k, y, z);
-                if (live_species_add(t, tok[1], at) <= 0) fails++;
+                Vec3 at = (explicit_xyz || !t->sim) ? vec3(x, y, z)
+                                       : live_open_site(t->sim, need);
+                int first = t->sim ? t->sim->num_atoms : 0;
+                int added = live_species_add(t, tok[1], at);
+                if (added <= 0) { fails++; continue; }
+                /* stacked spawns (demo on demo) overlap wholesale: verify
+                 * the gap and relocate the block once to open space rather
+                 * than detonate on the next step. Explicit xyz that clashes
+                 * warns but stays verbatim — your coordinates, your clash. */
+                if (live_block_gap(t->sim, first) < 1.2) {
+                    if (explicit_xyz) {
+                        sh_err("  warning: `%s` overlaps the world; expect heat\n", tok[1]);
+                    } else {
+                        Vec3 open = live_open_site(t->sim, need);
+                        Vec3 ref = t->sim->atoms[first].position;
+                        live_move_block(t->sim, first, vec3_sub(open, ref));
+                        if (live_block_gap(t->sim, first) < 1.2)
+                            sh_err("  warning: crowded world; `%s` placed tight\n", tok[1]);
+                        else live_rotate_block(t->sim, first, added);
+                    }
+                } else if (!explicit_xyz && added > 1) {
+                    live_rotate_block(t->sim, first, added);
+                }
             }
             return fails ? 1 : 0;
         }
@@ -6011,7 +6227,8 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
             if (!strcmp(tok[2], "none")) t->sim->thermostat.type = THERMOSTAT_NONE;
             else if (!strcmp(tok[2], "berendsen")) t->sim->thermostat.type = THERMOSTAT_BERENDSEN;
             else if (!strcmp(tok[2], "andersen")) t->sim->thermostat.type = THERMOSTAT_ANDERSEN;
-            else { sh_err("  thermostat none|berendsen|andersen\n"); return 1; }
+            else if (!strcmp(tok[2], "langevin")) t->sim->thermostat.type = THERMOSTAT_LANGEVIN;
+            else { sh_err("  thermostat none|berendsen|andersen|langevin\n"); return 1; }
             sh_err("  thermostat set\n");
         }
         else if (!strcmp(tok[0], "set") && !strcmp(tok[1], "box") && nt >= 5) {
@@ -6090,6 +6307,8 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
             else if (!strcmp(tok[1], "temp")) { t->sim->thermostat.target_temperature = v; sh_err("  T target %.1fK\n", v); return 0; }
             else if (!strcmp(tok[1], "tau")) t->sim->thermostat.tau = v;
             else if (!strcmp(tok[1], "nu")) t->sim->thermostat.nu = v;
+            else if (!strcmp(tok[1], "gamma")) t->sim->thermostat.gamma = v;
+            else if (!strcmp(tok[1], "maxtemp")) t->sim->max_temperature = v;
             else if (!strcmp(tok[1], "seed")) t->seed = (unsigned long)v;
             else { sh_err("  unknown set `%s`\n", tok[1]); return 1; }
             sh_err("  set %s=%.6g\n", tok[1], v);
