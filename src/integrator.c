@@ -89,6 +89,8 @@ void integrator_step(Simulation *sim) {
         integrator_berendsen(sim);
     else if (sim->thermostat.type == THERMOSTAT_ANDERSEN)
         integrator_andersen(sim);
+    else if (sim->thermostat.type == THERMOSTAT_LANGEVIN)
+        integrator_langevin(sim);
 
     /* 5. Update thermodynamics */
     sim->kinetic_energy = integrator_kinetic_energy(sim);
@@ -389,6 +391,44 @@ void integrator_andersen(Simulation *sim) {
         kicked = 1;
     }
     if (kicked) integrator_remove_com_velocity(sim);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Langevin thermostat (opt-in production NVT for duplex/filter legs).
+ *
+ * v += -gamma*v*dt + sqrt(2*gamma*kT/m)*sqrt(dt)*N(0,1) per component
+ * (Euler-Maruyama on top of Verlet velocities; friction gamma in 1/fs,
+ * default 1/tau if gamma<=0). Rigorously canonical like Andersen but
+ * gentle (no full-velocity resets): preserves duplex H-bond lifetimes
+ * and filter knock-on kinetics that Andersen collisions randomize.
+ * gamma=0 reduces to NVE. Deterministic given sim RNG stream.
+ * ══════════════════════════════════════════════════════════════════════════ */
+void integrator_langevin(Simulation *sim) {
+    if (!sim || !sim->atoms || sim->num_atoms < 1) return;
+    double T0 = sim->thermostat.target_temperature;
+    double dt = sim->dt;
+    double gam = sim->thermostat.gamma;
+    if (!(gam > 0.0) || !isfinite(gam)) {
+        if (!(sim->thermostat.tau > 1e-12) || !isfinite(sim->thermostat.tau)) return;
+        gam = 1.0 / sim->thermostat.tau;
+    }
+    if (!isfinite(T0) || T0 < 0.0 || !isfinite(dt) || dt <= 0.0) return;
+    if (!(gam > 0.0) || !isfinite(gam)) return;
+    double c1 = exp(-gam * dt);
+    for (int i = 0; i < sim->num_atoms; i++) {
+        Atom *a = &sim->atoms[i];
+        if (!(a->mass > 1e-12) || !isfinite(a->mass)) continue;
+        double sigma_v = sqrt(KB_EV * T0 / (a->mass * AMU_AFS2_TO_EV));
+        if (!isfinite(sigma_v)) continue;
+        double c2 = sigma_v * sqrt(1.0 - c1 * c1);
+        if (!isfinite(c2)) continue;
+        a->velocity.x = c1 * a->velocity.x + c2 * rand_normal(sim);
+        a->velocity.y = c1 * a->velocity.y + c2 * rand_normal(sim);
+        a->velocity.z = c1 * a->velocity.z + c2 * rand_normal(sim);
+        if (!isfinite(a->velocity.x + a->velocity.y + a->velocity.z)) {
+            a->velocity = vec3_zero();
+        }
+    }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
