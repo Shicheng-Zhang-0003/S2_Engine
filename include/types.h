@@ -315,12 +315,21 @@ typedef struct {
     double   E_lj_total;        /* eV - LJ component of potential_energy     */
     double   E_coulomb_total;   /* eV - Coulomb component                    */
     double   E_restraint_total; /* eV - harmonic-restraint component (below) */
+    double   E_bond_total;    /* eV - harmonic bond-stretch component          */
+    double   E_angle_total;   /* eV - harmonic angle-bend component            */
+    double   E_dihedral_total;/* eV - dihedral-torsion component               */
     double   E_polar_total;     /* eV - induced-dipole polarization (qm v2)  */
     double   E_pauli_total;     /* eV - overlap Pauli repulsion (qm v2)      */
     double   E_disp_total;      /* eV - QM Slater-Kirkwood dispersion (v3)   */
     int      num_constrained_dof; /* further removed DOF beyond the COM -3
-                                   * (frozen atoms, stiff restraints, linear
-                                   * molecules - see integrator.h). 0 default.*/
+                                    * (frozen atoms, stiff restraints, linear
+                                    * molecules - see integrator.h). 0 default.*/
+    double   max_temperature;   /* K: diagnostic velocity cap for telling heat
+                                 * artefacts apart from real dynamics. When >0
+                                 * and instantaneous T exceeds it, velocities
+                                 * are scaled to exactly the cap. Default 2000
+                                 * (no demo runs near it; <=0 disables). Not
+                                 * persisted by save/load: session diagnostic. */
 
     /* Force field */
     double         cutoff;      /* non-bonded cutoff, Å                      */

@@ -62,6 +62,9 @@ Simulation *sim_create(int atom_capacity, int bond_capacity) {
     sim->capacity_dihedrals = dihedral_cap;
     sim->capacity_restraints = restraint_cap;
 
+    /* Diagnostics */
+    sim->max_temperature = 2000.0; /* K: heat-vs-real diagnostic cap */
+
     /* Defaults */
     sim->dt      = 1.0;     /* 1 fs timestep                                */
     sim->cutoff  = 12.0;    /* 12 Å non-bonded cutoff                       */
@@ -784,6 +787,7 @@ int sim_place_co2(Simulation *sim, Vec3 origin) {
  * Diagnostics
  * ══════════════════════════════════════════════════════════════════════════ */
 void sim_print_atoms(const Simulation *sim) {
+    if (!sim) { printf("  (no simulation)\n"); return; }
     printf("  %-4s %-4s  %-22s  %-22s  %-8s  %-8s\n",
            "idx","sym","Position (Å)","Velocity (Å/fs)","q(e)","mass(AMU)");
     printf("  %s\n",
@@ -801,6 +805,7 @@ void sim_print_atoms(const Simulation *sim) {
 }
 
 void sim_print_bonds(const Simulation *sim) {
+    if (!sim) { printf("  (no simulation)\n"); return; }
     printf("  %-6s %-4s %-4s %-5s %-8s %-8s %-10s\n",
            "bond","a","b","order","r0(Å)","r(Å)","E(eV)");
     printf("  %s\n","─────────────────────────────────────────────────");
@@ -815,6 +820,7 @@ void sim_print_bonds(const Simulation *sim) {
 }
 
 void sim_print_angles(const Simulation *sim) {
+    if (!sim) { printf("  (no simulation)\n"); return; }
     printf("  %-6s %-4s %-4s %-4s %-10s %-10s\n",
            "angle","a","b","c","θ0(deg)","k(eV/rad²)");
     printf("  %s\n","────────────────────────────────────────────────");
@@ -828,6 +834,7 @@ void sim_print_angles(const Simulation *sim) {
 }
 
 void sim_print_summary(const Simulation *sim) {
+    if (!sim) { printf("  (no simulation)\n"); return; }
     printf("\n════════════════════════════════════════════════════════\n");
     printf("  Simulation summary\n");
     printf("  Atoms: %d  Bonds: %d  Angles: %d\n",

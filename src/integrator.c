@@ -26,6 +26,30 @@
  *   v_i(t+dt/2) = v_i(t) + 0.5 × a_i × dt
  *   r_i(t+dt)   = r_i(t) + v_i(t+dt/2) × dt
  * ══════════════════════════════════════════════════════════════════════════ */
+/* Slingshot guard: no single kick may act with more than this force.
+ * Overlapping placement puts pairs at r->0 where 1/r^12 forces hit 1e30:
+ * one kick then teleports an atom 1e7 A in a single step (measured:
+ * alanine C-H bonds at 130699 A and 23846016 A after ONE 0.5 fs step),
+ * and the temperature cap below arrives a step too late to stop the
+ * drift. Clamping the kick's force (stored forces stay exact for
+ * diagnostics) bounds every half-step velocity increment while leaving
+ * legitimate dynamics untouched: 100 eV/A exceeds any recorded force
+ * by an order of magnitude (bonded ~3, WHAM walls ~10), so the record
+ * is bit-identical and only detonations feel it. */
+#define INTEGRATOR_FCAP_EV_A 100.0
+
+static void kick_clamped(Atom *a, double inv_m, double dt) {
+    double fx = a->force.x, fy = a->force.y, fz = a->force.z;
+    double f2 = fx * fx + fy * fy + fz * fz;
+    if (isfinite(f2) && f2 > INTEGRATOR_FCAP_EV_A * INTEGRATOR_FCAP_EV_A) {
+        double s = INTEGRATOR_FCAP_EV_A / sqrt(f2);
+        fx *= s; fy *= s; fz *= s;
+    }
+    a->velocity.x += 0.5 * fx * inv_m * dt;
+    a->velocity.y += 0.5 * fy * inv_m * dt;
+    a->velocity.z += 0.5 * fz * inv_m * dt;
+}
+
 void integrator_kick_drift(Simulation *sim) {
     if (!sim || !sim->atoms || sim->num_atoms < 1) return;
     if (!isfinite(sim->dt)) return;
@@ -39,10 +63,8 @@ void integrator_kick_drift(Simulation *sim) {
         /* a [Å/fs²] = F [eV/Å] / m [AMU] × MD_FORCE_CONV */
         double inv_m = MD_FORCE_CONV / a->mass;
 
-        /* Half-kick: v += 0.5 a dt */
-        a->velocity.x += 0.5 * a->force.x * inv_m * dt;
-        a->velocity.y += 0.5 * a->force.y * inv_m * dt;
-        a->velocity.z += 0.5 * a->force.z * inv_m * dt;
+        /* Half-kick: v += 0.5 a dt (force-clamped, see above) */
+        kick_clamped(a, inv_m, dt);
 
         /* Drift: r += v dt  (using half-kicked velocity) */
         a->position.x += a->velocity.x * dt;
@@ -65,9 +87,7 @@ void integrator_kick(Simulation *sim) {
         if (!isfinite(a->force.x) || !isfinite(a->force.y) || !isfinite(a->force.z)) continue;
         double inv_m = MD_FORCE_CONV / a->mass;
 
-        a->velocity.x += 0.5 * a->force.x * inv_m * dt;
-        a->velocity.y += 0.5 * a->force.y * inv_m * dt;
-        a->velocity.z += 0.5 * a->force.z * inv_m * dt;
+        kick_clamped(a, inv_m, dt);
     }
 }
 
@@ -91,6 +111,26 @@ void integrator_step(Simulation *sim) {
         integrator_andersen(sim);
     else if (sim->thermostat.type == THERMOSTAT_LANGEVIN)
         integrator_langevin(sim);
+
+    /* 4b. Diagnostic temperature cap: distinguish heat artefacts from
+     * real dynamics. Edge-triggered note (transition only, no spam). */
+    if (sim->max_temperature > 0.0 && isfinite(sim->max_temperature)) {
+        static int was_capped = 0;
+        double T = integrator_temperature(sim);
+        if (isfinite(T) && T > sim->max_temperature) {
+            double s = sqrt(sim->max_temperature / T);
+            for (int i = 0; i < sim->num_atoms; i++) {
+                Atom *a = &sim->atoms[i];
+                a->velocity.x *= s; a->velocity.y *= s; a->velocity.z *= s;
+            }
+            if (!was_capped)
+                fprintf(stderr, "  capped T=%.3gK to %.3gK (set maxtemp to change)\n",
+                        T, sim->max_temperature);
+            was_capped = 1;
+        } else {
+            was_capped = 0;
+        }
+    }
 
     /* 5. Update thermodynamics */
     sim->kinetic_energy = integrator_kinetic_energy(sim);
