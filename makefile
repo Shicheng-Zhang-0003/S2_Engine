@@ -40,15 +40,15 @@ TUI_OBJS = $(ENG_OBJS) $(OBJ_DIR)/tui.o $(OBJ_DIR)/tui_view.o
 DEPS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.d, $(SRCS))
 
 .PHONY: all clean run selftest selftest-forces selftest-fire selftest-regression \
-        selftest-external test deps audit audit-revert tui
+        selftest-external selftest-loop test deps audit audit-revert tui
 
 # One command builds every executable: the batch record binary, the live
-# TUI, and all five test binaries — `make` / `make -j$(nproc)` is enough,
+# TUI, and all six test binaries — `make` / `make -j$(nproc)` is enough,
 # no separate `make tui` / `make selftest-*` runs needed. The selftest-*
 # targets below remain as aliases (verify_scripts.sh calls them).
 TEST_BINS = $(OBJ_DIR)/test_datastream $(OBJ_DIR)/test_forces \
             $(OBJ_DIR)/test_fire $(OBJ_DIR)/test_regression \
-            $(OBJ_DIR)/test_external
+            $(OBJ_DIR)/test_external $(OBJ_DIR)/test_loop
 
 all: $(OBJ_DIR) $(BIN) $(TUI_BIN) $(TEST_BINS)
 
@@ -134,6 +134,18 @@ $(OBJ_DIR)/test_external: $(OBJ_DIR) $(OBJ_DIR)/test_external.o $(ENG_OBJS)
 $(OBJ_DIR)/test_external.o: $(TEST_DIR)/test_external.c
 	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
 
+# loop-closure suite: bio/QC/QM consistency from SAME primaries.
+# Nernst reversals, 1000:1 selectivity scale, Marcus/Shannon/LJ/Coulomb
+# identities, fail-closed NaN, explicit abstraction inventory. Not part of
+# the batch record; proves the three tracks share one physics.
+selftest-loop: $(OBJ_DIR)/test_loop
+
+$(OBJ_DIR)/test_loop: $(OBJ_DIR) $(OBJ_DIR)/test_loop.o $(ENG_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_loop.o $(ENG_OBJS) -lm
+
+$(OBJ_DIR)/test_loop.o: $(TEST_DIR)/test_loop.c
+	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
+
 # Run every gate. `make test` is what CI should invoke.
 # AUDIT FIX M5: the regression line used to be
 #     @./build/test_regression | tail -3
@@ -143,13 +155,21 @@ $(OBJ_DIR)/test_external.o: $(TEST_DIR)/test_external.c
 # The log is now written to a file so the binary's own exit status reaches
 # make unmasked, and the FAIL lines are grepped as well so the gate fails even
 # if a future change to the suite decouples its exit code from its verdicts.
-test: selftest selftest-forces selftest-fire selftest-regression selftest-external
+test: selftest selftest-forces selftest-fire selftest-regression selftest-external selftest-loop
 	@./$(OBJ_DIR)/test_datastream   > $(OBJ_DIR)/datastream.log 2>&1; \
 	  dc=$$?; if [ $$dc -ne 0 ]; then echo "  datastream   FAILED (rc=$$dc)"; cat $(OBJ_DIR)/datastream.log; exit 1; else echo "  datastream   OK"; fi
 	@./$(OBJ_DIR)/test_forces      > $(OBJ_DIR)/forces.log 2>&1; \
 	  fc=$$?; if [ $$fc -ne 0 ]; then echo "  forces       FAILED (rc=$$fc)"; cat $(OBJ_DIR)/forces.log; exit 1; else echo "  forces       OK"; fi
 	@./$(OBJ_DIR)/test_fire        > $(OBJ_DIR)/fire.log 2>&1; \
 	  fic=$$?; if [ $$fic -ne 0 ]; then echo "  fire         FAILED (rc=$$fic)"; cat $(OBJ_DIR)/fire.log; exit 1; else echo "  fire         OK"; fi
+	@./$(OBJ_DIR)/test_loop        > $(OBJ_DIR)/loop.log 2>&1; \
+	  lc=$$?; tail -3 $(OBJ_DIR)/loop.log; \
+	  if [ $$lc -ne 0 ] || grep -q '^  FAIL' $(OBJ_DIR)/loop.log; then \
+	    echo "  loop         FAILED (rc=$$lc)"; grep '^  FAIL' $(OBJ_DIR)/loop.log | head -20; \
+	    exit 1; \
+	  else \
+	    echo "  loop         OK ($$(grep -c '^  PASS' $(OBJ_DIR)/loop.log) consistency checks)"; \
+	  fi
 	@./$(OBJ_DIR)/test_external    > $(OBJ_DIR)/external.log 2>&1; \
 	  ex=$$?; tail -3 $(OBJ_DIR)/external.log; \
 	  if [ $$ex -ne 0 ] || grep -q '^  FAIL' $(OBJ_DIR)/external.log; then \

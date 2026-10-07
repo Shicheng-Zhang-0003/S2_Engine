@@ -19,6 +19,7 @@ mkdir -p "$AUDIT_TMP" 2>/dev/null || AUDIT_TMP="/tmp"
 VERIFY_BUILD_LOG="$AUDIT_TMP/verify_build.log"
 VERIFY_REG_LOG="$AUDIT_TMP/verify_regression.log"
 VERIFY_EXT_LOG="$AUDIT_TMP/verify_external.log"
+VERIFY_LOOP_LOG="$AUDIT_TMP/verify_loop.log"
 # AUDIT FIX M4. The old helper was:
 #
 #     ok(){ printf '  %-58s %s\n' "$1" "$2"; }
@@ -75,6 +76,9 @@ at_least "relaxed coordination leg"          "$(grep -Fc 'rel_cn_k'          src
 at_least "Thole damping"                     "$(grep -Fci 'thole'            src/qm.c)" 3
 at_least "explicit hydration legs"           "$(grep -Fc 'hyd_k'            src/main.c)" 3
 at_least "WHAM free energy"                  "$(grep -Fc 'WHAM'             src/main.c)" 2
+at_least "loop bridge Nernst"                "$(cat src/loop.c tests/test_loop.c | grep -Fc 'loop_nernst_mV')" 3
+at_least "loop selectivity scale"            "$(cat src/loop.c tests/test_loop.c | grep -Fc 'loop_selectivity_scale_eV')" 2
+at_least "loop abstraction inventory"        "$(grep -Fc 'LOOP_ABSTRACTIONS' src/loop.c)" 1
 
 echo; echo "=== datastream ==="
 # Full-audit P19: gate the test-binary builds. Previously `make selftest*`
@@ -111,6 +115,15 @@ printf '  ---- audit regression suite: %s checks passed, %s failed ----\n' "$RT_
 chk "selftest-external green" "0" "$ET"
 printf '  ---- external sources: %s checks passed, %s failed ----\n' "$ET_PASS" "$ET_FAIL"
 [ "$ET_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_EXT_LOG" | head -20
+# Loop-closure suite: bio/QC/QM share one physics (Nernst, kT scale,
+# Marcus/Shannon/LJ/Coulomb, explicit abstraction list). Must fail closed.
+if ! make selftest-loop >"$AUDIT_TMP/loop_build.log" 2>&1; then echo "  FAIL  make selftest-loop builds"; fail=1; fi
+./build/test_loop > "$VERIFY_LOOP_LOG" 2>&1 && LT=0 || LT=1
+LT_PASS=$(grep -c '^  PASS' "$VERIFY_LOOP_LOG" 2>/dev/null || true)
+LT_FAIL=$(grep -c '^  FAIL' "$VERIFY_LOOP_LOG" 2>/dev/null || true)
+chk "selftest-loop green" "0" "$LT"
+printf '  ---- loop-closure: %s checks passed, %s failed ----\n' "$LT_PASS" "$LT_FAIL"
+[ "$LT_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_LOOP_LOG" | head -20
 if [ -f kcsa.cvmds ]; then
   ./build/test_datastream >/dev/null 2>&1 # ensures verifier linked; use binary below
   python3 - <<'PY'
