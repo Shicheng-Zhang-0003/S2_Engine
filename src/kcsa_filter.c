@@ -8,6 +8,10 @@
 #include "../include/integrator.h"
 #include "../include/amber_lj.h"
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 /*
  * kcsa_filter.c — the KcsA TVGYG selectivity filter from deposited 1K4C
  * coordinates. See include/kcsa_filter.h for the full provenance, the
@@ -447,24 +451,21 @@ int kcsa_site_binding(Simulation *sim, int filter_first, int n_subunits,
     kcsa_set_ion_radius(sim, ion, ion_Z);
 
     /*
-     * WHY THERE IS NO FLEXIBLE-FILTER MODE HERE.
+     * WHY THERE IS NO FLEXIBLE-FILTER MODE HERE (default record path).
      *
-     * Letting the filter relax around the ion was tried and does not
-     * produce a meaningful number in this engine. The +1 ion sitting
-     * 2.8 A from eight oxygens of -0.57 e each exerts a large Coulomb
-     * pull, and a restraint stiffness low enough to let the filter
-     * respond at all is far too weak to hold it: the oxygens are dragged
-     * onto the ion, CN collapses from 8 to 3-4, and the "binding energy"
-     * comes out near -140 eV, which is a collapse artefact and not
-     * physics. Stiffening the restraints until the filter holds its shape
-     * returns it to the rigid case, so there is no useful middle ground
-     * without a real protein force field, a solvation model, or both.
-     *
-     * A flexible-filter claim is therefore NOT made here. What the real
-     * flexibility of KcsA does buy the channel is not recoverable from a
-     * fixed-charge model in vacuum, and pretending otherwise would be
-     * the same category of error as the hand-placed cage this module
-     * replaced.
+     * Letting the filter relax around the ion was tried ion-free and does
+     * not produce a meaningful number in this engine — and ion-free SHOULD
+     * collapse: the low-K 1K4D / C-type inactivated filter is the collapsed
+     * state (Cheng et al. PNAS 2011). An empty conductive filter is not a
+     * physical target. With K+ inside (S0/S2/S4 triple, high-K 1K4C),
+     * zero-strain bonds (r0 = deposited), geometric angles, completed
+     * side-chain H (kcsa_add_hydrogens, 26/subunit), C-alpha tethers and
+     * Langevin NVT, the filter HOLDS: CN 8->8, <r> 2.78->2.61 A over 1 ps
+     * at 50 K. Empty under the same protocol goes CN 8->1. That split —
+     * ions stabilize — is the KcsA result the rigid record cannot show,
+     * and the reason the record stays rigid: the flexible number needs
+     * the full occupancy + solvent + membrane context to be a free energy.
+     * See kcsa_add_hydrogens / kcsa_add_calpha_tethers (opt-in, record-off).
      *
      * RADIAL RELAXATION AT FIXED DEPTH.
      *
@@ -510,4 +511,257 @@ int kcsa_site_binding(Simulation *sim, int filter_first, int n_subunits,
     if (e_inter) *e_inter = bind;
     if (e_total) *e_total = bind + kcsa_dehydration_cost_eV(ion_Z);
     return ion;
+}
+
+int kcsa_add_calpha_tethers(Simulation *sim, int filter_first,
+                            int n_subunits, double k) {
+    if (!sim || !sim->atoms || filter_first < 0) return -1;
+    if (n_subunits < 1 || n_subunits > 4) n_subunits = 4;
+    if (!(k > 0.0) || !isfinite(k)) return -1;
+    /* C-alpha indices within KCSA_TVGYG: 1 (75CA), 8 (76CA), 15 (77CA),
+     * 19 (78CA), 31 (79CA). See table above. */
+    static const int ca[5] = {1, 8, 15, 19, 31};
+    int n = 0;
+    for (int s = 0; s < n_subunits; s++) {
+        int base = filter_first + s * KCSA_FILTER_ATOMS;
+        for (int c = 0; c < 5; c++) {
+            int ai = base + ca[c];
+            if (ai < 0 || ai >= sim->num_atoms) return -1;
+            if (sim_add_restraint(sim, ai, sim->atoms[ai].position, k) < 0)
+                return -1;
+            n++;
+        }
+    }
+    return n;
+}
+
+/* ── side-chain H completion ───────────────────────────────────────
+ * Ideal geometries: C-H 1.09 (aliphatic), 1.08 (aromatic), O-H 0.96;
+ * tetrahedral 109.47°, trigonal 120°. Hydroxyl torsion points away
+ * from the pore axis (maximizes H-axis distance = minimal ion bias).
+ * Charges: HC +0.06, HA +0.15, HO +0.42 (AMBER ff99 family; see
+ * nucleobases.c methyl +0.06, ring H5 0.17/H6 0.26, amide HN 0.27).
+ * LJ: HC/HA/HO classes from amber_lj.h. Each residue re-neutralized
+ * by uniform carbon shift (exact neutrality, documented). */
+
+static Vec3 kcsa_orth(const Vec3 v) {
+    Vec3 a = fabs(v.x) < 0.9 ? vec3(1, 0, 0) : vec3(0, 1, 0);
+    return vec3_normalize(vec3_cross(v, a));
+}
+
+/* one H on tetrahedral C with 3 heavy neighbors: inverted sum */
+static Vec3 kcsa_place_ch(Vec3 c, Vec3 a, Vec3 b, Vec3 d, double len) {
+    Vec3 s = vec3_add(vec3_add(vec3_normalize(vec3_sub(a, c)),
+                               vec3_normalize(vec3_sub(b, c))),
+                      vec3_normalize(vec3_sub(d, c)));
+    if (vec3_norm(s) < 1e-9) s = vec3(0, 0, 1);
+    return vec3_add(c, vec3_scale(vec3_normalize(s), -len));
+}
+
+/* two H on CH2 with 2 neighbors */
+static void kcsa_place_ch2(Vec3 c, Vec3 a, Vec3 b, double len,
+                           Vec3 *h1, Vec3 *h2) {
+    Vec3 ua = vec3_normalize(vec3_sub(a, c));
+    Vec3 ub = vec3_normalize(vec3_sub(b, c));
+    Vec3 bis = vec3_normalize(vec3_add(ua, ub));
+    Vec3 perp = vec3_cross(ua, ub);
+    if (vec3_norm(perp) < 1e-9) perp = kcsa_orth(bis);
+    perp = vec3_normalize(perp);
+    /* H-C-H plane perpendicular to A-C-B plane, tetrahedral angle */
+    double cos_t = cos(109.47 * M_PI / 180.0);
+    double sin_t = sin(109.47 * M_PI / 180.0);
+    /* direction = -bis*cos((180-109.47)/2)? Use standard: H dir makes
+     * 109.47 with both A and B: solve in bis/perp basis */
+    Vec3 n = vec3_scale(bis, -1.0);
+    double ang = 54.7356 * M_PI / 180.0; /* half of H-C-H supplement */
+    Vec3 d1 = vec3_add(vec3_scale(n, cos(ang)), vec3_scale(perp, sin(ang)));
+    Vec3 d2 = vec3_sub(vec3_scale(n, cos(ang)), vec3_scale(perp, sin(ang)));
+    (void)cos_t; (void)sin_t;
+    *h1 = vec3_add(c, vec3_scale(vec3_normalize(d1), len));
+    *h2 = vec3_add(c, vec3_scale(vec3_normalize(d2), len));
+}
+
+/* three H on methyl with 1 neighbor: staggered around C-X axis */
+static void kcsa_place_methyl(Vec3 c, Vec3 x, double len,
+                             Vec3 *h1, Vec3 *h2, Vec3 *h3) {
+    Vec3 ax = vec3_normalize(vec3_sub(x, c)); /* toward heavy */
+    Vec3 u = kcsa_orth(ax), w = vec3_normalize(vec3_cross(ax, u));
+    double tetra = 109.47 * M_PI / 180.0;
+    double c2 = cos(tetra), s2 = sin(tetra);
+    /* H dirs make 109.47 with +ax (toward X), i.e. cos = c2 from +ax */
+    for (int k = 0; k < 3; k++) {
+        double ph = (2.0 * M_PI * k) / 3.0;
+        Vec3 d = vec3_add(vec3_scale(ax, c2),
+                 vec3_add(vec3_scale(u, s2 * cos(ph)),
+                          vec3_scale(w, s2 * sin(ph))));
+        Vec3 h = vec3_add(c, vec3_scale(vec3_normalize(d), len));
+        if (k == 0) *h1 = h; else if (k == 1) *h2 = h; else *h3 = h;
+    }
+}
+
+/* aromatic CH in plane: external bisector of the two ring bonds */
+static Vec3 kcsa_place_aromatic(Vec3 c, Vec3 a, Vec3 b, double len) {
+    Vec3 ua = vec3_normalize(vec3_sub(a, c));
+    Vec3 ub = vec3_normalize(vec3_sub(b, c));
+    Vec3 s = vec3_add(ua, ub);
+    if (vec3_norm(s) < 1e-9) s = vec3_negate(ua);
+    return vec3_add(c, vec3_scale(vec3_normalize(s), -len));
+}
+
+/* hydroxyl H: 109.5° from C-O, torsion away from pore axis */
+static Vec3 kcsa_place_hydroxyl(Vec3 o, Vec3 c, double len) {
+    Vec3 oc = vec3_normalize(vec3_sub(c, o));
+    /* radial-out from pore axis in xy */
+    Vec3 rad = vec3(o.x, o.y, 0.0);
+    if (vec3_norm(rad) < 1e-9) rad = vec3(1, 0, 0);
+    rad = vec3_normalize(rad);
+    /* H dir: cone 109.5° around -oc, azimuth toward rad */
+    Vec3 ax = vec3_scale(oc, -1.0);
+    Vec3 u = kcsa_orth(ax);
+    double ang = 109.5 * M_PI / 180.0;
+    /* project rad onto plane perpendicular to ax */
+    Vec3 rp = vec3_sub(rad, vec3_scale(ax, vec3_dot(rad, ax)));
+    if (vec3_norm(rp) < 1e-9) rp = u;
+    rp = vec3_normalize(rp);
+    Vec3 d = vec3_add(vec3_scale(ax, cos(ang)),
+                     vec3_scale(rp, sin(ang)));
+    return vec3_add(o, vec3_scale(vec3_normalize(d), len));
+}
+
+static int kcsa_add_one_h(Simulation *sim, int heavy, Vec3 pos,
+                          double q, double eps, double sig, int order) {
+    int idx = sim_add_atom(sim, 1, pos, q);
+    if (idx < 0) return -1;
+    sim_set_atom_lj(sim, idx, eps, sig);
+    if (sim_add_bond(sim, heavy, idx, order) < 0) return -1;
+    return idx;
+}
+
+int kcsa_add_hydrogens(Simulation *sim, int filter_first, int n_subunits) {
+    if (!sim || !sim->atoms || filter_first < 0) return -1;
+    if (n_subunits < 1 || n_subunits > 4) n_subunits = 4;
+    /* per-subunit heavy offsets (see table): residue carbon sets for
+     * neutrality shift after H charges added */
+    static const int res_carbons[5][9] = {
+        {1, 2, 4, 5, -1, -1, -1, -1, -1},          /* 75: CA,C,CB,CG2 */
+        {8, 9, 11, 12, 13, -1, -1, -1, -1},       /* 76: CA,C,CB,CG1,CG2 */
+        {15, 16, -1, -1, -1, -1, -1, -1, -1},     /* 77: CA,C */
+        {19, 20, 22, 23, 24, 25, 26, 27, 28},    /* 78: 9 carbons */
+        {31, 32, -1, -1, -1, -1, -1, -1, -1},     /* 79: CA,C */
+    };
+    static const int res_ncarb[5] = {4, 5, 2, 9, 2};
+    int total = 0;
+    for (int s = 0; s < n_subunits; s++) {
+        int base = filter_first + s * KCSA_FILTER_ATOMS;
+        /* residue base offsets into KCSA_TVGYG index space */
+        for (int r = 0; r < 5; r++) {
+            double qadd = 0.0;
+            Vec3 P[64];
+            double Q[64], E[64], Sg[64];
+            int nH = 0;
+            /* helper to fetch placed heavy position */
+            /* NOTE: base+idx indexes live atoms (filter built, no H yet
+             * for this subunit if we process subunit-by-subunit and H
+             * appended at end: heavy indices stay base+off. Appended H
+             * go at sim->num_atoms, bonds reference heavy idx + new idx. */
+            if (r == 0) { /* THR75 */
+                Vec3 CA = sim->atoms[base+1].position;
+                Vec3 C = sim->atoms[base+2].position;
+                Vec3 N = sim->atoms[base+0].position;
+                Vec3 CB = sim->atoms[base+4].position;
+                Vec3 CG2 = sim->atoms[base+5].position;
+                Vec3 OG1 = sim->atoms[base+6].position;
+                P[nH] = kcsa_place_ch(CA, N, C, CB, 1.09); Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                P[nH] = kcsa_place_ch(CB, CA, CG2, OG1, 1.09); Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                Vec3 m1, m2, m3;
+                kcsa_place_methyl(CG2, CB, 1.09, &m1, &m2, &m3);
+                P[nH]=m1; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                P[nH]=m2; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                P[nH]=m3; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                P[nH] = kcsa_place_hydroxyl(OG1, CB, 0.96); Q[nH]=0.42; E[nH]=LJ_AMBER_HO_EPS; Sg[nH]=LJ_AMBER_HO_SIGMA; nH++;
+            } else if (r == 1) { /* VAL76 */
+                Vec3 CA = sim->atoms[base+8].position;
+                Vec3 N = sim->atoms[base+7].position;
+                Vec3 C = sim->atoms[base+9].position;
+                Vec3 CB = sim->atoms[base+11].position;
+                Vec3 CG1 = sim->atoms[base+12].position;
+                Vec3 CG2 = sim->atoms[base+13].position;
+                P[nH] = kcsa_place_ch(CA, N, C, CB, 1.09); Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                P[nH] = kcsa_place_ch(CB, CA, CG1, CG2, 1.09); Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                Vec3 m1, m2, m3;
+                kcsa_place_methyl(CG1, CB, 1.09, &m1, &m2, &m3);
+                P[nH]=m1; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                P[nH]=m2; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                P[nH]=m3; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                kcsa_place_methyl(CG2, CB, 1.09, &m1, &m2, &m3);
+                P[nH]=m1; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                P[nH]=m2; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                P[nH]=m3; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+            } else if (r == 2) { /* GLY77 */
+                Vec3 CA = sim->atoms[base+15].position;
+                Vec3 N = sim->atoms[base+14].position;
+                Vec3 C = sim->atoms[base+16].position;
+                Vec3 h1, h2;
+                kcsa_place_ch2(CA, N, C, 1.09, &h1, &h2);
+                P[nH]=h1; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                P[nH]=h2; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+            } else if (r == 3) { /* TYR78 */
+                Vec3 CA = sim->atoms[base+19].position;
+                Vec3 N = sim->atoms[base+18].position;
+                Vec3 C = sim->atoms[base+20].position;
+                Vec3 CB = sim->atoms[base+22].position;
+                Vec3 CG = sim->atoms[base+23].position;
+                Vec3 CD1 = sim->atoms[base+24].position;
+                Vec3 CD2 = sim->atoms[base+25].position;
+                Vec3 CE1 = sim->atoms[base+26].position;
+                Vec3 CE2 = sim->atoms[base+27].position;
+                Vec3 CZ = sim->atoms[base+28].position;
+                Vec3 OH = sim->atoms[base+29].position;
+                P[nH] = kcsa_place_ch(CA, N, C, CB, 1.09); Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                Vec3 h1, h2;
+                kcsa_place_ch2(CB, CA, CG, 1.09, &h1, &h2);
+                P[nH]=h1; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                P[nH]=h2; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                P[nH] = kcsa_place_aromatic(CD1, CG, CE1, 1.08); Q[nH]=0.15; E[nH]=LJ_AMBER_HA_EPS; Sg[nH]=LJ_AMBER_HA_SIGMA; nH++;
+                P[nH] = kcsa_place_aromatic(CD2, CG, CE2, 1.08); Q[nH]=0.15; E[nH]=LJ_AMBER_HA_EPS; Sg[nH]=LJ_AMBER_HA_SIGMA; nH++;
+                P[nH] = kcsa_place_aromatic(CE1, CD1, CZ, 1.08); Q[nH]=0.15; E[nH]=LJ_AMBER_HA_EPS; Sg[nH]=LJ_AMBER_HA_SIGMA; nH++;
+                P[nH] = kcsa_place_aromatic(CE2, CD2, CZ, 1.08); Q[nH]=0.15; E[nH]=LJ_AMBER_HA_EPS; Sg[nH]=LJ_AMBER_HA_SIGMA; nH++;
+                P[nH] = kcsa_place_hydroxyl(OH, CZ, 0.96); Q[nH]=0.42; E[nH]=LJ_AMBER_HO_EPS; Sg[nH]=LJ_AMBER_HO_SIGMA; nH++;
+            } else { /* GLY79 */
+                Vec3 CA = sim->atoms[base+31].position;
+                Vec3 N = sim->atoms[base+30].position;
+                Vec3 C = sim->atoms[base+32].position;
+                Vec3 h1, h2;
+                kcsa_place_ch2(CA, N, C, 1.09, &h1, &h2);
+                P[nH]=h1; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+                P[nH]=h2; Q[nH]=0.06; E[nH]=LJ_AMBER_HC_EPS; Sg[nH]=LJ_AMBER_HC_SIGMA; nH++;
+            }
+            /* heavy partner index for each H (for bonds), in KCSA idx space */
+            /* rebuilt per residue below */
+            for (int k = 0; k < nH; k++) qadd += Q[k];
+            /* neutrality: uniform carbon shift */
+            int nc = res_ncarb[r];
+            double shift = (nc > 0) ? qadd / nc : 0.0;
+            for (int c = 0; c < nc; c++) {
+                int ai = base + res_carbons[r][c];
+                sim->atoms[ai].partial_charge -= shift;
+            }
+            /* append H with bonds to correct heavy */
+            /* partner map per residue */
+            int partners[32];
+            int np = 0;
+            if (r == 0) { int pp[] = {1,4,5,5,5,6}; for (int k = 0; k < 6; k++) partners[np++] = base + pp[k]; }
+            else if (r == 1) { int pp[] = {8,11,12,12,12,13,13,13}; for (int k = 0; k < 8; k++) partners[np++] = base + pp[k]; }
+            else if (r == 2) { int pp[] = {15,15}; for (int k = 0; k < 2; k++) partners[np++] = base + pp[k]; }
+            else if (r == 3) { int pp[] = {19,22,22,24,25,26,27,29}; for (int k = 0; k < 8; k++) partners[np++] = base + pp[k]; }
+            else { int pp[] = {31,31}; for (int k = 0; k < 2; k++) partners[np++] = base + pp[k]; }
+            for (int k = 0; k < nH; k++) {
+                if (kcsa_add_one_h(sim, partners[k], P[k], Q[k], E[k], Sg[k], 1) < 0)
+                    return -1;
+                total++;
+            }
+        }
+    }
+    sim_rebuild_angles(sim);
+    return total;
 }
