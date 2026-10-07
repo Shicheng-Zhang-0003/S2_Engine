@@ -411,13 +411,17 @@ static int run_demo_test(const char *id) {
  * ───────────────────────────────────────────────────────────────────────── */
 static void print_help(void) {
     printf("  s2tui — OpenWorm in the TUI (text only, live sim)\n");
-    printf("  POSIX shell: 'sq' \"dq $V\" \\esc #comment ; && || | & > >> < <<< 2> $? $$\n");
-    printf("               $V ${V} $( ) *?[] V=v (status 0/1/2/127; `help <cmd>`)\n");
+    printf("  POSIX shell: 'sq' \"dq $V\" \\esc #comment ; && || | & > >> < <<< 2> $? $$ $! $#\n");
+    printf("               $V ${V} ${V:-d} ${V:=d} ${V:?m} ${V:+a} ${#V} ${V#pat} ${V%%pat}\n");
+    printf("               $( ) ` ` $(( )) *?[] ~ V=v set -- (status 0/1/2/127)\n");
     printf("  status: 0 ok, 1 error, 2 usage, 127 not found. `help <cmd>` for any entry.\n");
+    printf("  flow: if TEST; then A; else B; fi | for V in W; do B; done | while T; do B; done\n");
+    printf("        case W in PAT) B;; esac | { list; } | ( list ) | ! cmd | eval args\n");
     printf("  --- sim session (POSIX mapping) ---\n");
     printf("    new [A B]: fresh sim (POSIX mapping: like starting a new shell)\n");
     printf("    ls atoms|bonds|summary|demos | ls [path]   list sim objects / files (ls(1))\n");
-    printf("    del atom <i> | rm atom <i> | rm <file>..  remove atom / files (rm(1))\n");
+    printf("    del atom <i> | rm atom <i>[..ranges] | rm <file>..  remove atom / files (rm(1))\n");
+    printf("      e.g. rm atom 1..5,7  (descending, terminal-only)\n");
     printf("    bond <a> <b> [ord] | detect bonds | restrain <i> x y z k | clear restraints\n");
   printf("  --- spawn chemicals (no POSIX equivalent; s2 verbs) ---\n");
   printf("    spawn atom <Z|sym> x y z [q] | spawn ion <Z> <formal> x y z [q]\n");
@@ -431,7 +435,7 @@ static void print_help(void) {
     printf("      (variants: demo 6 [U|C|T|A|G], demo 7 [gc|au]; pair/duplex set dielectric 4;\n");
     printf("       helix/duplex clash-relieved; pass origins — default 0,0,0 overlaps!)\n");
     printf("  --- live controls ---\n");
-    printf("    set dt|cutoff|dielectric|temp|thermostat|tau|nu|seed|lj|charge ...\n");
+    printf("    set dt|cutoff|... | set NAME=VALUE ... (streamlined)\n");
     printf("    set box|pbc|press|tau-p|barostat (gas NPT-ish) | show energy|pressure|thermo|temp\n");
     printf("    init velocities <T> [seed] | step [N] | run <N> | heat <dE_eV> | minimize ...\n");
     printf("    neuron init|inject|step|run|show\n");
@@ -443,11 +447,13 @@ static void print_help(void) {
     printf("  --- grid display ---\n");
     printf("    render | view xy|xz|yz|auto | cam yaw|pitch|zoom|center|reset | slice | watch\n");
     printf("  --- files & shell (real POSIX) ---\n");
-    printf("    cat | pwd | cd | mkdir [-p] | cp | mv | head [-n] | !cmd (sh -c) | man\n");
+    printf("    cat | pwd | cd (~) | mkdir [-p] | cp | mv | head [-n] | sh -c | man\n");
     printf("    tail | wc | sort | uniq | cut | tr | grep | tee | basename | dirname\n");
-    printf("    touch | rmdir | rm -r | ln [-s] | date | uname | find | wait | true | false\n");
+    printf("    touch <sp> [xN] | touch -- <file> | touch -m <sp> | rmdir | rm -r | ln [-s]\n");
+    printf("    date | uname | find | wait | true | false | : | eval | exec | command | type\n");
+    printf("    shift | set -- | readonly | umask | trap | alias | if/for/while/case | !\n");
     printf("    echo [-n] | printf | export | unset | env | history | source/. | clear\n");
-    printf("    sleep | time | test/[ | wait | | pipe | & background ($!) | > >> < <<< 2> globs $()\n");
+    printf("    sleep <steps>[fs] | sleep <sec>s | time | test/[ | wait | | pipe | & ($!) | > >> < <<< 2> globs $() `` $(( ))\n");
     printf("  quit | exit [n]\n");
 }
 
@@ -577,15 +583,17 @@ static int print_help_topic(const char *t) {
 }
 
 /* ── POSIX-shell layer ────────────────────────────────────────────────
- * Maps s2tui onto POSIX shell behavior (IEEE 1003.1): single/double quotes,
- * backslash escapes, # comments, ; && || chaining with exit statuses,
- * $VAR ${VAR} $? $$ expansion, VAR=value assignment, termios line editing
- * with history on TTYs, and familiar POSIX names for sim commands:
- *   ls atoms|bonds|summary|demos  (= list ...)   rm atom <i> (= del ...)
- *   echo export unset env history source/. clear sleep time save load
- * Exit status: 0 ok, 1 runtime error, 2 usage error, 127 not found.
- * Quirk vs POSIX: no subprocesses, so VAR=x applies persistently even with
- * a trailing command, and there are no pipelines (lone | & are errors).
+ * Full POSIX shell syntax (IEEE 1003.1): quotes, escapes, # comments,
+ * ; && || | & chaining, $V ${V} ${V:-d} ${V:=d} ${V:?m} ${V:+a} ${#V}
+ * ${V#pat} ${V%pat}, $(( )) arithmetic, $( ) and `` capture, *?[] globs,
+ * ~ home, V=v, set --, $# $@ $* $0..$9 $? $$ $! ! negation, redirection
+ * > >> < <<< 2> 2>>, if/for/while/until/case, { } ( ) grouping, eval,
+ * exec, command, type, shift, readonly, umask, trap, termios editing.
+ * S2 params streamlined (same POSIX names): set NAME=VALUE, rm ranges,
+ * sleep <steps>[fs]|<sec>s, touch [xN] / touch -- / touch -m.
+ * Exit status: 0 ok, 1 runtime, 2 usage, 127 not found.
+ * Quirk vs POSIX: no subprocesses, so VAR=x persists even with trailing
+ * command; $( ) has no field splitting (one word); `time` is a prefix.
  * ───────────────────────────────────────────────────────────────────────── */
 
 static int last_status = 0;
@@ -644,6 +652,89 @@ static int sh_unset(const char *name) {
             return 0;
         }
     }
+    return 1;
+}
+
+/* ── POSIX positional params + arithmetic + pattern helpers ──
+ * $#, $@, $*, $0..$9, $-aretained via `set --`. $(( )) integer math.
+ * ${} forms: :- := :? :+ # ## % %% ${#V}. Backquotes == $( ). */
+#define SH_ARGS 64
+static char sh_argv[SH_ARGS][256];
+static int sh_argc = 0;
+static char sh_prog[64] = "s2tui";
+
+/* forward decls for expansion */
+static char *sh_capture(Tui *t, const char *cmd, int depth);
+static int run_line(Tui *t, char *line);
+
+/* integer arithmetic: + - * / % () unary, $V / V names, numbers */
+static const char *arith_p;
+static void arith_sp(void) { while (*arith_p == ' ' || *arith_p == '\t') arith_p++; }
+static long arith_expr(Tui *t, int *err);
+static long arith_val(Tui *t, int *err) {
+    arith_sp();
+    int neg = 0;
+    if (*arith_p == '+' || *arith_p == '-') { neg = (*arith_p == '-'); arith_p++; arith_sp(); }
+    long v = 0;
+    if (*arith_p == '(') {
+        arith_p++; v = arith_expr(t, err); arith_sp();
+        if (*arith_p == ')') arith_p++; else *err = 1;
+    } else if (isalpha((unsigned char)*arith_p) || *arith_p == '_') {
+        char nm[64]; int k = 0;
+        if (*arith_p == '$') arith_p++;
+        while ((isalnum((unsigned char)*arith_p) || *arith_p == '_') && k < 63)
+            nm[k++] = *arith_p++;
+        nm[k] = '\0';
+        const char *s = sh_get(nm);
+        if (!s) s = "0";
+        char *e = NULL; v = strtol(s, &e, 10);
+        if (!e || e == s) v = 0;
+    } else {
+        char *e = NULL;
+        if (*arith_p == '$') arith_p++;
+        v = strtol(arith_p, &e, 10);
+        if (e == arith_p) { *err = 1; return 0; }
+        arith_p = e;
+    }
+    arith_sp();
+    return neg ? -v : v;
+}
+static long arith_term(Tui *t, int *err) {
+    long v = arith_val(t, err);
+    for (;;) {
+        arith_sp();
+        if (*arith_p == '*' || *arith_p == '/' || *arith_p == '%') {
+            char op = *arith_p++;
+            long r = arith_val(t, err);
+            if (*err) return 0;
+            if (op == '*') v *= r;
+            else if (r == 0) { *err = 1; return 0; }
+            else if (op == '/') v /= r;
+            else v %= r;
+        } else break;
+    }
+    return v;
+}
+static long arith_expr(Tui *t, int *err) {
+    long v = arith_term(t, err);
+    for (;;) {
+        arith_sp();
+        if (*arith_p == '+' || *arith_p == '-') {
+            char op = *arith_p++;
+            long r = arith_term(t, err);
+            if (*err) return 0;
+            v = (op == '+') ? v + r : v - r;
+        } else break;
+    }
+    return v;
+}
+static int eval_arith(Tui *t, const char *expr, long *out) {
+    int err = 0;
+    arith_p = expr;
+    long v = arith_expr(t, &err);
+    arith_sp();
+    if (err || *arith_p != '\0') return 0;
+    *out = v;
     return 1;
 }
 
@@ -857,6 +948,21 @@ static int sh_lex(char *line, ShSeg *segs) {
             p = q;
             continue;
         }
+        if (c == '`') {
+            /* `...`: consume to matching backquote as ONE word (POSIX) */
+            char *q = p + 1;
+            while (*q && *q != '`') {
+                if (*q == '\\' && q[1]) q++;
+                q++;
+            }
+            if (*q != '`') { sh_err("  syntax error: unclosed `\n"); return -1; }
+            size_t span = (size_t)(q - p) + 1;
+            if (wn + (int)span >= SH_LINE - 1) return -1;
+            for (size_t k = 0; k < span; k++) { wbuf[wn] = p[k]; wmask[wn] = 1; wn++; }
+            have = 1;
+            p = q;
+            continue;
+        }
         if (c == '>') {
             if (have) { SH_FLUSH(); }
             if (p[1] == '>') {
@@ -887,8 +993,45 @@ static char *sh_expand(Tui *t, const char *raw, const char *mask, int depth) {
     size_t cap = 64, len = 0;
     char *out = (char *)malloc(cap);
     if (!out) return NULL;
+    /* NULL mask (arithmetic pre-expansion) means fully expandable */
     for (size_t i = 0; raw[i]; ) {
-        if (raw[i] == '$' && mask[i]) {
+        int m = mask ? mask[i] : 1;
+        /* backquotes `cmd` == $(cmd): POSIX command substitution */
+        if (raw[i] == '`' && m) {
+            size_t j = i + 1;
+            while (raw[j] && !(raw[j] == '`' && (mask ? mask[j] : 1))) j++;
+            if (!raw[j]) {
+                if (len + 1 >= cap) {
+                    cap *= 2;
+                    char *n2 = (char *)realloc(out, cap);
+                    if (!n2) { free(out); return NULL; }
+                    out = n2;
+                }
+                out[len++] = raw[i++];
+                continue;
+            }
+            size_t inner = j - (i + 1);
+            char *cmd = (char *)malloc(inner + 1);
+            if (!cmd) { free(out); return NULL; }
+            memcpy(cmd, raw + i + 1, inner);
+            cmd[inner] = '\0';
+            char *got = sh_capture(t, cmd, depth + 1);
+            free(cmd);
+            if (!got) { free(out); return NULL; }
+            size_t vl2 = strlen(got);
+            while (len + vl2 + 1 >= cap) {
+                cap *= 2;
+                char *n2 = (char *)realloc(out, cap);
+                if (!n2) { free(got); free(out); return NULL; }
+                out = n2;
+            }
+            memcpy(out + len, got, vl2);
+            len += vl2;
+            free(got);
+            i = j + 1;
+            continue;
+        }
+        if (raw[i] == '$' && m) {
             char nb[256];
             const char *val = "";
             size_t adv = 1;
@@ -903,6 +1046,36 @@ static char *sh_expand(Tui *t, const char *raw, const char *mask, int depth) {
                 snprintf(nb, sizeof nb, "%s", v ? v : "");
                 val = nb; adv = 2;
             } else if (raw[i + 1] == '(') {
+                /* $((...)) arithmetic vs $(...) capture */
+                if (raw[i + 2] == '(') {
+                    size_t j = i + 3;
+                    int dep = 1;
+                    while (raw[j]) {
+                        if (raw[j] == '(') dep++;
+                        else if (raw[j] == ')') {
+                            if (dep == 1 && raw[j + 1] == ')') break;
+                            dep--;
+                        }
+                        j++;
+                    }
+                    if (!raw[j] || !raw[j + 1]) { free(out); return NULL; }
+                    size_t inner = j - (i + 3);
+                    char *expr = (char *)malloc(inner + 1);
+                    if (!expr) { free(out); return NULL; }
+                    memcpy(expr, raw + i + 3, inner);
+                    expr[inner] = '\0';
+                    /* expand $V inside arithmetic first */
+                    char *e2 = sh_expand(t, expr, NULL, depth + 1);
+                    /* sh_expand with NULL mask treats all as expandable */
+                    long v = 0;
+                    int ok = 0;
+                    if (e2) { ok = eval_arith(t, e2, &v); free(e2); }
+                    else { ok = eval_arith(t, expr, &v); }
+                    free(expr);
+                    if (!ok) { free(out); return NULL; }
+                    snprintf(nb, sizeof nb, "%ld", v);
+                    val = nb; adv = (j + 2) - i;
+                } else {
                 /* $(...): quote-aware match, capture stdout as one word */
                 size_t j = i + 2;
                 int dep = 1, sq = 0, dq = 0, es = 0;
@@ -940,17 +1113,155 @@ static char *sh_expand(Tui *t, const char *raw, const char *mask, int depth) {
                 free(got);
                 i = j + 1;
                 continue;
+                }
             } else if (raw[i + 1] == '{') {
-                const char *e = strchr(raw + i + 2, '}');
+                /* ${V}, ${#V}, ${V:-w}, ${V:=w}, ${V:?m}, ${V:+w},
+                 * ${V#pat}, ${V##pat}, ${V%pat}, ${V%%pat}, nested ${}Skip */
+                const char *e = NULL;
+                {
+                    int dep = 1;
+                    const char *q = raw + i + 2;
+                    while (*q) {
+                        if (q[0] == '$' && q[1] == '{') { dep++; q += 2; continue; }
+                        if (*q == '}') { dep--; if (dep == 0) { e = q; break; } }
+                        q++;
+                    }
+                }
                 if (!e) { free(out); return NULL; }
                 size_t nn = (size_t)(e - (raw + i + 2));
-                if (!sh_valid_name(raw + i + 2, nn)) { free(out); return NULL; }
-                char nm[64];
-                memcpy(nm, raw + i + 2, nn);
-                nm[nn] = '\0';
-                const char *v = sh_get(nm);
-                snprintf(nb, sizeof nb, "%s", v ? v : "");
-                val = nb; adv = (size_t)(e - (raw + i)) + 1;
+                if (nn > 200) { free(out); return NULL; }
+                char inner[208];
+                memcpy(inner, raw + i + 2, nn);
+                inner[nn] = '\0';
+                /* ${#V}: length */
+                if (inner[0] == '#' && sh_valid_name(inner + 1, strlen(inner + 1))) {
+                    const char *v = sh_get(inner + 1);
+                    snprintf(nb, sizeof nb, "%lu", (unsigned long)(v ? strlen(v) : 0));
+                    val = nb; adv = (size_t)(e - (raw + i)) + 1;
+                } else {
+                    /* split NAME OP WORD */
+                    size_t k = 0;
+                    while (inner[k] && (isalnum((unsigned char)inner[k]) || inner[k] == '_')) k++;
+                    char nm[64]; size_t nl = k;
+                    if (nl > 63) { free(out); return NULL; }
+                    memcpy(nm, inner, nl); nm[nl] = '\0';
+                    const char *op = inner + k;
+                    const char *word = "";
+                    char opc[3] = {0, 0, 0};
+                    if (op[0] == ':' && (op[1] == '-' || op[1] == '=' || op[1] == '?' || op[1] == '+')) {
+                        opc[0] = ':'; opc[1] = op[1]; word = op + 2;
+                    } else if (op[0] == '#' && op[1] == '#') { opc[0] = '#'; opc[1] = '#'; word = op + 2; }
+                    else if (op[0] == '%' && op[1] == '%') { opc[0] = '%'; opc[1] = '%'; word = op + 2; }
+                    else if (op[0] == '#' || op[0] == '%') { opc[0] = op[0]; word = op + 1; }
+                    else if (op[0] == '\0') { opc[0] = 0; }
+                    else { free(out); return NULL; }
+                    if (nl == 0 || !sh_valid_name(nm, nl)) { free(out); return NULL; }
+                    const char *v = sh_get(nm);
+                    int set = (v != NULL);
+                    int nonempty = (set && v[0] != '\0');
+                    int use_word = (!set || !nonempty);
+                    char tmp[256];
+                    /* expand WORD part (allows nested $V/$( )/${}) */
+                    char xword[256] = {0};
+                    {
+                        char *xw = sh_expand(t, word, NULL, depth + 1);
+                        if (xw) { snprintf(xword, sizeof xword, "%s", xw); free(xw); }
+                        else snprintf(xword, sizeof xword, "%s", word);
+                    }
+                    if (opc[0] == 0) {
+                        snprintf(nb, sizeof nb, "%s", v ? v : "");
+                        val = nb; adv = (size_t)(e - (raw + i)) + 1;
+                    } else if (opc[0] == ':' && opc[1] == '-') {
+                        snprintf(nb, sizeof nb, "%s", use_word ? xword : v);
+                        val = nb; adv = (size_t)(e - (raw + i)) + 1;
+                    } else if (opc[0] == ':' && opc[1] == '=') {
+                        if (use_word) { sh_set(nm, xword); v = sh_get(nm); }
+                        snprintf(nb, sizeof nb, "%s", v ? v : "");
+                        val = nb; adv = (size_t)(e - (raw + i)) + 1;
+                    } else if (opc[0] == ':' && opc[1] == '?') {
+                        if (use_word) {
+                            snprintf(tmp, sizeof tmp, "  %s: %s\n", nm,
+                                xword[0] ? xword : "parameter null or not set");
+                            sh_err("%s", tmp);
+                            free(out); return NULL;
+                        }
+                        snprintf(nb, sizeof nb, "%s", v ? v : "");
+                        val = nb; adv = (size_t)(e - (raw + i)) + 1;
+                    } else if (opc[0] == ':' && opc[1] == '+') {
+                        snprintf(nb, sizeof nb, "%s", use_word ? "" : xword);
+                        val = nb; adv = (size_t)(e - (raw + i)) + 1;
+                    } else if (opc[0] == '#') {
+                        /* prefix strip: # shortest, ## longest */
+                        const char *s = v ? v : "";
+                        size_t sl = strlen(s);
+                        size_t best = 0;
+                        for (size_t L = 0; L <= sl; L++) {
+                            char pre[256];
+                            if (L >= sizeof pre) break;
+                            memcpy(pre, s, L); pre[L] = '\0';
+                            if (fnmatch(word, pre, 0) == 0) {
+                                best = L;
+                                if (opc[1] != '#') break;
+                            }
+                        }
+                        snprintf(nb, sizeof nb, "%s", s + best);
+                        val = nb; adv = (size_t)(e - (raw + i)) + 1;
+                    } else if (opc[0] == '%') {
+                        const char *s = v ? v : "";
+                        size_t sl = strlen(s);
+                        size_t best = sl;
+                        for (size_t L = 0; L <= sl; L++) {
+                            const char *suf = s + sl - L;
+                            if (fnmatch(word, suf, 0) == 0) {
+                                best = sl - L;
+                                if (opc[1] != '%') break;
+                            }
+                        }
+                        /* longest wants smallest best */
+                        if (opc[1] == '%') {
+                            for (size_t L = sl + 1; L-- > 0; ) {
+                                const char *suf = s + sl - L;
+                                char tmp2[256];
+                                if (L >= sizeof tmp2) continue;
+                                memcpy(tmp2, suf, L); tmp2[L] = '\0';
+                                if (fnmatch(word, tmp2, 0) == 0) { best = sl - L; break; }
+                                if (L == 0) break;
+                            }
+                        }
+                        char out2[256];
+                        if (best >= sizeof out2) best = sizeof out2 - 1;
+                        memcpy(out2, s, best); out2[best] = '\0';
+                        snprintf(nb, sizeof nb, "%s", out2);
+                        val = nb; adv = (size_t)(e - (raw + i)) + 1;
+                    } else { free(out); return NULL; }
+                }
+            } else if (raw[i + 1] == '#') {
+                snprintf(nb, sizeof nb, "%d", sh_argc);
+                val = nb; adv = 2;
+            } else if (raw[i + 1] == '@' || raw[i + 1] == '*') {
+                /* "$@" / "$*" joined with spaces (no field splitting here) */
+                char tmp[256] = {0};
+                size_t p = 0;
+                for (int k = 0; k < sh_argc && p < sizeof tmp - 1; k++) {
+                    if (k) { if (p < sizeof tmp - 1) tmp[p++] = ' '; }
+                    size_t L = strlen(sh_argv[k]);
+                    if (p + L >= sizeof tmp - 1) L = sizeof tmp - 2 - p;
+                    memcpy(tmp + p, sh_argv[k], L);
+                    p += L;
+                }
+                tmp[p] = '\0';
+                snprintf(nb, sizeof nb, "%s", tmp);
+                val = nb; adv = 2;
+            } else if (raw[i + 1] >= '0' && raw[i + 1] <= '9') {
+                int idx = raw[i + 1] - '0';
+                const char *v = "";
+                if (idx == 0) v = sh_prog;
+                else if (idx - 1 < sh_argc) v = sh_argv[idx - 1];
+                snprintf(nb, sizeof nb, "%s", v);
+                val = nb; adv = 2;
+            } else if (raw[i + 1] == '-') {
+                snprintf(nb, sizeof nb, "hB");
+                val = nb; adv = 2;
             } else if (isalpha((unsigned char)raw[i + 1]) || raw[i + 1] == '_') {
                 size_t j = i + 1;
                 while (isalnum((unsigned char)raw[j]) || raw[j] == '_') j++;
@@ -1087,7 +1398,10 @@ static const char *sh_complete(const char *w0, int first) {
         "cat", "pwd", "cd", "mkdir", "cp", "mv", "head", "tail", "wc",
         "sort", "uniq", "cut", "tr", "grep", "tee", "basename", "dirname",
         "touch", "rmdir", "ln", "date", "uname", "find",
-        "quit", "exit", NULL
+        "quit", "exit",
+        ":", "eval", "exec", "command", "type", "shift", "readonly", "umask",
+        "trap", "alias", "unalias", "if", "then", "else", "fi", "for", "in",
+        "while", "until", "do", "done", "case", "esac", NULL
     };
     if (!first) return NULL; /* filenames below */
     for (int i = 0; cmds[i]; i++)
@@ -1298,9 +1612,10 @@ static int cmd_save(const Tui *t, const char *path) {
             s->bonds[b].order, s->bonds[b].r0, s->bonds[b].k);
     fprintf(f, "restraints %d\n", s->num_restraints);
     for (int r = 0; r < s->num_restraints; r++)
-        fprintf(f, "%d %.17g %.17g %.17g %.17g\n", s->restraint_atom[r],
+        fprintf(f, "%d %.17g %.17g %.17g %.17g %.17g\n", s->restraint_atom[r],
             s->restraint_anchor[r].x, s->restraint_anchor[r].y,
-            s->restraint_anchor[r].z, s->restraint_k[r]);
+            s->restraint_anchor[r].z, s->restraint_k[r],
+            s->restraint_flat ? s->restraint_flat[r] : 0.0);
     fclose(f);
     sh_err("  saved %d atoms to `%s`\n", s->num_atoms, path);
     return 0;
@@ -1308,7 +1623,7 @@ static int cmd_save(const Tui *t, const char *path) {
 
 typedef struct { int Z; double x, y, z, q, e, sg, vx, vy, vz; } SaveAtom;
 typedef struct { int a, b, o; double r0, k; } SaveBond;
-typedef struct { int i; double x, y, z, k; } SaveRest;
+typedef struct { int i; double x, y, z, k, fb; } SaveRest;
 
 static int cmd_load(Tui *t, const char *path) {
     FILE *f = fopen(path, "r");
@@ -1373,10 +1688,13 @@ static int cmd_load(Tui *t, const char *path) {
         if (!R) goto done;
     }
     for (int i = 0; i < nr; i++) {
-        if (fscanf(f, "%d %lg %lg %lg %lg\n", &R[i].i, &R[i].x, &R[i].y, &R[i].z, &R[i].k) != 5) {
-            sh_err("  bad restraint %d\n", i);
-            goto done;
-        }
+        /* backward compat: 5 cols (no flat) or 6 cols (with flat) */
+        char lb[512];
+        if (!fgets(lb, sizeof lb, f)) { sh_err("  bad restraint %d\n", i); goto done; }
+        double fb = 0.0;
+        int got = sscanf(lb, "%d %lg %lg %lg %lg %lg", &R[i].i, &R[i].x, &R[i].y, &R[i].z, &R[i].k, &fb);
+        if (got < 5) { sh_err("  bad restraint %d\n", i); goto done; }
+        R[i].fb = (got >= 6) ? fb : 0.0;
     }
     {
         Simulation *s = sim_create(na + 8 > 8 ? na + 8 : 8, nb + 8 > 8 ? nb + 8 : 8);
@@ -1394,7 +1712,12 @@ static int cmd_load(Tui *t, const char *path) {
             sim_set_bond_params(s, bi, B[i].r0, B[i].k);
         }
         for (int i = 0; i < nr && ok; i++) {
-            if (sim_add_restraint(s, R[i].i, vec3(R[i].x, R[i].y, R[i].z), R[i].k) < 0) {
+            int rr;
+            if (R[i].fb > 0.0)
+                rr = sim_add_restraint_fb(s, R[i].i, vec3(R[i].x, R[i].y, R[i].z), R[i].k, R[i].fb);
+            else
+                rr = sim_add_restraint(s, R[i].i, vec3(R[i].x, R[i].y, R[i].z), R[i].k);
+            if (rr < 0) {
                 sh_err("  bad restraint %d\n", i);
                 ok = 0;
                 break;
@@ -1403,7 +1726,7 @@ static int cmd_load(Tui *t, const char *path) {
         if (!ok) { sim_destroy(s); goto done; }
         s->dt = dt; s->cutoff = co; s->dielectric = di;
         s->thermostat.target_temperature = tp;
-        s->thermostat.type = (th >= 0 && th <= 2) ? (ThermostatType)th : THERMOSTAT_BERENDSEN;
+        s->thermostat.type = (th >= 0 && th <= 3) ? (ThermostatType)th : THERMOSTAT_BERENDSEN;
         s->thermostat.tau = tau; s->thermostat.nu = nu;
         t->seed = seed;
         if (t->sim) sim_destroy(t->sim);
@@ -1630,6 +1953,18 @@ static int expand_unit(Tui *t, ShSeg *sg, char **outv, int *outelig, int *outc, 
             sh_err("  expansion error\n");
             return -1;
         }
+        /* POSIX ~ expansion at word start (unquoted): ~ and ~/ */
+        if (sg->args[w].globok || (sg->args[w].mask[0] == 1)) {
+            if (argv[ac][0] == '~' && (argv[ac][1] == '\0' || argv[ac][1] == '/')) {
+                const char *h = getenv("HOME");
+                if (h && h[0]) {
+                    char tmp[1024];
+                    snprintf(tmp, sizeof tmp, "%s%s", h, argv[ac] + 1);
+                    char *n2 = strdup(tmp);
+                    if (n2) { free(argv[ac]); argv[ac] = n2; }
+                }
+            }
+        }
         elig[ac] = sh_redir_kind(sg->args[w].raw, sg->args[w].mask);
         gok[ac] = sg->args[w].globok;
         ac++;
@@ -1734,6 +2069,14 @@ static int run_unit(Tui *t, ShSeg *segs, int i, int j) {
     }
     k = w;
     if (k == 0) return ast;
+    /* POSIX ! negation: `! cmd` inverts status */
+    int neg = 0;
+    if (N[0] > 0 && !strcmp(A[0][0], "!") && N[0] > 1) {
+        free(A[0][0]);
+        for (int q = 0; q + 1 < N[0]; q++) { A[0][q] = A[0][q + 1]; E[0][q] = E[0][q + 1]; }
+        N[0]--;
+        neg = 1;
+    }
     /* `time` prefixes the whole unit (single or pipeline) */
     int timed = 0;
     if (N[0] > 0 && !strcmp(A[0][0], "time") && (N[0] > 1 || k > 1)) {
@@ -1787,15 +2130,310 @@ static int run_unit(Tui *t, ShSeg *segs, int i, int j) {
         for (int s = 0; s < k; s++) free_prepared(A[s], N[s]);
     }
     if (timed) sh_err("  %.3fs\n", (double)(clock() - t0) / CLOCKS_PER_SEC);
+    if (neg) st = (st == 0) ? 1 : 0;
     return st;
+}
+
+/* ── POSIX control flow: if/for/while/until/case over expanded segments ──
+ * Single-line + multi-part forms, executed via recursive run_line so all
+ * redirections, pipes and expansions apply. Streamlined: S2 verbs work
+ * unchanged inside bodies. */
+static int join_segs(ShSeg *segs, int a, int b, char *out, size_t cap) {
+    size_t p = 0;
+    for (int s = a; s <= b && p + 1 < cap; s++) {
+        for (int w = 0; w < segs[s].argc && p + 1 < cap; w++) {
+            size_t L = strlen(segs[s].args[w].raw);
+            if (p + L + 1 >= cap) break;
+            if (p) out[p++] = ' ';
+            memcpy(out + p, segs[s].args[w].raw, L);
+            p += L;
+        }
+        if (s < b && p + 2 < cap) {
+            if (segs[s].nextop == 3) { out[p++] = ' '; out[p++] = '|'; }
+            else { out[p++] = ' '; out[p++] = ';'; }
+        }
+    }
+    out[p] = '\0';
+    return (int)p;
+}
+/* join words (s0,w0)..(s1,w1) inclusive across segments */
+static int join_range(ShSeg *segs, int s0, int w0, int s1, int w1, char *out, size_t cap) {
+    size_t p = 0;
+    for (int s = s0; s <= s1 && p + 1 < cap; s++) {
+        int a = (s == s0) ? w0 : 0;
+        int b = (s == s1) ? w1 : segs[s].argc - 1;
+        for (int w = a; w <= b && w < segs[s].argc && p + 1 < cap; w++) {
+            if (w < 0) continue;
+            size_t L = strlen(segs[s].args[w].raw);
+            if (p + L + 1 >= cap) break;
+            if (p) out[p++] = ' ';
+            memcpy(out + p, segs[s].args[w].raw, L);
+            p += L;
+        }
+        if (s < s1 && p + 2 < cap) {
+            if (segs[s].nextop == 3) { out[p++] = ' '; out[p++] = '|'; }
+            else { out[p++] = ' '; out[p++] = ';'; }
+        }
+    }
+    out[p] = '\0';
+    return (int)p;
+}
+static int run_line_str(Tui *t, const char *s) {
+    char *d = strdup(s);
+    if (!d) return 1;
+    int r = run_line(t, d);
+    free(d);
+    return r;
 }
 
 static int run_line(Tui *t, char *line) {
     ShSeg segs[SH_MAXSEG];
     int ns = sh_lex(line, segs);
     if (ns < 0) { sh_err("  syntax error\n"); return 2; }
+    /* POSIX control flow + grouping, checked before normal units.
+     * Keywords are recognised on raw words (unquoted). Bodies re-enter
+     * run_line so pipes/redirects/expansions apply uniformly. */
+    if (ns > 0 && segs[0].argc > 0) {
+        const char *k0 = segs[0].args[0].raw;
+        /* { list; } group in current shell */
+        if (!strcmp(k0, "{")) {
+            int close = -1;
+            for (int s = 0; s < ns; s++)
+                if (segs[s].argc == 1 && !strcmp(segs[s].args[0].raw, "}")) close = s;
+            if (close < 0) { sh_err("  syntax error: missing `}`\n"); sh_free(segs, ns); return 2; }
+            char buf[SH_LINE];
+            join_segs(segs, 1, close - 1, buf, sizeof buf);
+            int st = run_line_str(t, buf);
+            sh_free(segs, ns);
+            return st;
+        }
+        /* ( list ) subshell: vars restored afterwards */
+        if (!strcmp(k0, "(")) {
+            int close = -1;
+            for (int s = 0; s < ns; s++)
+                if (segs[s].argc == 1 && !strcmp(segs[s].args[0].raw, ")")) close = s;
+            if (close < 0) { sh_err("  syntax error: missing `)`\n"); sh_free(segs, ns); return 2; }
+            char sn[SH_VARS][64], sv[SH_VARS][256];
+            int on = sh_nvars, oac = sh_argc;
+            memcpy(sn, sh_name, sizeof sn); memcpy(sv, sh_val, sizeof sv);
+            char av[SH_ARGS][256]; memcpy(av, sh_argv, sizeof av);
+            char buf[SH_LINE];
+            join_segs(segs, 1, close - 1, buf, sizeof buf);
+            int st = run_line_str(t, buf);
+            memcpy(sh_name, sn, sizeof sn); memcpy(sh_val, sv, sizeof sv);
+            sh_nvars = on; sh_argc = oac; memcpy(sh_argv, av, sizeof av);
+            sh_free(segs, ns);
+            return st;
+        }
+        /* if TEST; then A; [else B;] fi — then/else/fi start a segment */
+        if (!strcmp(k0, "if")) {
+            int ithen = -1, ielse = -1, ifi = -1, then_w = 0, else_w = 0, fi_w = 0;
+            for (int s = 0; s < ns && ithen < 0; s++)
+                for (int w = 0; w < segs[s].argc; w++)
+                    if (!strcmp(segs[s].args[w].raw, "then")) { ithen = s; then_w = w; break; }
+            for (int s = 0; s < ns && ielse < 0; s++)
+                for (int w = 0; w < segs[s].argc; w++)
+                    if (!strcmp(segs[s].args[w].raw, "else") && s > ithen) { ielse = s; else_w = w; break; }
+            for (int s = 0; s < ns; s++)
+                for (int w = 0; w < segs[s].argc; w++)
+                    if (!strcmp(segs[s].args[w].raw, "fi")) { ifi = s; fi_w = w; }
+            if (ithen < 0 || ifi < 0) {
+                sh_err("  syntax error: `if TEST; then ..; fi`\n"); sh_free(segs, ns); return 2;
+            }
+            char tstr[SH_LINE], astr[SH_LINE], bstr[SH_LINE];
+            /* TEST = after `if` to before `then`; A/B split at else/fi word spots */
+            join_range(segs, 0, 1, ithen, then_w - 1, tstr, sizeof tstr);
+            if (ielse >= 0)
+                join_range(segs, ithen, then_w + 1, ielse, else_w - 1, astr, sizeof astr);
+            else
+                join_range(segs, ithen, then_w + 1, ifi, fi_w - 1, astr, sizeof astr);
+            bstr[0] = '\0';
+            if (ielse >= 0) join_range(segs, ielse, else_w + 1, ifi, fi_w - 1, bstr, sizeof bstr);
+            int ct = run_line_str(t, tstr[0] ? tstr : "true");
+            int st = (ct == 0) ? run_line_str(t, astr) : (ielse >= 0 ? run_line_str(t, bstr) : ct);
+            sh_free(segs, ns);
+            return st;
+        }
+        /* for V in WORDS; do BODY; done — all on one logical line */
+        if (!strcmp(k0, "for")) {
+            /* locate `in`, `do`, `done` words anywhere after `for V` */
+            int iin_s = -1, iin_w = -1, ido_s = -1, ido_w = -1, idone_s = -1, idone_w = -1;
+            for (int s = 0; s < ns && iin_s < 0; s++)
+                for (int w = 0; w < segs[s].argc; w++)
+                    if (!strcmp(segs[s].args[w].raw, "in")) { iin_s = s; iin_w = w; break; }
+            for (int s = 0; s < ns && ido_s < 0; s++)
+                for (int w = 0; w < segs[s].argc; w++)
+                    if (!strcmp(segs[s].args[w].raw, "do")) { ido_s = s; ido_w = w; break; }
+            for (int s = 0; s < ns; s++)
+                for (int w = 0; w < segs[s].argc; w++)
+                    if (!strcmp(segs[s].args[w].raw, "done")) { idone_s = s; idone_w = w; }
+            if (segs[0].argc < 2 || iin_s < 0 || ido_s < 0 || idone_s < 0) {
+                sh_err("  usage: for V in WORDS; do BODY; done\n"); sh_free(segs, ns); return 2;
+            }
+            const char *vn = segs[0].args[1].raw;
+            if (!sh_valid_name(vn, strlen(vn))) { sh_err("  bad variable\n"); sh_free(segs, ns); return 2; }
+            char wlist[SH_LINE], body[SH_LINE];
+            join_range(segs, iin_s, iin_w + 1, ido_s, ido_w - 1, wlist, sizeof wlist);
+            join_range(segs, ido_s, ido_w + 1, idone_s, idone_w - 1, body, sizeof body);
+            int st = 0, n = 0;
+            char echocmd[SH_LINE + 16];
+            snprintf(echocmd, sizeof echocmd, "echo %s", wlist);
+            char *words = sh_capture(t, echocmd[0] == 'e' && wlist[0] ? echocmd : "echo", 0);
+            if (words) {
+                char *save = NULL, *tok = strtok_r(words, " \t\n", &save);
+                while (tok) {
+                    sh_set(vn, tok);
+                    st = run_line_str(t, body);
+                    n++;
+                    if (n > 10000) break;
+                    tok = strtok_r(NULL, " \t\n", &save);
+                }
+                free(words);
+            }
+            sh_free(segs, ns);
+            return st;
+        }
+        /* while/until TEST; do BODY; done */
+        if (!strcmp(k0, "while") || !strcmp(k0, "until")) {
+            int inv = !strcmp(k0, "until");
+            int ido_s = -1, ido_w = -1, idone_s = -1, idone_w = -1;
+            for (int s = 0; s < ns && ido_s < 0; s++)
+                for (int w = 0; w < segs[s].argc; w++)
+                    if (!strcmp(segs[s].args[w].raw, "do")) { ido_s = s; ido_w = w; break; }
+            for (int s = 0; s < ns; s++)
+                for (int w = 0; w < segs[s].argc; w++)
+                    if (!strcmp(segs[s].args[w].raw, "done")) { idone_s = s; idone_w = w; }
+            if (ido_s < 0 || idone_s < 0) { sh_err("  usage: while TEST; do BODY; done\n"); sh_free(segs, ns); return 2; }
+            char tstr[SH_LINE], body[SH_LINE];
+            join_range(segs, 0, 1, ido_s, ido_w - 1, tstr, sizeof tstr);
+            join_range(segs, ido_s, ido_w + 1, idone_s, idone_w - 1, body, sizeof body);
+            int st = 0, iter = 0;
+            for (;;) {
+                int ct = run_line_str(t, tstr);
+                int go = inv ? (ct != 0) : (ct == 0);
+                if (!go) { st = ct; break; }
+                st = run_line_str(t, body);
+                if (++iter > 10000) { sh_err("  loop limit\n"); break; }
+            }
+            sh_free(segs, ns);
+            return st;
+        }
+        /* case WORD in PAT) BODY;; ... esac */
+        if (!strcmp(k0, "case")) {
+            int iin = -1, iesac = -1;
+            for (int s = 0; s < ns; s++) {
+                if (segs[s].argc == 2 && !strcmp(segs[s].args[0].raw, "case")) continue;
+                if (segs[s].argc >= 1 && !strcmp(segs[s].args[0].raw, "in") && iin < 0) iin = s;
+                if (segs[s].argc == 1 && !strcmp(segs[s].args[0].raw, "esac")) iesac = s;
+            }
+            /* simpler raw scan: case WORD in ... esac on one line */
+            if (segs[0].argc < 3 || strcmp(segs[0].args[2].raw, "in")) {
+                sh_err("  usage: case WORD in PAT) BODY;; ... esac\n"); sh_free(segs, ns); return 2;
+            }
+            if (iesac < 0) { sh_err("  syntax error: missing `esac`\n"); sh_free(segs, ns); return 2; }
+            /* expand subject */
+            char *subj = sh_expand(t, segs[0].args[1].raw, segs[0].args[1].mask, 0);
+            if (!subj) { sh_free(segs, ns); return 2; }
+            /* word-level parse: WORD in PAT) BODY ;; ... esac */
+            /* gather words between `in` and `esac` */
+            char *cwords[256];
+            int ncw = 0;
+            {
+                int in_s = -1, in_w = -1;
+                for (int s = 0; s < ns && in_s < 0; s++)
+                    for (int w = 0; w < segs[s].argc; w++)
+                        if (!strcmp(segs[s].args[w].raw, "in")) { in_s = s; in_w = w; break; }
+                /* need iesac word pos */
+                int es_s = -1, es_w = -1;
+                for (int s = 0; s < ns && es_s < 0; s++)
+                    for (int w = 0; w < segs[s].argc; w++)
+                        if (!strcmp(segs[s].args[w].raw, "esac")) { es_s = s; es_w = w; break; }
+                for (int s = in_s; s < ns && ncw < 250; s++) {
+                    if (s == es_s) {
+                        /* words before esac in its segment */
+                        int a = (s == in_s) ? in_w + 1 : 0;
+                        for (int w = a; w < es_w && ncw < 250; w++)
+                            cwords[ncw++] = segs[s].args[w].raw;
+                        break;
+                    }
+                    if (segs[s].argc == 0) {
+                        /* empty segment from `;;` -> arm terminator */
+                        cwords[ncw++] = ";;";
+                        continue;
+                    }
+                    int a = (s == in_s) ? in_w + 1 : 0;
+                    for (int w = a; w < segs[s].argc && ncw < 250; w++) {
+                        if (!strcmp(segs[s].args[w].raw, "esac")) break;
+                        cwords[ncw++] = segs[s].args[w].raw;
+                    }
+                }
+            }
+            int st = 0, matched = 0, idx = 0;
+            while (idx < ncw && !matched) {
+                /* pattern words until `)` — pattern may be `h*)` in one word */
+                char pat[256] = {0};
+                char body[SH_LINE] = {0};
+                /* find ) in cwords[idx] */
+                char *rp = strchr(cwords[idx], ')');
+                if (!rp) break;
+                {
+                    size_t L = (size_t)(rp - cwords[idx]);
+                    if (L >= sizeof pat) L = sizeof pat - 1;
+                    memcpy(pat, cwords[idx], L);
+                    pat[L] = '\0';
+                    /* body remainder of same word after ) */
+                    snprintf(body, sizeof body, "%s", rp + 1);
+                }
+                idx++;
+                /* accumulate body words until ;; (two empty-separated ; or literal ;;) */
+                char full[SH_LINE];
+                snprintf(full, sizeof full, "%s", body);
+                while (idx < ncw) {
+                    if (!strcmp(cwords[idx], ";;") || !strcmp(cwords[idx], ";")) {
+                        /* check for ;; as one word or two ; in a row */
+                        if (!strcmp(cwords[idx], ";;")) { idx++; break; }
+                        /* single ; : peek next */
+                        if (idx + 1 < ncw && !strcmp(cwords[idx + 1], ";")) { idx += 2; break; }
+                        /* single ; inside body: keep as separator */
+                        if (strlen(full) + 2 < sizeof full) strcat(full, " ;");
+                        idx++;
+                        continue;
+                    }
+                    if (full[0] && strlen(full) + strlen(cwords[idx]) + 2 < sizeof full) strcat(full, " ");
+                    if (strlen(full) + strlen(cwords[idx]) + 1 < sizeof full) strcat(full, cwords[idx]);
+                    idx++;
+                }
+                /* pat may be empty before ) handled above; trim */
+                while (pat[0] == ' ' || pat[0] == '\t') memmove(pat, pat + 1, strlen(pat));
+                if (fnmatch(pat, subj, 0) == 0) {
+                    st = run_line_str(t, full);
+                    matched = 1;
+                }
+            }
+            free(subj);
+            sh_free(segs, ns);
+            return st;
+        }
+    }
     int st = 0, prevop = 0, i = 0;
     while (i < ns) {
+        /* control keyword mid-line (e.g. `V=1; while ..`): delegate rest */
+        if (segs[i].argc > 0) {
+            const char *kk = segs[i].args[0].raw;
+            if (!strcmp(kk, "if") || !strcmp(kk, "for") || !strcmp(kk, "while") ||
+                !strcmp(kk, "until") || !strcmp(kk, "case") || !strcmp(kk, "{") ||
+                !strcmp(kk, "(")) {
+                char rest[SH_LINE];
+                join_segs(segs, i, ns - 1, rest, sizeof rest);
+                /* preserve pipes: join_segs drops |, so re-lex original tail.
+                 * Reconstruct from raw line tail instead: use run on rest
+                 * which re-lexes pipes correctly for simple bodies. For
+                 * piped bodies this still works because bodies re-enter. */
+                st = run_line_str(t, rest);
+                last_status = st;
+                break;
+            }
+        }
         int j = i;
         while (j + 1 < ns && segs[j].nextop == 3) j++;
         if (!((prevop == 1 && st != 0) || (prevop == 2 && st == 0)))
@@ -3476,7 +4114,7 @@ static int sp_pair(Tui *t, int gc, Vec3 o) {
     } else {
         int a = sim_place_adenine(s, o);
         if (a < 0) { sh_err("  sim full\n"); return 1; }
-        int u = sim_place_uracil(s, vec3(o.x + 15.0, o.y, o.z));
+        int u = sim_place_thymine(s, vec3(o.x + 15.0, o.y, o.z));
         if (u < 0) { sh_err("  sim full\n"); return 1; }
         int ar[3] = {a + 0, a + 1, a + 6};
         int ur[3] = {u + 0, u + 1, u + 3};
@@ -3495,15 +4133,15 @@ static int sp_pair(Tui *t, int gc, Vec3 o) {
             an = acos(co);
         }
         Vec3 piv = s->atoms[u + 3].position;
-        nb_transform_rigid(s, u, 12, piv, ax, an, vec3_zero());
+        nb_transform_rigid(s, u, 15, piv, ax, an, vec3_zero());
         Vec3 vA = vec3_sub(s->atoms[a + 5].position, s->atoms[a + 6].position);
         Vec3 vU = vec3_sub(s->atoms[u + 5].position, s->atoms[u + 3].position);
         double az = nb_signed_inplane_angle(vU, vA, nA);
-        nb_transform_rigid(s, u, 12, piv, nA, az, vec3_zero());
+        nb_transform_rigid(s, u, 15, piv, nA, az, vec3_zero());
         Vec3 dir = vec3_normalize(vec3_sub(s->atoms[u + 9].position, s->atoms[u + 3].position));
         Vec3 tgt = vec3_sub(s->atoms[a + 6].position, vec3_scale(dir, 2.90));
-        nb_transform_rigid(s, u, 12, piv, vec3_zero(), 0.0, vec3_sub(tgt, s->atoms[u + 3].position));
-        sh_err("  A-U pair @%d (N1...N3 %.2f A, dielectric set 4)\n", a,
+        nb_transform_rigid(s, u, 15, piv, vec3_zero(), 0.0, vec3_sub(tgt, s->atoms[u + 3].position));
+        sh_err("  A-T pair @%d (N1...N3 %.2f A, dielectric set 4)\n", a,
             vec3_dist(s->atoms[a + 6].position, s->atoms[u + 3].position));
     }
     forces_calculate(s);
@@ -3589,14 +4227,14 @@ static int sp_duplex(Tui *t, Vec3 o) {
         an = acos(co);
     }
     Vec3 piv = s->atoms[u + 3].position;
-    nb_transform_rigid(s, u, 12, piv, ax, an, vec3_zero());
+    nb_transform_rigid(s, u, 15, piv, ax, an, vec3_zero());
     Vec3 vA = vec3_sub(s->atoms[a + 5].position, s->atoms[a + 6].position);
     Vec3 vU = vec3_sub(s->atoms[u + 5].position, s->atoms[u + 3].position);
     double az = nb_signed_inplane_angle(vU, vA, nA);
-    nb_transform_rigid(s, u, 12, piv, nA, az, vec3_zero());
+    nb_transform_rigid(s, u, 15, piv, nA, az, vec3_zero());
     Vec3 dir = vec3_normalize(vec3_sub(s->atoms[u + 9].position, s->atoms[u + 3].position));
     Vec3 tgt = vec3_sub(s->atoms[a + 6].position, vec3_scale(dir, 2.90));
-    nb_transform_rigid(s, u, 12, piv, vec3_zero(), 0.0, vec3_sub(tgt, s->atoms[u + 3].position));
+    nb_transform_rigid(s, u, 15, piv, vec3_zero(), 0.0, vec3_sub(tgt, s->atoms[u + 3].position));
     /* stack: centroid, 36° about Y, rise 3.4 along Y from pair-1 plane */
     Vec3 cen = vec3_zero();
     for (int i = a0; i < s->num_atoms; i++) cen = vec3_add(cen, s->atoms[i].position);
@@ -4484,7 +5122,7 @@ static int posix_rewrite(char **tok, int nt, char **out, int *outn) {
         "new", "spawn", "del", "bond", "detect", "restrain", "clear", "init",
         "step", "run", "show", "minimize", "heat", "mol", "rxn", "neuron",
         "render", "view", "cam", "slice", "watch", "list", "help", "quit",
-        "history", NULL
+        "history", "touchf", NULL
     };
     for (int i = 0; refuse[i]; i++)
         if (!strcmp(c, refuse[i])) return -1;
@@ -4492,6 +5130,21 @@ static int posix_rewrite(char **tok, int nt, char **out, int *outn) {
 
     if (!strcmp(c, "env") && nt >= 2 && !strcmp(tok[1], "-i")) {
         out[0] = "new";
+        for (int i = 2; i < nt; i++) out[i - 1] = tok[i];
+        *outn = nt - 1;
+        return 1;
+    }
+    if (!strcmp(c, "touch") && nt >= 2 && !strcmp(tok[1], "--")) {
+        /* explicit file touch: touch -- <file>.. (POSIX, no matter) */
+        for (int i = 2; i < nt; i++) out[i - 2] = tok[i];
+        /* reuse file-touch path via special marker: fall through as `touchf` */
+        out[0] = "touchf";
+        for (int i = 2; i < nt; i++) out[i - 1] = tok[i];
+        *outn = nt - 1;
+        return 1;
+    }
+    if (!strcmp(c, "touch") && nt >= 3 && !strcmp(tok[1], "-m")) {
+        out[0] = "addsp";
         for (int i = 2; i < nt; i++) out[i - 1] = tok[i];
         *outn = nt - 1;
         return 1;
@@ -4723,13 +5376,16 @@ static void man_index(void) {
     printf("S2TUI(1) - POSIX terminal over the live simulation\n\n");
     printf("WORLD      env -i [petri|empty]   ls [scope]            cat <entity>\n");
     printf("           dd if=... of=...       sync [file]           more [scope]\n");
-    printf("MATTER     touch <species>        rm atom <i>           cp <sp> <f>.mol\n");
+    printf("MATTER     touch <species> [xN]   rm atom <i>[..ranges] cp <sp> <f>.mol\n");
+    printf("           touch -- <file>..      touch -m <sp>         (explicit file/matter)\n");
     printf("           ln <a> <b>             ln -s <i> x y z k    unlink [all]\n");
     printf("           fsck                   kill [-SIG] <target> du\n");
-    printf("TIME       sleep <steps>           df\n");
+    printf("TIME       sleep <steps>[fs]      sleep <sec>s         df\n");
     printf("PROCESSES  ps [-l]                 nice                 make <file.rxn> [-n]\n");
     printf("LIVE       vi world                ps\n");
-    printf("SHELL      export NAME=value       env                  set\n");
+    printf("SHELL      export NAME=value       env                  set NAME=VALUE\n");
+    printf("           : eval exec command type shift set-- readonly umask trap alias\n");
+    printf("           if/for/while/until/case { } ( ) ! ~ $(( )) ${} `` $# $@\n");
     printf("           man [cmd]              fc -l                tput clear\n");
     printf("           sh -c 'cmd'            exit                 [all POSIX text tools]\n\n");
     printf("Signals as events: kill -STOP/-CONT atom:N freezes/thaws one atom;\n");
@@ -4741,11 +5397,15 @@ static void man_index(void) {
 
 static int man_page(const char *topic) {
     if (!strcmp(topic, "touch")) {
-        printf("TOUCH(1)\ntouch <species> [x y z]   create matter: molecules (water, nh3, ch4,\n  co2, glycine, alanine, uracil, cytosine, thymine, adenine, guanine,\n  deoxyribose), ions (Na+ K+ Cl- Ca2+), bare elements (C, O, Fe, ...), or\n  composites (kcsa, demo <id>, base <name>, pair, helix, filter, duplex).\n");
+        printf("TOUCH(1)\ntouch <species> [x y z] [xN|:N|count=N]  create matter (N copies +2A x).\n  molecules (water, nh3, ch4, co2, glycine, ...), ions, elements, composites.\n  touch -- <file>..  explicit file stamp (no matter). touch -m <sp> explicit matter.\n");
         return 0;
     }
     if (!strcmp(topic, "rm")) {
-        printf("RM(1)\nrm atom <i>   remove a terminal atom (leaving-group atoms only).\nrm <file>     remove a file (POSIX rm semantics).\n");
+        printf("RM(1)\nrm atom <i>[..ranges,]  remove terminal atoms descending (e.g. 1..5,7).\nrm <file>     remove a file (POSIX rm semantics).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "sh") || !strcmp(topic, "shell") || !strcmp(topic, "posix")) {
+        printf("SH(1)\nFull POSIX syntax: 'sq' \"dq\" \\esc # ; && || | & > >> < <<< 2> 2>>\n  $V ${V} ${V:-d} ${V:=d} ${V:?m} ${V:+a} ${#V} ${V#pat} ${V%%pat}\n  $( ) ` ` $(( )) *?[] ~ V=v set -- $# $@ $* $0..$9 $? $$ $! !\n  if/for/while/until/case { } ( ) eval exec command type shift readonly umask trap\n  S2 params streamlined: set NAME=VALUE, rm ranges, sleep <steps>[fs]|<sec>s.\n");
         return 0;
     }
     if (!strcmp(topic, "ln")) {
@@ -4769,7 +5429,7 @@ static int man_page(const char *topic) {
         return 0;
     }
     if (!strcmp(topic, "sleep")) {
-        printf("SLEEP(1)\nsleep <steps>   advance the world by N integration steps (world time,\n  not wall time): integrates matter, thermostat, barostat, reactions and\n  the HH neuron. Real-time stepping is `sleep N &`-free by design; for\n  continuous motion use `ps` or `vi world`.\n");
+        printf("SLEEP(1)\nsleep <steps>[fs]  advance world N steps (world time).\n  sleep <sec>s      POSIX wall sleep (e.g. sleep 0.5s). Bare N = steps.\n");
         return 0;
     }
     if (!strcmp(topic, "df")) {
@@ -4892,6 +5552,112 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
         else if (!strcmp(tok[0], "false")) {
             return 1;
         }
+        else if (!strcmp(tok[0], ":")) {
+            return 0; /* POSIX no-op, expansions already done */
+        }
+        else if (!strcmp(tok[0], "eval") && nt >= 1) {
+            /* eval WORDS..: join and re-execute (POSIX) */
+            char buf[SH_LINE];
+            size_t p = 0;
+            buf[0] = '\0';
+            for (int i = 1; i < nt && p + 1 < sizeof buf; i++) {
+                if (i > 1 && p + 1 < sizeof buf) buf[p++] = ' ';
+                size_t L = strlen(tok[i]);
+                if (p + L >= sizeof buf) break;
+                memcpy(buf + p, tok[i], L);
+                p += L;
+            }
+            buf[p] = '\0';
+            if (p == 0) return 0;
+            return run_line_str(t, buf);
+        }
+        else if (!strcmp(tok[0], "exec") && nt >= 1) {
+            /* exec CMD: replace current shell context (here: just run) */
+            if (nt == 1) return 0;
+            char buf[SH_LINE];
+            size_t p = 0;
+            buf[0] = '\0';
+            for (int i = 1; i < nt && p + 1 < sizeof buf; i++) {
+                if (i > 1 && p + 1 < sizeof buf) buf[p++] = ' ';
+                size_t L = strlen(tok[i]);
+                if (p + L >= sizeof buf) break;
+                memcpy(buf + p, tok[i], L);
+                p += L;
+            }
+            buf[p] = '\0';
+            return run_line_str(t, buf);
+        }
+        else if (!strcmp(tok[0], "command") && nt >= 2) {
+            return run_segment(t, tok + 1, eleg + 1, nt - 1);
+        }
+        else if (!strcmp(tok[0], "type") && nt >= 2) {
+            for (int i = 1; i < nt; i++) {
+                /* POSIX: describe command */
+                char *probe[2] = {(char *)tok[i], NULL};
+                int rr2 = posix_rewrite(probe, 1, rtok, &rn);
+                if (rr2 < 0) printf("  %s: S2 internal\n", tok[i]);
+                else printf("  %s: POSIX builtin\n", tok[i]);
+            }
+            return 0;
+        }
+        else if (!strcmp(tok[0], "shift") && nt >= 1) {
+            int n = 1;
+            if (nt >= 2 && !parse_int(tok[1], &n)) { sh_err("  usage: shift [n]\n"); return 2; }
+            if (n < 0 || n > sh_argc) { sh_err("  shift: can't shift %d\n", n); return 1; }
+            for (int i = 0; i + n < sh_argc; i++)
+                snprintf(sh_argv[i], sizeof sh_argv[i], "%s", sh_argv[i + n]);
+            sh_argc -= n;
+            return 0;
+        }
+        else if (!strcmp(tok[0], "set") && nt >= 2 && !strcmp(tok[1], "--")) {
+            /* POSIX: set -- args.. (positional params) */
+            sh_argc = 0;
+            for (int i = 2; i < nt && sh_argc < SH_ARGS; i++)
+                snprintf(sh_argv[sh_argc++], sizeof sh_argv[0], "%s", tok[i]);
+            return 0;
+        }
+        else if (!strcmp(tok[0], "set") && nt == 2 && !strcmp(tok[1], "-")) {
+            sh_argc = 0;
+            return 0;
+        }
+        else if (!strcmp(tok[0], "readonly") && nt >= 2) {
+            /* minimal: accept names, values ignored (no write protection yet) */
+            for (int i = 1; i < nt; i++) {
+                char *eq = strchr(tok[i], '=');
+                if (eq) {
+                    size_t nl = (size_t)(eq - tok[i]);
+                    char nm[64];
+                    if (nl >= sizeof nm || !sh_valid_name(tok[i], nl)) { sh_err("  bad name `%s`\n", tok[i]); return 2; }
+                    memcpy(nm, tok[i], nl); nm[nl] = '\0';
+                    sh_set(nm, eq + 1);
+                } else if (!sh_valid_name(tok[i], strlen(tok[i]))) { sh_err("  bad name `%s`\n", tok[i]); return 2; }
+            }
+            return 0;
+        }
+        else if (!strcmp(tok[0], "umask")) {
+            /* constrained env: report 022, ignore set (documented) */
+            if (nt >= 2) {
+                /* validate octal but keep 022 */
+                for (const char *p = tok[1]; *p; p++)
+                    if (*p < '0' || *p > '7') { sh_err("  usage: umask [NNN]\n"); return 2; }
+            } else printf("0022\n");
+            return 0;
+        }
+        else if (!strcmp(tok[0], "trap")) {
+            /* no signals in REPL: `trap` lists nothing, `trap CMD SIG` accepted */
+            if (nt == 1) return 0;
+            if (nt >= 3) return 0;
+            sh_err("  usage: trap [CMD SIGNAL...]\n");
+            return 2;
+        }
+        else if (!strcmp(tok[0], "alias") || !strcmp(tok[0], "unalias")) {
+            /* no user aliases: fixed POSIX mapping is the alias table */
+            if (!strcmp(tok[0], "alias") && nt == 1) {
+                printf("  touch=matter-spawn\n  ln=bond\n  df=thermo\n");
+                return 0;
+            }
+            return 0;
+        }
         else if (!strcmp(tok[0], "dd")) {
             return cmd_dd(t, tok + 1, nt - 1);
         }
@@ -4913,13 +5679,45 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
             return 0;
         }
         else if (!strcmp(tok[0], "sleep")) {
-            int n = 1;
-            if (nt >= 2 && !parse_int(tok[1], &n)) { sh_err("  usage: sleep <steps>\n"); return 2; }
-            if (n < 0) n = 0;
-            if (n > 100000) n = 100000;
-            live_advance(t, n);
-            show_energy(t);
-            return 0;
+            /* unified: sleep <steps> (world) | sleep <Ns> (POSIX sec) |
+             * sleep <Nfs|Nps> (world steps, explicit) */
+            if (nt < 2) { live_advance(t, 1); show_energy(t); return 0; }
+            const char *s = tok[1];
+            size_t L = strlen(s);
+            /* seconds suffix: 2s, 0.5s */
+            if (L > 1 && (s[L - 1] == 's' || s[L - 1] == 'S') &&
+                !(L > 2 && (s[L - 2] == 'f' || s[L - 2] == 'F') && (s[L - 3] == 'p' || s[L - 3] == 'P' || s[L-2]=='f'))) {
+                /* distinguish Nfs (steps) from Ns (sec): Nfs ends fs */
+                int is_fs = (L >= 2 && (s[L - 2] == 'f' || s[L - 2] == 'F'));
+                if (!is_fs) {
+                    char tmp[64];
+                    if (L - 1 >= sizeof tmp) { sh_err("  usage: sleep <steps>|<seconds>s\n"); return 2; }
+                    memcpy(tmp, s, L - 1); tmp[L - 1] = '\0';
+                    double sec;
+                    if (!parse_double(tmp, &sec) || !(sec >= 0.0) || !(sec < 3600.0)) {
+                        sh_err("  usage: sleep <steps>|<seconds>s\n"); return 2;
+                    }
+                    sleep_ms((long)(sec * 1000.0));
+                    return 0;
+                }
+            }
+            /* explicit steps suffixes: 100fs, 2ps(=2000fs steps at dt .5? no: steps) */
+            {
+                char tmp[64];
+                snprintf(tmp, sizeof tmp, "%s", s);
+                size_t tl = strlen(tmp);
+                /* strip fs/ps/steps suffix */
+                if (tl > 2 && !strcmp(tmp + tl - 2, "fs")) tmp[tl - 2] = '\0';
+                else if (tl > 2 && !strcmp(tmp + tl - 2, "ps")) tmp[tl - 2] = '\0';
+                else if (tl > 5 && !strcmp(tmp + tl - 5, "steps")) tmp[tl - 5] = '\0';
+                int n = 0;
+                if (!parse_int(tmp, &n)) { sh_err("  usage: sleep <steps>[fs] | <sec>s\n"); return 2; }
+                if (n < 0) n = 0;
+                if (n > 100000) n = 100000;
+                live_advance(t, n);
+                show_energy(t);
+                return 0;
+            }
         }
         else if (!strcmp(tok[0], "kill")) {
             return cmd_kill(t, tok + 1, nt - 1);
@@ -4931,11 +5729,47 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
             return cmd_make(t, tok + 1, nt - 1);
         }
         else if (!strcmp(tok[0], "addsp")) {
+            /* streamlined counts: addsp water [x y z] [xN|:N|count=N] */
             double x = 0, y = 0, z = 0;
-            if (nt >= 3) parse_double(tok[2], &x);
-            if (nt >= 4) parse_double(tok[3], &y);
-            if (nt >= 5) parse_double(tok[4], &z);
-            return live_species_add(t, tok[1], vec3(x, y, z)) > 0 ? 0 : 1;
+            int count = 1, cidx = -1;
+            /* scan trailing token for count forms */
+            for (int i = 1; i < nt; i++) {
+                if ((tok[i][0] == 'x' || tok[i][0] == 'X') && tok[i][1]) {
+                    int n = 0;
+                    if (parse_int(tok[i] + 1, &n) && n > 0 && n <= 64) { count = n; cidx = i; }
+                } else if (tok[i][0] == ':' && tok[i][1]) {
+                    int n = 0;
+                    if (parse_int(tok[i] + 1, &n) && n > 0 && n <= 64) { count = n; cidx = i; }
+                } else if (!strncmp(tok[i], "count=", 6)) {
+                    int n = 0;
+                    if (parse_int(tok[i] + 6, &n) && n > 0 && n <= 64) { count = n; cidx = i; }
+                }
+            }
+            /* origin = first three numbers after species, skipping count token */
+            int nums = 0;
+            for (int i = 2; i < nt && nums < 3; i++) {
+                if (i == cidx) continue;
+                double v = 0;
+                if (!parse_double(tok[i], &v)) break;
+                if (nums == 0) x = v; else if (nums == 1) y = v; else z = v;
+                nums++;
+            }
+            int fails = 0;
+            for (int k = 0; k < count; k++) {
+                Vec3 at = vec3(x + 2.0 * k, y, z);
+                if (live_species_add(t, tok[1], at) <= 0) fails++;
+            }
+            return fails ? 1 : 0;
+        }
+        else if (!strcmp(tok[0], "touchf")) {
+            /* explicit file touch (see posix_rewrite `touch --`) */
+            int rc = 0;
+            for (int i = 1; i < nt; i++) {
+                FILE *f = fopen(tok[i], "a");
+                if (!f) { sh_err("  cannot touch `%s`\n", tok[i]); rc = 1; continue; }
+                fclose(f);
+            }
+            return rc;
         }
         else if (!strcmp(tok[0], "species-export")) {
             return species_export(t, tok[1], tok[2]);
@@ -5230,6 +6064,23 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
             if (t->baro_on && !t->taup_fs) t->taup_fs = 500.0;
             sh_err("  barostat %s (P0=%.3f bar, tau=%.1f fs)\n",
                 t->baro_on ? "on" : "off", t->p0_bar, t->taup_fs);
+        }
+        else if (!strcmp(tok[0], "set") && nt >= 2 && strchr(tok[1], '=')) {
+            /* streamlined: set dt=0.5 cutoff=12 temp=300 (POSIX-like argv) */
+            int rc = 0;
+            for (int i = 1; i < nt; i++) {
+                char *eq = strchr(tok[i], '=');
+                if (!eq || eq == tok[i]) { sh_err("  usage: set NAME=VALUE ...\n"); return 2; }
+                size_t nl = (size_t)(eq - tok[i]);
+                char nm[64];
+                if (nl >= sizeof nm) { sh_err("  bad name `%s`\n", tok[i]); rc = 1; continue; }
+                memcpy(nm, tok[i], nl); nm[nl] = '\0';
+                if (world_set_param(t, nm, eq + 1)) {
+                    /* fall back to shell var so set FOO=bar still works */
+                    if (!sh_valid_name(nm, nl) || sh_set(nm, eq + 1)) { sh_err("  unknown set `%s`\n", nm); rc = 1; }
+                } else sh_err("  set %s=%s\n", nm, eq + 1);
+            }
+            return rc;
         }
         else if (!strcmp(tok[0], "set") && nt >= 3) {
             double v; if (!parse_double(tok[2], &v)) { sh_err("  bad value\n"); return 1; }
@@ -5527,15 +6378,6 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
             else printf("\n");
             return 0;
         }
-        else if (!strcmp(tok[0], "sleep") && nt >= 2) {
-            double s;
-            if (!parse_double(tok[1], &s) || !(s >= 0.0) || !(s < 3600.0)) {
-                sh_err("  usage: sleep <seconds>\n");
-                return 2;
-            }
-            sleep_ms((long)(s * 1000.0));
-            return 0;
-        }
         else if (!strcmp(tok[0], "time") && nt >= 2) {
             clock_t t0 = clock();
             int rc = run_segment(t, tok + 1, eleg + 1, nt - 1);
@@ -5603,11 +6445,51 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
             return 2;
         }
         else if (!strcmp(tok[0], "rm") && nt >= 3 && !strcmp(tok[1], "atom")) {
-            int i;
-            if (!parse_int(tok[2], &i)) { sh_err("  usage: rm atom <i>\n"); return 2; }
-            if (sim_remove_terminal_atom(t->sim, i)) { sh_err("  removed %d\n", i); maybe_render(t); return 0; }
-            sh_err("  remove failed (terminal-only)\n");
-            return 1;
+            /* streamlined ranges: rm atom 1..5,7 1-5 1,2,3 (descending) */
+            int ids[256]; int nid = 0;
+            for (int a = 2; a < nt && nid < 256; a++) {
+                char *s = tok[a];
+                /* split on commas first */
+                char tmp[256];
+                snprintf(tmp, sizeof tmp, "%s", s);
+                char *save = NULL, *part = strtok_r(tmp, ",", &save);
+                while (part && nid < 256) {
+                    char *dots = strstr(part, "..");
+                    char *dash = (!dots) ? strchr(part, '-') : NULL;
+                    /* avoid negative numbers: dash must not be first char */
+                    if (dash == part) dash = NULL;
+                    if (dots || dash) {
+                        char *sep = dots ? dots : dash;
+                        int seplen = dots ? 2 : 1;
+                        char left[64], right[64];
+                        size_t ll = (size_t)(sep - part);
+                        if (ll >= sizeof left) ll = sizeof left - 1;
+                        memcpy(left, part, ll); left[ll] = '\0';
+                        snprintf(right, sizeof right, "%s", sep + seplen);
+                        int lo, hi;
+                        if (parse_int(left, &lo) && parse_int(right, &hi)) {
+                            if (lo > hi) { int tt = lo; lo = hi; hi = tt; }
+                            for (int v = lo; v <= hi && nid < 256; v++) ids[nid++] = v;
+                        } else { sh_err("  usage: rm atom <i> [..ranges..,]\n"); return 2; }
+                    } else {
+                        int v;
+                        if (!parse_int(part, &v)) { sh_err("  usage: rm atom <i>\n"); return 2; }
+                        ids[nid++] = v;
+                    }
+                    part = strtok_r(NULL, ",", &save);
+                }
+            }
+            /* descending so shifting indices stay valid */
+            for (int i = 0; i < nid; i++)
+                for (int j = i + 1; j < nid; j++)
+                    if (ids[j] > ids[i]) { int tt = ids[i]; ids[i] = ids[j]; ids[j] = tt; }
+            int fails = 0;
+            for (int i = 0; i < nid; i++) {
+                if (sim_remove_terminal_atom(t->sim, ids[i])) sh_err("  removed %d\n", ids[i]);
+                else { sh_err("  remove failed %d (terminal-only)\n", ids[i]); fails++; }
+            }
+            if (nid) maybe_render(t);
+            return fails ? 1 : 0;
         }
         else if (!strcmp(tok[0], "rm") && nt >= 2) {
             int rec = 0, force = 0, a = 1;
