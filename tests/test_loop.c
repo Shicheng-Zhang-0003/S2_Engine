@@ -35,6 +35,7 @@
 #include "sim.h"
 #include "vec3.h"
 #include "periodic_table.h"
+#include "tui_view.h"
 
 static int g_pass = 0, g_fail = 0;
 
@@ -184,8 +185,24 @@ int main(void) {
             sim_destroy(s);
         } else ok("tether alloc", 0, "");
     }
-    printf("\n[best-layer: H-complete filter holds with ions, collapses empty]\n");
+    printf("\n[viewport: bbox anchor for strafing]\n");
     {
+        Simulation *s = sim_create(8, 8);
+        Vec3 c;
+        ok("bbox empty-sim 0", view_bbox_center(NULL, &c) == 0, "");
+        if (s) {
+            ok("bbox no-atoms 0", view_bbox_center(s, &c) == 0, "");
+            sim_add_atom(s, 1, vec3(0, 0, 0), 0.0);
+            sim_add_atom(s, 8, vec3(4.0, 2.0, 6.0), 0.0);
+            ok("bbox two atoms", view_bbox_center(s, &c) == 1, "");
+            okrel("bbox cx", c.x, 2.0, 1e-12);
+            okrel("bbox cy", c.y, 1.0, 1e-12);
+            okrel("bbox cz", c.z, 3.0, 1e-12);
+            sim_destroy(s);
+        } else ok("bbox alloc", 0, "");
+    }
+
+    printf("\n[best-layer: H-complete filter holds with ions, collapses empty]\n");    {
         Simulation *s = sim_create(2048, 4096);
         int okc = (s != NULL);
         ok("h-alloc", okc, "");
