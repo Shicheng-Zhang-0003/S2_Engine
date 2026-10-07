@@ -40,17 +40,18 @@ Simulation *sim_create(int atom_capacity, int bond_capacity) {
     int dihedral_cap = bond_capacity * 3;
     sim->dihedrals = (Dihedral *)calloc(dihedral_cap, sizeof(Dihedral));
 
-    /* Restraints: heuristic — up to 16 concurrent anchors (more than any
-     * demo needs; the duplex uses 4). Grown arrays are overkill here. */
-    int restraint_cap = 16;
-    sim->restraint_anchor = (Vec3 *)calloc(restraint_cap, sizeof(Vec3));
-    sim->restraint_k      = (double *)calloc(restraint_cap, sizeof(double));
-    sim->restraint_atom   = (int *)calloc(restraint_cap, sizeof(int));
+    /* Restraints: 32 concurrent anchors (duplex uses 4, KcsA CA tethers
+     * use 20). Grown arrays are overkill here. */
+    int restraint_cap = 32;
+    sim->restraint_anchor = (Vec3 *)calloc((size_t)restraint_cap, sizeof(Vec3));
+    sim->restraint_k      = (double *)calloc((size_t)restraint_cap, sizeof(double));
+    sim->restraint_flat   = (double *)calloc((size_t)restraint_cap, sizeof(double));
+    sim->restraint_atom   = (int *)calloc((size_t)restraint_cap, sizeof(int));
 
     if (!sim->atoms || !sim->bonds || !sim->angles || !sim->dihedrals ||
-        !sim->restraint_anchor || !sim->restraint_k || !sim->restraint_atom) {
+        !sim->restraint_anchor || !sim->restraint_k || !sim->restraint_flat || !sim->restraint_atom) {
         free(sim->atoms); free(sim->bonds); free(sim->angles); free(sim->dihedrals);
-        free(sim->restraint_anchor); free(sim->restraint_k); free(sim->restraint_atom);
+        free(sim->restraint_anchor); free(sim->restraint_k); free(sim->restraint_flat); free(sim->restraint_atom);
         free(sim);
         return NULL;
     }
@@ -106,6 +107,7 @@ void sim_destroy(Simulation *sim) {
     free(sim->dihedrals);
     free(sim->restraint_anchor);
     free(sim->restraint_k);
+    free(sim->restraint_flat);
     free(sim->restraint_atom);
     free(sim);
 }
@@ -231,6 +233,7 @@ int sim_remove_terminal_atom(Simulation *sim, int atom_idx) {
             sim->restraint_atom[wr]   = at;
             sim->restraint_anchor[wr] = sim->restraint_anchor[r];
             sim->restraint_k[wr]      = sim->restraint_k[r];
+            sim->restraint_flat[wr]   = sim->restraint_flat[r];
             wr++;
         }
         sim->num_restraints = wr;
@@ -343,6 +346,26 @@ int sim_add_restraint(Simulation *sim, int atom_idx, Vec3 anchor, double k) {
     sim->restraint_atom[idx]   = atom_idx;
     sim->restraint_anchor[idx] = anchor;
     sim->restraint_k[idx]      = k;
+    sim->restraint_flat[idx]   = 0.0;
+    return idx;
+}
+
+/* Flat-bottom variant for H-bond drift fix: free inside |r-a|<flat,
+ * harmonic outside. flat=0 reduces exactly to sim_add_restraint. */
+int sim_add_restraint_fb(Simulation *sim, int atom_idx, Vec3 anchor,
+                         double k, double flat) {
+    if (!sim) return SIM_ERR_BADATOM;
+    if (atom_idx < 0 || atom_idx >= sim->num_atoms) return SIM_ERR_BADATOM;
+    if (!(k >= 0.0) || !isfinite(k)) return SIM_ERR_BADPARAM;
+    if (!(flat >= 0.0) || !isfinite(flat) || flat > 5.0) return SIM_ERR_BADPARAM;
+    if (!isfinite(anchor.x) || !isfinite(anchor.y) || !isfinite(anchor.z)) return SIM_ERR_BADPARAM;
+    if (sim->num_restraints >= sim->capacity_restraints) return SIM_ERR_OVERFLOW;
+
+    int idx = sim->num_restraints++;
+    sim->restraint_atom[idx]   = atom_idx;
+    sim->restraint_anchor[idx] = anchor;
+    sim->restraint_k[idx]      = k;
+    sim->restraint_flat[idx]   = flat;
     return idx;
 }
 
