@@ -29,11 +29,12 @@ mkdir -p "$BUILD"
 # to ask, and a stale object is how this tree once hid a build failure.
 # Excludes tui.o/tui_view.o (separate binary with its own main) — same
 # filter as makefile ENG_OBJS — otherwise every harness link fails with
-# multiple definition of `main`.
+# multiple definition of `main`. tui_screen.o is likewise TUI-only (and
+# would drag -lncursesw into harness links); harnesses test the engine.
 OBJS=()
 for o in "$TREE"/build/*.o; do
     b="$(basename "$o")"
-    case "$b" in main.o|tui.o|tui_view.o|test_*|*.d) continue ;; esac
+    case "$b" in main.o|tui.o|tui_view.o|tui_screen.o|test_*|*.d) continue ;; esac
     OBJS+=("$o")
 done
 if [ "${#OBJS[@]}" -eq 0 ]; then

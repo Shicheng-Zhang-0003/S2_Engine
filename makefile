@@ -34,9 +34,11 @@ SRCS = $(wildcard $(SRC_DIR)/*.c)
 OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SRCS))
 # tui.c carries its own main: keep it out of the batch record binary so
 # ./carbonsim stays byte-deterministic. s2tui links engine objects minus main.
-BIN_OBJS = $(filter-out $(OBJ_DIR)/tui.o $(OBJ_DIR)/tui_view.o,$(OBJS))
-ENG_OBJS = $(filter-out $(OBJ_DIR)/main.o $(OBJ_DIR)/tui.o $(OBJ_DIR)/tui_view.o,$(OBJS))
-TUI_OBJS = $(ENG_OBJS) $(OBJ_DIR)/tui.o $(OBJ_DIR)/tui_view.o
+# tui_screen.o (the optional fullscreen) likewise never enters carbonsim
+# or the test binaries: the record path stays libm-only by construction.
+BIN_OBJS = $(filter-out $(OBJ_DIR)/tui.o $(OBJ_DIR)/tui_view.o $(OBJ_DIR)/tui_screen.o,$(OBJS))
+ENG_OBJS = $(filter-out $(OBJ_DIR)/main.o $(OBJ_DIR)/tui.o $(OBJ_DIR)/tui_view.o $(OBJ_DIR)/tui_screen.o,$(OBJS))
+TUI_OBJS = $(ENG_OBJS) $(OBJ_DIR)/tui.o $(OBJ_DIR)/tui_view.o $(OBJ_DIR)/tui_screen.o
 DEPS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.d, $(SRCS))
 
 .PHONY: all clean run selftest selftest-forces selftest-fire selftest-regression \
@@ -54,10 +56,23 @@ all: $(OBJ_DIR) $(BIN) $(TUI_BIN) $(TEST_BINS)
 
 # Live terminal (see readme `s2tui` section): separate binary with its own
 # main, linked against engine objects minus main. Untracked tool, not record.
+# Fullscreen `screen` is ncursesw-optional: detected via ncursesw6-config,
+# linked into s2tui only. Without it the TUI still builds and every line
+# command works; only the alternate-screen surface reports unavailable.
+# carbonsim and all test binaries stay libm-only either way.
+CURSES_LIBS := $(shell ncursesw6-config --libs 2>/dev/null)
+CURSES_CFLAGS := $(shell ncursesw6-config --cflags 2>/dev/null)
 tui: $(OBJ_DIR) $(TUI_BIN)
 
+$(OBJ_DIR)/tui_screen.o: $(SRC_DIR)/tui_screen.c
+ifneq ($(CURSES_LIBS),)
+	$(CC) $(CFLAGS) $(CURSES_CFLAGS) -DS2_HAVE_CURSES=1 -MMD -MP -MF $(OBJ_DIR)/tui_screen.d -c -o $@ $<
+else
+	$(CC) $(CFLAGS) -MMD -MP -MF $(OBJ_DIR)/tui_screen.d -c -o $@ $<
+endif
+
 $(TUI_BIN): $(TUI_OBJS)
-	$(CC) $(CFLAGS) -o $@ $^ -lm
+	$(CC) $(CFLAGS) -o $@ $^ -lm $(CURSES_LIBS)
 
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
@@ -140,8 +155,8 @@ $(OBJ_DIR)/test_external.o: $(TEST_DIR)/test_external.c
 # the batch record; proves the three tracks share one physics.
 selftest-loop: $(OBJ_DIR)/test_loop
 
-$(OBJ_DIR)/test_loop: $(OBJ_DIR) $(OBJ_DIR)/test_loop.o $(ENG_OBJS)
-	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_loop.o $(ENG_OBJS) -lm
+$(OBJ_DIR)/test_loop: $(OBJ_DIR) $(OBJ_DIR)/test_loop.o $(OBJ_DIR)/tui_view.o $(ENG_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_loop.o $(OBJ_DIR)/tui_view.o $(ENG_OBJS) -lm
 
 $(OBJ_DIR)/test_loop.o: $(TEST_DIR)/test_loop.c
 	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
