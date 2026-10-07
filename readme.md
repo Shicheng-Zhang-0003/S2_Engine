@@ -24,7 +24,7 @@ Requirements: a C11 compiler (gcc or clang), `make`, libm. Nothing else.
 
 | Command | Effect |
 |---|---|
-| `make` / `make -j$(nproc)` | build everything: `carbonsim`, `s2tui`, and all five test binaries |
+| `make` / `make -j$(nproc)` | build everything: `carbonsim`, `s2tui`, and all six test binaries |
 | `./carbonsim` | run the 14-demo record sequence (~2 minutes); stdout is the byte-deterministic record |
 | `./run` | clean build behind a warning gate, run to `runs/<timestamp>.txt`, print old/new digests side by side |
 | `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt`; refuses to promote a run whose stderr is non-empty |
@@ -50,6 +50,7 @@ Set `SOURCE_DATE_EPOCH` for byte-stable side artifacts.
 | `test_fire` | 7 | FIRE and steepest descent reach the same minima |
 | `test_regression` | 165 | independent in-repo oracles: quadrature, finite differences, hand-derived values |
 | `test_external` | 49 | values from outside this repository (NIST CODATA, parm99.dat, FIPS, PDB 1K4C) |
+| `test_loop` | 54 | bio/QC/QM loop closure + best-layer: Nernst, kT, Marcus/Shannon/LJ/Coulomb, BJ/penetration, Langevin, flat-bottom, tethers, H-complete ions-hold |
 
 plus a warning-free clean build, empty stderr, byte-identical stdout across
 repeated runs, and an intact `kcsa.cvmds` seal.
@@ -64,7 +65,7 @@ this document describes — not the other way around.
 | Artifact | What it is |
 |---|---|
 | `output.txt` | the verbatim 14-demo record (~1080 lines) |
-| `CURRENT_BASELINE_SHA.txt` | its SHA-256: `859882d6a246f7a1d986018b3feb59a3fe44b63b7559616660ce25306f0ac05b` |
+| `CURRENT_BASELINE_SHA.txt` | its SHA-256 (single source of truth — do not duplicate digests in prose) |
 | `kcsa.cvmds` | a schema-1 datastream written by Demo 12: worked-example claims with provenance tags and a SHA-256 payload seal (`DATASTREAM_SPEC.md`) |
 | `runs/` | candidate runs; untracked. Promotion is explicit (`./run --accept`) precisely so an accidental overwrite cannot masquerade as a record update |
 | `audit/` | the audit's own evidence tree: independent math oracles, C harnesses, external references, pre-fix engine copies |
@@ -84,27 +85,30 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **22 154 lines** (src 17 158 · include 2 659 · tests 2 337).
+Current tree: **25 137 lines** (src 19 770 · include 2 774 · tests 2 593).
 
 | File | Lines | Role |
 |---|---:|---|
-| `src/tui.c` | 4759 | interactive terminal: REPL, POSIX-shell layer, chemistry lab, gas/barostat, ASCII grid (not in the record) |
-| `src/main.c` | 4133 | the 14-demo record program and datastream consumer |
-| `src/qm.c` | 1867 | QEq, induced dipoles (first-order + coupled SCF), Pauli, dispersion, overlap, SCF driver |
+| `src/tui.c` | 6880 | interactive terminal: full POSIX shell ($(()), ${}, ``, ~, if/for/while/case), chemistry lab, gas/barostat, ASCII grid (not in the record) |
+| `src/main.c` | 4189 | the 14-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs) |
+| `src/qm.c` | 1890 | QEq, induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
-| `src/forces.c` | 914 | non-bonded pairs, bonded terms, restraints, analytic dihedral gradients, energy breakdown |
-| `src/sim.c` | 824 | lifecycle, molecule constructors, topology rebuild, ion/restraint plumbing |
-| `src/integrator.c` | 740 | Velocity Verlet, PCG64/LCG, Maxwell–Boltzmann, Berendsen/Andersen, steepest descent, FIRE |
+| `src/forces.c` | 927 | non-bonded pairs, bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown |
+| `src/sim.c` | 847 | lifecycle, molecule constructors, topology rebuild, ion/restraint plumbing (32 restraints) |
+| `src/integrator.c` | 780 | Velocity Verlet, PCG64/LCG, Maxwell–Boltzmann, Berendsen/Andersen/Langevin, steepest descent, FIRE |
 | `src/quantum.c` | 547 | Slater screening and orbital energies, hydrogenic radial profiles, Clementi–Raimondi exponents, real spherical harmonics |
-| `src/kcsa_filter.c` | 513 | real 1K4C TVGYG filter, ion sizing, ion sites, binding and dehydration legs |
+| `src/kcsa_filter.c` | 767 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit) |
 | `src/aminoacids.c` | 513 | glycine/alanine/dipeptide/polyalanine builders |
 | `src/datastream.c` | 374 | schema-1 writer, self-contained FIPS 180-4 SHA-256, seal verifier |
 | `src/periodic_table.c` | 294 | H–Kr element data, UFF ε/σ, Madelung electron configurations |
-| `src/tui_view.c` | 237 | TUI viewport/renderer |
+| `src/tui_view.c` | 243 | TUI viewport/renderer |
 | `src/neuron.c` | 164 | Hodgkin–Huxley 1952 (squid giant axon) |
+| `src/loop.c` | 76 | bio/QC/QM loop closure: Nernst, kT scale, LJ/Coulomb from same primaries |
 | `tests/test_regression.c` | 1466 | the 165-check in-repo oracle suite |
 | `tests/test_external.c` | 536 | the 49-check outside-reference suite |
-| `include/` | 2659 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
+| `tests/test_loop.c` | 256 | the 54-check loop-closure + best-layer suite |
+| `include/loop.h` | 55 | loop bridge contract + abstraction inventory |
+| `include/` | 2758 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
 | `tests/` (other) | 335 | datastream, forces, fire suites |
 
 ---
@@ -313,9 +317,11 @@ Stated plainly, because the numbers above cannot be read correctly without them.
 * **The three tracks are unconnected.** Nucleic acids, proteins and
   electrophysiology each run standalone; gating is not derived from protein
   structure.
-* **Base-pairing energetics are qualitative.** The G–C > A–U ordering is
-  correct; absolute magnitudes overshoot gas-phase ab initio references by
-  roughly 4×, and no single dielectric fixes both pairs at once.
+* **Base-pairing energetics are qualitative.** The G–C > A–T ordering is
+  correct; monomer-subtracted interactions underbind gas-phase ab initio
+  references (~3.5x GC, ~2.4x AT; ratio 1.5 vs 2.2 real), and no single
+  dielectric fixes both pairs at once. Prior 4x-overshoot read compared
+  dimer totals to interaction refs; Demo 7 now prints both.
 * **Harmonic bonds cannot break.** Full separation costs infinite energy.
 * **Non-nucleobase charges are approximations.** Sugar, phosphate and
   amino-acid partial charges are charge-balanced but not verified RESP fits;
