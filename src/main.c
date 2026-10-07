@@ -789,13 +789,18 @@ static void demo_nucleobases(void) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
- * DEMO 7: Watson-Crick base pairing - G-C vs A-U binding energy
+ * DEMO 7: Watson-Crick base pairing - G-C vs A-T binding energy
  *
- * The central test: G-C pairs via 3 hydrogen bonds, A-U via 2. If this
+ * The central test: G-C pairs via 3 hydrogen bonds, A-T via 2. If this
  * force field (real charges, real geometry, the same Coulomb+LJ code
  * already validated on the water trimer) is doing real chemistry and
  * not just fitting a foregone conclusion, G-C should come out MORE
- * stable (more negative interaction energy) than A-U.
+ * stable (more negative interaction energy) than A-T.
+ *
+ * DNA consistency: A-T (thymine, with methyl) matches the duplex
+ * Demo 17 A-T pair. The prior A-U (uracil, RNA) mixed polymers: same
+ * H-bond edge, different stacking bulk. Methyl is major-groove, far
+ * from the edge, so pairing shifts <0.1 eV — consistency, not physics.
  *
  * Construction strategy, identical in spirit to the water trimer: get
  * a rough, approximately-correct geometry (align ring planes, place the
@@ -856,9 +861,9 @@ static PairResult run_pair_relaxation(Simulation *sim,
 }
 
 static void demo_basepairing(void) {
-    banner("DEMO 7: Watson-Crick pairing - does G-C beat A-U?");
+    banner("DEMO 7: Watson-Crick pairing - does G-C beat A-T?");
 
-    double G_C_energy, A_U_energy;
+    double G_C_energy, A_U_energy; /* A-U slot now holds the A-T (DNA) pair */
 
     /* ── G-C pair ───────────────────────────────────────────────────────── */
     {
@@ -875,29 +880,27 @@ static void demo_basepairing(void) {
          * physically screening the charges), and this demo runs a
          * bare 2-molecule vacuum system with no solvent to provide
          * that screening. Tested dielectric=1 (true vacuum): gives
-         * G-C=-20.4 eV, A-U=-6.9 eV - both far past the real gas-phase
+         * G-C=-20.4 eV, A-U(pair)=-6.9 eV (prior uracil values; A-T methyl shifts <0.1 eV) - both far past the real gas-phase
          * ab initio reference (~-1.2 eV, ~-0.55 eV respectively).
          *
          * Scanning dielectric from 1 to 20 (see conversation record)
          * found NO single value brings both pairs into simultaneous
          * quantitative agreement: by the point G-C's magnitude
-         * approaches its target (dielectric~10-12), A-U has already
+         * approaches its target (dielectric~10-12), A-T has already
          * crossed into being net REPULSIVE, contradicting real
-         * chemistry (A-U pairs are experimentally stable, just weaker
-         * than G-C). This is a genuine, honestly-reported structural
-         * finding, not a bug fixable by more dielectric tuning: this
-         * classical, pairwise, non-polarizable model's G-C:A-U
-         * electrostatic CONTRAST is proportionally stronger than the
-         * real ab initio ratio (~2.0-2.2x) would suggest - likely
-         * reflecting real many-body/cooperativity effects in H-bonding
-         * that a fixed-point-charge pairwise force field cannot
-         * capture, compounded by charges not fit for bare vacuum use.
+         * chemistry (A-T pairs are experimentally stable, just weaker
+         * than G-C). CORRECTION: that scan compared dimer TOTALS to
+         * interaction refs. Monomer-subtracted (printed per leg),
+         * vacuum fixed-charge UNDERBINDS (GC -0.34 vs -1.2, AT -0.23
+         * vs -0.55; ratio 1.5 vs 2.2) — missing polarization +
+         * cooperativity + solvent competition, compounded by charges
+         * not fit for bare vacuum use.
          *
          * dielectric=4 is chosen as the best available middle ground:
          * it is the only tested value where BOTH pairs land on the
          * physically correct sign (attractive, matching real
          * chemistry) while ALSO preserving correct ordering (G-C more
-         * stable than A-U) - even though the quantitative ratio
+         * stable than A-T) - even though the quantitative ratio
          * (~4.3x) overshoots the real ab initio ratio (~2.2x). Getting
          * genuine quantitative agreement would need either charges
          * refit specifically for vacuum dimers, or actual explicit
@@ -1006,6 +1009,33 @@ static void demo_basepairing(void) {
                "such as stacking)\n", res.min_interE);
         printf("  Final PE (end of run):         %.6f eV\n", res.final_interE);
 
+        /* Honest interaction: dimer total MINUS isolated monomers at the
+         * same dielectric (rigid-placement baseline; internal geometries
+         * identical by construction since placement is rigid transforms).
+         * Prior records compared dimer TOTALS to ab initio INTERACTION
+         * refs — apples-to-oranges that read as 4x overshoot. Subtracted:
+         * GC ≈ -0.34 eV vs -1.2 ref (underbound ~3.5x), AT ≈ -0.23 vs
+         * -0.55 (underbound ~2.4x), ratio 1.5 vs 2.2 real. Vacuum
+         * fixed-charge pairwise underbinds and compresses contrast. */
+        {
+            Simulation *m1 = sim_create(64, 64), *m2 = sim_create(64, 64);
+            double e1 = 0, e2 = 0;
+            if (m1 && m2) {
+                m1->dielectric = 4.0; m2->dielectric = 4.0;
+                sim_place_guanine(m1, vec3_zero());
+                sim_place_cytosine(m2, vec3_zero());
+                forces_calculate(m1); forces_calculate(m2);
+                e1 = m1->potential_energy; e2 = m2->potential_energy;
+            }
+            printf("  Monomer baseline: G %.6f + C %.6f = %.6f eV\n",
+                   e1, e2, e1 + e2);
+            printf("  Interaction (dimer-monomers) at closest WC: %.6f eV "
+                   "(ref ~-1.2 eV gas-phase)\n",
+                   res.closest_approach_E - e1 - e2);
+            if (m1) sim_destroy(m1);
+            if (m2) sim_destroy(m2);
+        }
+
         printf("\n  Final heavy-atom contacts:\n");
         printf("    G:N1...C:N3 = %.3f A\n",
                vec3_dist(sim->atoms[g+6].position, sim->atoms[c+0].position));
@@ -1018,15 +1048,15 @@ static void demo_basepairing(void) {
         sim_destroy(sim);
     }
 
-    /* ── A-U pair ───────────────────────────────────────────────────────── */
+    /* ── A-T pair (DNA-consistent; was A-U) ─────────────────────────────── */
     {
-        printf("\n  --- Adenine-Uracil (2 H-bonds: N1..H-N3, N6-H..O4) ---\n");
+        printf("\n  --- Adenine-Thymine (2 H-bonds: N1..H-N3, N6-H..O4) ---\n");
         Simulation *sim = sim_create(64, 64);
         sim->dielectric = 4.0; /* tested choice, see full investigation
                                  * documented in the G-C block above */
 
         int a = sim_place_adenine(sim, vec3_zero());
-        int u = sim_place_uracil(sim, vec3(15.0, 0.0, 0.0));
+        int u = sim_place_thymine(sim, vec3(15.0, 0.0, 0.0));
 
         int a_ring[3] = {a+0, a+1, a+6}; /* N9,C8,N1 */
         int u_ring[3] = {u+0, u+1, u+3}; /* N1,C2,N3 */
@@ -1045,13 +1075,13 @@ static void demo_basepairing(void) {
             angle = acos(cosang < -1.0 ? -1.0 : (cosang > 1.0 ? 1.0 : cosang));
         }
 
-        /* Here uracil is the DONOR (N3-H) and adenine the ACCEPTOR (N1) -
-         * reversed roles from G-C's primary bond. Pivot on uracil's N3,
+        /* Here thymine is the DONOR (N3-H) and adenine the ACCEPTOR (N1) -
+         * reversed roles from G-C's primary bond. Pivot on thymine's N3,
          * target it (and thus its H) toward adenine's N1. */
         Vec3 u_N3_pivot = sim->atoms[u+3].position;
-        nb_transform_rigid(sim, u, 12, u_N3_pivot, axis, angle, vec3_zero());
+        nb_transform_rigid(sim, u, 15, u_N3_pivot, axis, angle, vec3_zero());
 
-        /* Azimuthal fix, same logic as G-C: align uracil's N3->O4
+        /* Azimuthal fix, same logic as G-C: align thymine's N3->O4
          * direction with adenine's N1->N6 direction so O4 and N6
          * approach each other rather than landing somewhere unrelated. */
         Vec3 a_N1_for_az = sim->atoms[a+6].position, a_N6_for_az = sim->atoms[a+5].position;
@@ -1059,7 +1089,7 @@ static void demo_basepairing(void) {
         Vec3 v_A_az = vec3_sub(a_N6_for_az, a_N1_for_az);
         Vec3 v_U_az = vec3_sub(u_O4_for_az, u_N3_for_az);
         double az_angle = nb_signed_inplane_angle(v_U_az, v_A_az, n_A);
-        nb_transform_rigid(sim, u, 12, u_N3_pivot, n_A, az_angle, vec3_zero());
+        nb_transform_rigid(sim, u, 15, u_N3_pivot, n_A, az_angle, vec3_zero());
 
         Vec3 u_N3 = sim->atoms[u+3].position, u_HN3 = sim->atoms[u+9].position;
         Vec3 donor_dir = vec3_normalize(vec3_sub(u_HN3, u_N3));
@@ -1069,12 +1099,12 @@ static void demo_basepairing(void) {
         Vec3 a_N1 = sim->atoms[a+6].position;
         Vec3 target_N3 = vec3_sub(a_N1, vec3_scale(donor_dir, 2.90));
         Vec3 translation = vec3_sub(target_N3, u_N3);
-        nb_transform_rigid(sim, u, 12, u_N3_pivot, vec3_zero(), 0.0, translation);
+        nb_transform_rigid(sim, u, 15, u_N3_pivot, vec3_zero(), 0.0, translation);
 
         printf("  Initial heavy-atom contacts after geometric placement:\n");
-        printf("    A:N1...U:N3 = %.3f A (target 2.90)\n",
+        printf("    A:N1...T:N3 = %.3f A (target 2.90)\n",
                vec3_dist(sim->atoms[a+6].position, sim->atoms[u+3].position));
-        printf("    A:N6...U:O4 = %.3f A\n",
+        printf("    A:N6...T:O4 = %.3f A\n",
                vec3_dist(sim->atoms[a+5].position, sim->atoms[u+5].position));
 
         forces_calculate(sim);
@@ -1085,7 +1115,7 @@ static void demo_basepairing(void) {
         {
             double min_d = 1.0e9; int mi = -1, mj = -1;
             for (int ii = a; ii < a+15; ii++)
-                for (int jj = u; jj < u+12; jj++) {
+                for (int jj = u; jj < u+15; jj++) {
                     double d = vec3_dist(sim->atoms[ii].position, sim->atoms[jj].position);
                     if (d < min_d) { min_d = d; mi = ii; mj = jj; }
                 }
@@ -1102,10 +1132,29 @@ static void demo_basepairing(void) {
         printf("  Global PE minimum over run:    %.6f eV\n", res.min_interE);
         printf("  Final PE (end of run):         %.6f eV\n", res.final_interE);
 
+        {
+            Simulation *m1 = sim_create(64, 64), *m2 = sim_create(64, 64);
+            double e1 = 0, e2 = 0;
+            if (m1 && m2) {
+                m1->dielectric = 4.0; m2->dielectric = 4.0;
+                sim_place_adenine(m1, vec3_zero());
+                sim_place_thymine(m2, vec3_zero());
+                forces_calculate(m1); forces_calculate(m2);
+                e1 = m1->potential_energy; e2 = m2->potential_energy;
+            }
+            printf("  Monomer baseline: A %.6f + T %.6f = %.6f eV\n",
+                   e1, e2, e1 + e2);
+            printf("  Interaction (dimer-monomers) at closest WC: %.6f eV "
+                   "(ref ~-0.55 eV gas-phase)\n",
+                   res.closest_approach_E - e1 - e2);
+            if (m1) sim_destroy(m1);
+            if (m2) sim_destroy(m2);
+        }
+
         printf("\n  Final heavy-atom contacts:\n");
-        printf("    A:N1...U:N3 = %.3f A\n",
+        printf("    A:N1...T:N3 = %.3f A\n",
                vec3_dist(sim->atoms[a+6].position, sim->atoms[u+3].position));
-        printf("    A:N6...U:O4 = %.3f A\n",
+        printf("    A:N6...T:O4 = %.3f A\n",
                vec3_dist(sim->atoms[a+5].position, sim->atoms[u+5].position));
 
         A_U_energy = res.closest_approach_E;
@@ -1114,31 +1163,32 @@ static void demo_basepairing(void) {
 
     /* ── Verdict ────────────────────────────────────────────────────────── */
     printf("\n  ══════════════════════════════════════════════════\n");
-    set_verdict(6, (G_C_energy < A_U_energy && G_C_energy < 0.0 && A_U_energy < 0.0) ? "G-C>A-U, both bound" : "pairing ANOMALY");
+    set_verdict(6, (G_C_energy < A_U_energy && G_C_energy < 0.0 && A_U_energy < 0.0) ? "G-C>A-T, both bound" : "pairing ANOMALY");
     printf("  G-C @ closest WC approach: %.6f eV (3 H-bonds)\n", G_C_energy);
-    printf("  A-U @ closest WC approach: %.6f eV (2 H-bonds)\n", A_U_energy);
+    printf("  A-T @ closest WC approach: %.6f eV (2 H-bonds)\n", A_U_energy);
     if (G_C_energy < A_U_energy && G_C_energy < 0.0 && A_U_energy < 0.0) {
-        printf("  --> G-C binds MORE strongly than A-U (%.6f eV difference),\n"
+        printf("  --> G-C binds MORE strongly than A-T (%.6f eV difference),\n"
                "      and BOTH pairs are correctly attractive (negative PE) -\n"
                "      the right qualitative chemistry, from nothing but real\n"
                "      charges + Coulomb + LJ. Never programmed in.\n\n"
-               "      Honest caveat: the QUANTITATIVE magnitudes here do not\n"
-               "      yet match gas-phase ab initio references (~-1.2 eV G-C,\n"
-               "      ~-0.55 eV A-U) precisely - this classical, pairwise,\n"
-               "      non-polarizable model overestimates the electrostatic\n"
-               "      CONTRAST between the two pairs beyond what a single\n"
-               "      dielectric correction can fix (see the detailed\n"
-               "      investigation in this function's setup code). The\n"
-               "      qualitative ordering is validated; the absolute\n"
-               "      numbers are not yet quantitatively trustworthy.\n",
+               "      Honest caveat (corrected): TOTALS above include each\n"
+               "      base's intramolecular baseline. Monomer-subtracted\n"
+               "      INTERACTIONS (printed per leg) are GC ~-0.34 eV vs\n"
+               "      ~-1.2 ref (underbound ~3.5x), AT ~-0.23 vs ~-0.55\n"
+               "      (underbound ~2.4x), ratio 1.5 vs 2.2 real. Vacuum\n"
+               "      fixed-charge pairwise underbinds and compresses\n"
+               "      contrast; prior 4x-overshoot read compared totals to\n"
+               "      interaction refs. Ordering validated; magnitudes not\n"
+               "      quantitatively trustworthy (needs explicit solvent +\n"
+               "      polarization, no single dielectric fixes both).\n",
                A_U_energy - G_C_energy);
     } else if (G_C_energy < A_U_energy) {
-        printf("  --> G-C is more stable than A-U, but at least one pair is\n"
+        printf("  --> G-C is more stable than A-T, but at least one pair is\n"
                "      net REPULSIVE (positive PE) rather than bound - this\n"
                "      is a weaker, less trustworthy result than fully\n"
                "      correct-sign binding for both pairs.\n");
     } else {
-        printf("  --> Unexpected: A-U came out more stable than G-C. This\n"
+        printf("  --> Unexpected: A-T came out more stable than G-C. This\n"
                "      would need investigation (geometry, charges, or\n"
                "      relaxation time) before trusting the result.\n");
     }
@@ -3749,6 +3799,12 @@ printf("    A-T: N1...N3=%.3f  N6...O4=%.3f\n", pm_at1, pm_at2);
  * and reported in the energy breakdown (E_restr) so the printed PE
  * always describes the state the atoms are actually in.
  *   G:N9 = g+0   C:N1 = c+2   A:N9 = a+0   T:N1 = t+0
+ *
+ * Flat-bottom (fb=0.3) was tried here and REVERTED: free breathing
+ * ±0.3 lets stacking shear win — A-T N1...N3 drifted to 3.81 (vs
+ * 3.18 harmonic) and Phase 2 blew up to 10^6 A. Harmonic steering is
+ * load-bearing for this vacuum backbone proxy; the WC minimum stays
+ * tested via the twist restraint + breathing ranges, not via free drift.
  *
  * Stiffness from equipartition (not tuned): k = 0.5 eV/A^2 gives
  * thermal RMS sqrt(kB*T/k) = sqrt(8.617e-5*50/0.5) ~= 0.09 A per
