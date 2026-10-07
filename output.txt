@@ -472,7 +472,7 @@
   on the water trimer.
 
 ╔══════════════════════════════════════════════════════╗
-║  DEMO 7: Watson-Crick pairing - does G-C beat A-U?   ║
+║  DEMO 7: Watson-Crick pairing - does G-C beat A-T?   ║
 ╚══════════════════════════════════════════════════════╝
 
   --- Guanine-Cytosine (3 H-bonds: N1-H..N3, N2-H..O2, O6..H-N4) ---
@@ -502,58 +502,63 @@
   Global PE minimum over run:    -4.696037 eV (may reflect drift to a different,
                                   non-WC configuration such as stacking)
   Final PE (end of run):         -4.660919 eV
+  Monomer baseline: G -1.444790 + C -2.822146 = -4.266936 eV
+  Interaction (dimer-monomers) at closest WC: -0.344596 eV (ref ~-1.2 eV gas-phase)
 
   Final heavy-atom contacts:
     G:N1...C:N3 = 3.105 A
     G:N2...C:O2 = 3.126 A
     G:O6...C:N4 = 2.949 A
 
-  --- Adenine-Uracil (2 H-bonds: N1..H-N3, N6-H..O4) ---
+  --- Adenine-Thymine (2 H-bonds: N1..H-N3, N6-H..O4) ---
   Initial heavy-atom contacts after geometric placement:
-    A:N1...U:N3 = 2.900 A (target 2.90)
-    A:N6...U:O4 = 2.899 A
-  Energy breakdown at initial placement: E_LJ=0.885984 eV  E_Coulomb=-1.940374 eV  Total_PE=-1.054390 eV
+    A:N1...T:N3 = 2.900 A (target 2.90)
+    A:N6...T:O4 = 2.899 A
+  Energy breakdown at initial placement: E_LJ=0.979859 eV  E_Coulomb=-1.715652 eV  Total_PE=-0.735793 eV
   Closest intermolecular contact: atom 12 (Z=1) ... atom 20 (Z=8) = 1.930 A
   Step   t(fs)      PE(eV)     T(K)       primary(A)
-  1      0.100      -1.054736  50.10      2.9000    
-  2      0.200      -1.055021  50.19      2.9000    
-  3      0.300      -1.055246  50.25      2.8999    
-  4      0.400      -1.055414  50.30      2.8999    
-  5      0.500      -1.055530  50.34      2.8999    
-  101    10.100     -1.093908  60.55      2.8745    
-  201    20.100     -1.084507  56.56      2.8725    
-  301    30.100     -1.090486  56.56      2.9284    
-  401    40.100     -1.087098  54.38      2.9988    
-  501    50.100     -1.090774  58.09      3.0334    
-  601    60.100     -1.136958  69.06      3.0362    
-  701    70.100     -1.130816  61.15      3.0276    
+  1      0.100      -0.736572  50.21      2.9000    
+  2      0.200      -0.737242  50.39      2.9000    
+  3      0.300      -0.737809  50.54      2.8999    
+  4      0.400      -0.738274  50.66      2.8999    
+  5      0.500      -0.738645  50.76      2.8999    
+  101    10.100     -0.818962  70.01      2.8732    
+  201    20.100     -0.802376  62.57      2.8678    
+  301    30.100     -0.814602  62.19      2.9239    
+  401    40.100     -0.837070  64.84      3.0002    
+  501    50.100     -0.822782  58.56      3.0404    
+  601    60.100     -0.889245  73.32      3.0422    
+  701    70.100     -0.867786  63.97      3.0280    
 
-  Initial interaction PE:        -1.054390 eV
-  PE at closest WC approach:     -1.080053 eV (primary N1...N3 = 2.866 A)
-  Global PE minimum over run:    -1.180083 eV
-  Final PE (end of run):         -1.180083 eV
+  Initial interaction PE:        -0.735793 eV
+  PE at closest WC approach:     -0.808176 eV (primary N1...N3 = 2.863 A)
+  Global PE minimum over run:    -0.906401 eV
+  Final PE (end of run):         -0.906401 eV
+  Monomer baseline: A -0.604948 + T 0.023413 = -0.581535 eV
+  Interaction (dimer-monomers) at closest WC: -0.226641 eV (ref ~-0.55 eV gas-phase)
 
   Final heavy-atom contacts:
-    A:N1...U:N3 = 3.047 A
-    A:N6...U:O4 = 3.079 A
+    A:N1...T:N3 = 3.048 A
+    A:N6...T:O4 = 3.034 A
 
   ══════════════════════════════════════════════════
   G-C @ closest WC approach: -4.611531 eV (3 H-bonds)
-  A-U @ closest WC approach: -1.080053 eV (2 H-bonds)
-  --> G-C binds MORE strongly than A-U (3.531479 eV difference),
+  A-T @ closest WC approach: -0.808176 eV (2 H-bonds)
+  --> G-C binds MORE strongly than A-T (3.803356 eV difference),
       and BOTH pairs are correctly attractive (negative PE) -
       the right qualitative chemistry, from nothing but real
       charges + Coulomb + LJ. Never programmed in.
 
-      Honest caveat: the QUANTITATIVE magnitudes here do not
-      yet match gas-phase ab initio references (~-1.2 eV G-C,
-      ~-0.55 eV A-U) precisely - this classical, pairwise,
-      non-polarizable model overestimates the electrostatic
-      CONTRAST between the two pairs beyond what a single
-      dielectric correction can fix (see the detailed
-      investigation in this function's setup code). The
-      qualitative ordering is validated; the absolute
-      numbers are not yet quantitatively trustworthy.
+      Honest caveat (corrected): TOTALS above include each
+      base's intramolecular baseline. Monomer-subtracted
+      INTERACTIONS (printed per leg) are GC ~-0.34 eV vs
+      ~-1.2 ref (underbound ~3.5x), AT ~-0.23 vs ~-0.55
+      (underbound ~2.4x), ratio 1.5 vs 2.2 real. Vacuum
+      fixed-charge pairwise underbinds and compresses
+      contrast; prior 4x-overshoot read compared totals to
+      interaction refs. Ordering validated; magnitudes not
+      quantitatively trustworthy (needs explicit solvent +
+      polarization, no single dielectric fixes both).
   ══════════════════════════════════════════════════
 
 ╔══════════════════════════════════════════════════════╗
@@ -1055,7 +1060,7 @@ MD STABILITY (8000-step ensemble): G-C BREATHING (range 2.91-4.10), A-T HELD (ra
   4 trimer       : trimer H-bond ring HELD
   5 methane      : CH4 tetrahedral 109.47 deg, PE=0
   6 nucleobases  : U/C/T/A/G geometry + RESP charges validated
-  7 pairing      : G-C>A-U, both bound
+  7 pairing      : G-C>A-T, both bound
   8 dinucleotide : T-p-A backbone, charge -1.00e
   9 HH neuron    : HH AP peak +40mV, 4 spikes/50ms
   10 dipeptide   : Gly-Ala peptide bond 1.33A
