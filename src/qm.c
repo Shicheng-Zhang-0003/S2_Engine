@@ -1567,6 +1567,29 @@ double qm_tt_f6(double b, double r, double *dfdr_out) {
     return f;
 }
 
+double qm_bj_f6(double r, double r0ab, double a1, double a2) {
+    if (!(r > 0.0) || !isfinite(r)) return 0.0;
+    if (!(r0ab > 0.0) || !isfinite(r0ab)) return 1.0;
+    if (!(a1 >= 0.0) || !isfinite(a1)) a1 = 0.4289;
+    if (!(a2 >= 0.0) || !isfinite(a2)) a2 = 4.4407;
+    /* R0 in A is a1*R0ab (dimensionless*a) + a2 in Bohr? D3-BJ a2 is in
+     * Bohr; convert: 1 Bohr = 0.529177 A. Keep honest units. */
+    double r0 = a1 * r0ab + a2 * BOHR_TO_ANGSTROM;
+    if (!(r0 > 0.0) || !isfinite(r0)) return 1.0;
+    double r6 = r * r * r * r * r * r;
+    double r06 = r0 * r0 * r0 * r0 * r0 * r0;
+    return r6 / (r6 + r06);
+}
+
+double qm_coulomb_pen(double b, double r) {
+    if (!(r > 0.0) || !isfinite(r)) return 0.0;
+    if (!(b > 0.0) || !isfinite(b)) return 1.0;
+    double x = b * r;
+    if (x > 50.0) return 1.0;
+    double e = exp(-x);
+    return 1.0 - e * (1.0 + x + 0.5 * x * x);
+}
+
 static double qm_pair_disp(const Simulation *sim, int i, int j) {
     Vec3 d = vec3_sub(sim->atoms[j].position, sim->atoms[i].position);
     double r2 = vec3_norm2(d);
