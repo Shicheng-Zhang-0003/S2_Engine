@@ -845,18 +845,31 @@ void forces_calculate(Simulation *sim) {
             E_dihedral += forces_dihedral(sim->atoms, &sim->dihedrals[d]);
     }
 
-    /* 6. Harmonic positional restraints: V = 0.5 k |r - anchor|^2,
-     *    F = -k (r - anchor). Conservative, integrated by the same
-     *    Verlet step as every term above. */
+    /* 6. Harmonic / flat-bottom positional restraints.
+     *    Harmonic: V = 0.5 k |d|^2, F = -k d.
+     *    Flat-bottom (fb>0): V = 0 inside |d|<fb (free H-bond breathing),
+     *    V = 0.5 k (|d|-fb)^2 outside. Conservative, same Verlet step.
+     *    fb=0 reduces exactly to harmonic: every existing record bit-identical. */
     for (int r = 0; r < sim->num_restraints; r++) {
         int ia = sim->restraint_atom[r];
         if (ia < 0 || ia >= N) continue; /* defensive: stale index */
         Vec3 disp = vec3_sub(sim->atoms[ia].position,
                              sim->restraint_anchor[r]);
         double k = sim->restraint_k[r];
+        double fb = (sim->restraint_flat) ? sim->restraint_flat[r] : 0.0;
         if (!isfinite(k) || !isfinite(disp.x)) continue;
-        E_restraint += 0.5 * k * vec3_norm2(disp);
-        vec3_isub(&sim->atoms[ia].force, vec3_scale(disp, k));
+        if (!(fb > 0.0) || !isfinite(fb)) {
+            E_restraint += 0.5 * k * vec3_norm2(disp);
+            vec3_isub(&sim->atoms[ia].force, vec3_scale(disp, k));
+        } else {
+            double d = vec3_norm(disp);
+            if (!isfinite(d) || d <= fb) continue;
+            double ex = d - fb;
+            E_restraint += 0.5 * k * ex * ex;
+            if (d > 1e-12)
+                vec3_isub(&sim->atoms[ia].force,
+                          vec3_scale(disp, k * ex / d));
+        }
     }
 
     /* 7. qm v2/v4: induced-dipole polarization (analytic forces).
