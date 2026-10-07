@@ -902,6 +902,9 @@ void forces_calculate(Simulation *sim) {
     sim->E_lj_total      = E_lj;
     sim->E_coulomb_total = E_coulomb;
     sim->E_restraint_total = E_restraint;
+    sim->E_bond_total    = E_bond;
+    sim->E_angle_total   = E_angle;
+    sim->E_dihedral_total = E_dihedral;
     sim->E_polar_total   = E_polar;
     sim->E_pauli_total   = E_pauli;
     sim->E_disp_total    = E_disp;
