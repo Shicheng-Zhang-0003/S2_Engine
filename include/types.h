@@ -220,7 +220,10 @@ typedef struct {
 typedef enum {
     THERMOSTAT_NONE      = 0,
     THERMOSTAT_BERENDSEN = 1,   /* simple velocity rescaling (steering, not NVT) */
-    THERMOSTAT_ANDERSEN  = 2    /* stochastic collisions: rigorously canonical  */
+    THERMOSTAT_ANDERSEN  = 2,   /* stochastic collisions: rigorously canonical  */
+    THERMOSTAT_LANGEVIN  = 3    /* BAOAB-ish Langevin: friction + fluctuation,
+                                 * rigorously canonical, opt-in for production
+                                 * duplex/filter legs (Berendsen stays legacy) */
     /* THERMOSTAT_NOSE_HOOVER was removed by audit fix S3: it was declared
      * but never implemented, so selecting it would have silently run NVE
      * with no thermostat at all. Nosé-Hoover is real future work; re-add
@@ -232,8 +235,10 @@ typedef struct {
     double target_temperature; /* K                                          */
     double tau;                /* coupling time constant, fs                 */
     double nu;                 /* Andersen collision frequency, 1/fs (rate   *
-                                * per atom; prob per step = 1-exp(-nu*dt)).  *
-                                * Ignored by Berendsen.                     */
+                                 * per atom; prob per step = 1-exp(-nu*dt)).  *
+                                 * Ignored by Berendsen.                     */
+    double gamma;              /* Langevin friction, 1/fs. Only used by
+                                 * THERMOSTAT_LANGEVIN. 0 => NVE.            */
     /* xi (Nosé-Hoover friction variable) and Q (Nosé-Hoover mass
      * parameter) were removed by audit fix S3 together with
      * THERMOSTAT_NOSE_HOOVER: they were declared but never used by any
@@ -285,6 +290,11 @@ typedef struct {
      * k = 0.5 on nitrogen at dt = 0.5 fs - two orders of margin. */
     Vec3     *restraint_anchor;
     double   *restraint_k;       /* eV/A^2, one per restraint               */
+    double   *restraint_flat;   /* flat-bottom half-width, A. 0 = harmonic.
+                                 * >0: V=0 inside |r-a|<flat (free breathing
+                                 * for H-bonds), harmonic outside. Opt-in
+                                 * for base-pair/helix drift fix; default 0
+                                 * keeps every existing record bit-identical. */
     int      *restraint_atom;    /* atom index each restraint acts on       */
     int       num_restraints;
     int       capacity_restraints;
