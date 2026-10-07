@@ -108,6 +108,9 @@ void integrator_berendsen(Simulation *sim);
  */
 void integrator_andersen(Simulation *sim);
 
+/* ── Langevin thermostat (opt-in production NVT) ───────────────────────── */
+void integrator_langevin(Simulation *sim);
+
 /* ── Maxwell-Boltzmann velocity initialisation ───────────────────────────── */
 /*
  * Assigns velocities drawn from the Maxwell-Boltzmann distribution at
