@@ -168,6 +168,18 @@ double qm_c6(const Atom *a, const Atom *b);
  * b = mean Slater zeta (1/A) of the pair. Returns f and via dfdr. */
 double qm_tt_f6(double b, double r, double *dfdr_out);
 
+/* Becke-Johnson damping (Grimme D3-BJ, opt-in for duplex stacking):
+ * f6 = R^6/(R^6+R0^6), R0 = a1*R0ab+a2, R0ab ~ sum of vdW radii.
+ * Finite at R->0 (no 1/R^6 singularity), ->1 at long range like TT.
+ * a1=0.4289, a2=4.4407 A are D3-BJ defaults for PBE; pass-through here. */
+double qm_bj_f6(double r, double r0ab, double a1, double a2);
+
+/* Charge-penetration damped Coulomb (opt-in for short H-bonds):
+ * scale = 1-exp(-b*r)*(1+b*r+(b*r)^2/2), b in 1/A.
+ * ->0 at R->0 (removes point-charge collapse), ->1 at long range.
+ * b ~ 2*zeta mean of the pair; b<=0 returns 1 (undamped). */
+double qm_coulomb_pen(double b, double r);
+
 /* ── v2: induction energy + analytic forces ────────────────────────── */
 /* U_pol = -0.5*C*Σ_i alpha_i |E_i|^2 with E_i from all other point
  * charges (1-2/1-3 excluded like LJ when called from forces_calculate;
