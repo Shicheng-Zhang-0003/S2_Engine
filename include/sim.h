@@ -162,6 +162,11 @@ int sim_rebuild_angles_geometric(Simulation *sim, double k_default);
  */
 int sim_add_restraint(Simulation *sim, int atom_idx, Vec3 anchor, double k);
 
+/* Flat-bottom variant for H-bond drift fix (base-pair/helix HELD without
+ * steering the minimum). See types.h. flat=0 reduces to harmonic. */
+int sim_add_restraint_fb(Simulation *sim, int atom_idx, Vec3 anchor,
+                         double k, double flat);
+
 /* Remove all restraints (e.g. between production phases). */
 void sim_clear_restraints(Simulation *sim);
 
