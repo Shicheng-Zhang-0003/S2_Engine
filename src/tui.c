@@ -65,10 +65,15 @@ static void rxn_autocheck(Tui *t);
 static int sp_room(Tui *t, int atoms, int bonds);
 
 static void tui_new(Tui *t, int atoms, int bonds) {
-    if (t->sim) sim_destroy(t->sim);
+    /* FULL-AUDIT C11: create-then-swap. The old code destroyed the live
+     * world BEFORE knowing the replacement allocates; one OOM/over-cap
+     * typo annihilated the session. */
     if (atoms < 8) atoms = 8;
     if (bonds < 8) bonds = 8;
-    t->sim = sim_create(atoms, bonds);
+    Simulation *ns = sim_create(atoms, bonds);
+    if (!ns) { sh_err("  new: allocation failed, live world kept\n"); return; }
+    if (t->sim) sim_destroy(t->sim);
+    t->sim = ns;
     if (t->sim) {
         t->sim->dt = 0.5;
         t->sim->cutoff = 12.0;
@@ -80,14 +85,21 @@ static int parse_double(const char *s, double *out) {
     char *e = NULL;
     double v = strtod(s, &e);
     if (!e || e == s || !isfinite(v)) return 0;
+    while (*e == ' ' || *e == '\t') e++;
+    if (*e != '\0') return 0;
     *out = v;
     return 1;
 }
 
 static int parse_int(const char *s, int *out) {
+    /* FULL-AUDIT C13/C14: require full consumption (trailing garbage fails)
+     * and range-check long->int (wrap is silent wrong simulation). */
     char *e = NULL;
     long v = strtol(s, &e, 10);
     if (!e || e == s) return 0;
+    while (*e == ' ' || *e == '\t') e++;
+    if (*e != '\0') return 0;
+    if (v < (-2147483647L - 1L) || v > 2147483647L) return 0;
     *out = (int)v;
     return 1;
 }
@@ -96,6 +108,8 @@ static int parse_ulong(const char *s, unsigned long *out) {
     char *e = NULL;
     unsigned long v = strtoul(s, &e, 10);
     if (!e || e == s) return 0;
+    while (*e == ' ' || *e == '\t') e++;
+    if (*e != '\0') return 0;
     *out = v;
     return 1;
 }
@@ -176,7 +190,7 @@ static int test_d2(void) {
     if (a < 0 || b < 0) { sim_destroy(s); return t_fail("2", "place"); }
     sim_set_atom_lj(s, 0, eps, sig);
     sim_set_atom_lj(s, 1, eps, sig);
-    PairEnergy pe = forces_nonbonded_energy(s->atoms, 0, 1, NULL, 1, 0, 1.0);
+    PairEnergy pe = forces_nonbonded_energy(s->atoms, s->num_atoms, 0, 1, NULL, 1, 0, 1.0);
     double ref = -eps; /* LJ minimum value is exactly -eps */
     char d[128];
     snprintf(d, sizeof d, "LJ(rmin)=%.9f ref=%.9f", pe.lj_energy, ref);
@@ -454,6 +468,10 @@ static void print_help(void) {
     printf("    touch <sp> [xN] | touch -- <file> | touch -m <sp> | rmdir | rm -r | ln [-s]\n");
     printf("    date | uname | find | wait | true | false | : | eval | exec | command | type\n");
     printf("    shift | set -- | readonly | umask | trap | alias | if/for/while/case | !\n");
+    printf("  NOTE: trailing `&` forks a copy-on-write snapshot; background sim-mutating\n");
+    printf("        verbs (step/run) are DISCARDED on exit — use foreground for real trajectories.\n");
+    printf("  TRUST: `!`/`sh -c`/`source` run with YOUR privileges (host exec + FS write).\n");
+    printf("         Never source untrusted files. Set S2_NO_HOST=1 to disable host escape.\n");
     printf("    echo [-n] | printf | export | unset | env | history | source/. | clear\n");
     printf("    sleep <steps>[fs] | sleep <sec>s | time | test/[ | wait | | pipe | & ($!) | > >> < <<< 2> globs $() `` $(( ))\n");
     printf("  quit | exit [n]\n");
@@ -630,6 +648,12 @@ static int sh_valid_name(const char *s, size_t n) {
 }
 
 static int sh_set(const char *name, const char *val) {
+    /* FULL-AUDIT C22: silent 256B truncation is wrong science for scripts.
+     * Overlong values now fail instead of truncating. */
+    if (strlen(val) >= sizeof sh_val[0]) {
+        sh_err("  value too long (max %u)\n", (unsigned)sizeof sh_val[0] - 1);
+        return 1;
+    }
     for (int i = 0; i < sh_nvars; i++) {
         if (!strcmp(sh_name[i], name)) {
             snprintf(sh_val[i], sizeof sh_val[i], "%s", val);
@@ -672,7 +696,7 @@ static int run_line(Tui *t, char *line);
 /* integer arithmetic: + - * / % () unary, $V / V names, numbers */
 static const char *arith_p;
 static void arith_sp(void) { while (*arith_p == ' ' || *arith_p == '\t') arith_p++; }
-static long arith_expr(Tui *t, int *err);
+static unsigned long arith_expr(Tui *t, int *err);
 static long arith_val(Tui *t, int *err) {
     arith_sp();
     int neg = 0;
@@ -701,13 +725,17 @@ static long arith_val(Tui *t, int *err) {
     arith_sp();
     return neg ? -v : v;
 }
-static long arith_term(Tui *t, int *err) {
-    long v = arith_val(t, err);
+/* FULL-AUDIT C15: unsigned arithmetic (wrap mod 2^64 is DEFINED).
+ * Signed-long v*=r on overflow was UB reachable from a typed line
+ * (echo $(( 3037000500 * 3037000500 ))) and tripped UBSan. POSIX $(( ))
+ * is modulo 2^64 in practice; unsigned gives exactly that. */
+static unsigned long arith_term(Tui *t, int *err) {
+    unsigned long v = (unsigned long)arith_val(t, err);
     for (;;) {
         arith_sp();
         if (*arith_p == '*' || *arith_p == '/' || *arith_p == '%') {
             char op = *arith_p++;
-            long r = arith_val(t, err);
+            unsigned long r = (unsigned long)arith_val(t, err);
             if (*err) return 0;
             if (op == '*') v *= r;
             else if (r == 0) { *err = 1; return 0; }
@@ -717,13 +745,13 @@ static long arith_term(Tui *t, int *err) {
     }
     return v;
 }
-static long arith_expr(Tui *t, int *err) {
-    long v = arith_term(t, err);
+static unsigned long arith_expr(Tui *t, int *err) {
+    unsigned long v = arith_term(t, err);
     for (;;) {
         arith_sp();
         if (*arith_p == '+' || *arith_p == '-') {
             char op = *arith_p++;
-            long r = arith_term(t, err);
+            unsigned long r = arith_term(t, err);
             if (*err) return 0;
             v = (op == '+') ? v + r : v - r;
         } else break;
@@ -733,7 +761,8 @@ static long arith_expr(Tui *t, int *err) {
 static int eval_arith(Tui *t, const char *expr, long *out) {
     int err = 0;
     arith_p = expr;
-    long v = arith_expr(t, &err);
+    unsigned long uv = arith_expr(t, &err);
+    long v = (long)uv; /* mod-2^64 wrap; defined on this toolchain */
     arith_sp();
     if (err || *arith_p != '\0') return 0;
     *out = v;
@@ -1681,8 +1710,10 @@ static int cmd_load(Tui *t, const char *path) {
             goto done;
         }
     }
-    if (fscanf(f, "restraints %d\n", &nr) != 1 || nr < 0 || nr > 100000) {
-        sh_err("  bad restraint count\n");
+    /* FULL-AUDIT C18: bound at the REAL cap (32) before allocating.
+     * The old 100000 bound allocated 99k structs then failed at #33. */
+    if (fscanf(f, "restraints %d\n", &nr) != 1 || nr < 0 || nr > 32) {
+        sh_err("  bad restraint count (max 32)\n");
         goto done;
     }
     if (nr > 0) {
@@ -1706,6 +1737,13 @@ static int cmd_load(Tui *t, const char *path) {
             int idx = sim_add_atom(s, A[i].Z, vec3(A[i].x, A[i].y, A[i].z), A[i].q);
             if (idx < 0) { sh_err("  bad atom Z=%d\n", A[i].Z); ok = 0; break; }
             sim_set_atom_lj(s, idx, A[i].e, A[i].sg);
+            /* FULL-AUDIT C17: velocities were copied raw; NaN/1e999 in a
+             * hand-edited save loaded "successfully" and poisoned KE/T/E. */
+            if (!isfinite(A[i].vx) || !isfinite(A[i].vy) || !isfinite(A[i].vz)) {
+                sh_err("  bad velocity on atom %d\n", i);
+                ok = 0;
+                break;
+            }
             s->atoms[idx].velocity = vec3(A[i].vx, A[i].vy, A[i].vz);
         }
         for (int i = 0; i < nb && ok; i++) {
@@ -1736,6 +1774,12 @@ static int cmd_load(Tui *t, const char *path) {
         sim_rebuild_angles(s);
         forces_calculate(s);
         sh_err("  loaded %d atoms %d bonds %d restraints from `%s`\n", na, nb, nr, path);
+        /* FULL-AUDIT C16: S2SAVE1 is LOSSY. Dihedrals, explicit/geometric
+         * angle overrides, box/PBC, step/time, QM flags, RNG state are NOT
+         * restored (angles are rebuilt generically). The reloaded physics is
+         * a different system wearing the same atom dump. WARNING is loud;
+         * S2SAVE2 with full state is future work. */
+        sh_err("  WARNING: lossy load (dihedrals/angles/box/step/flags/RNG not restored)\n");
         rc = 0;
     }
 done:
@@ -1824,9 +1868,19 @@ static int run_stage(Tui *t, char **argv, const int *elig, int argc,
         sh_input = inf;
     } else if (r.herestr) {
         /* herestring: materialize content + newline as stdin */
+        /* FULL-AUDIT C20: TMPDIR is env-controlled; overlong/missing dirs
+         * previously truncated silently or steered temp files. Validate. */
         char htmp[256];
         const char *td = getenv("TMPDIR");
-        snprintf(htmp, sizeof htmp, "%s/s2hereXXXXXX", td ? td : "/tmp");
+        if (td && (strlen(td) > 200 || strchr(td, '\n'))) td = "/tmp";
+        if (td) {
+            struct stat st;
+            if (stat(td, &st) != 0 || !S_ISDIR(st.st_mode)) td = "/tmp";
+        }
+        if (snprintf(htmp, sizeof htmp, "%s/s2hereXXXXXX", td ? td : "/tmp") >= (int)sizeof htmp) {
+            sh_err("  redirection failed (TMPDIR too long)\n");
+            return 1;
+        }
         int hfd = mkstemp(htmp);
         if (hfd < 0) { sh_err("  redirection failed\n"); return 1; }
         size_t hl = strlen(r.herestr);
@@ -2731,27 +2785,47 @@ static int cmd_ls_files(const char *path) {
         sh_err("  cannot list `%s`\n", dir);
         return 1;
     }
+    /* FULL-AUDIT C23: readdir order is filesystem-hash order (nondeterministic
+     * stdout). Collect, sort, then print so captures are reproducible. */
+    char names[2048][256];
+    int nn = 0, overflow = 0;
     struct dirent *e;
     while ((e = readdir(d)) != NULL) {
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (nn >= 2048) { overflow = 1; continue; }
+        snprintf(names[nn], sizeof names[nn], "%s", e->d_name);
+        nn++;
+    }
+    closedir(d);
+    for (int i = 1; i < nn; i++) {
+        char tmp[256];
+        memcpy(tmp, names[i], sizeof tmp);
+        int j = i - 1;
+        while (j >= 0 && strcmp(names[j], tmp) > 0) {
+            memcpy(names[j + 1], names[j], sizeof names[j]);
+            j--;
+        }
+        memcpy(names[j + 1], tmp, sizeof tmp);
+    }
+    for (int i = 0; i < nn; i++) {
         int isdir = 0;
         if (!strcmp(dir, ".")) {
             struct stat st;
-            if (stat(e->d_name, &st) == 0 && S_ISDIR(st.st_mode)) isdir = 1;
+            if (stat(names[i], &st) == 0 && S_ISDIR(st.st_mode)) isdir = 1;
         } else {
             char full[1024];
-            size_t dl = strlen(dir), bl = strlen(e->d_name);
+            size_t dl = strlen(dir), bl = strlen(names[i]);
             if (dl + bl + 2 <= sizeof full) {
                 memcpy(full, dir, dl);
                 full[dl] = '/';
-                memcpy(full + dl + 1, e->d_name, bl + 1);
+                memcpy(full + dl + 1, names[i], bl + 1);
                 struct stat st;
                 if (stat(full, &st) == 0 && S_ISDIR(st.st_mode)) isdir = 1;
             }
         }
-        printf("  %s%s\n", e->d_name, isdir ? "/" : "");
+        printf("  %s%s\n", names[i], isdir ? "/" : "");
     }
-    closedir(d);
+    if (overflow) { sh_err("  too many entries (showing 2048 sorted)\n"); return 1; }
     return 0;
 }
 
@@ -3374,19 +3448,36 @@ static int find_walk(const char *path, const char *pat, int want_f, int want_d) 
     if (!isdir) return 0;
     DIR *d = opendir(path);
     if (!d) { sh_err("  cannot list `%s`\n", path); return 1; }
-    int rc = 0;
+    /* FULL-AUDIT C23: sort each level for deterministic stdout. */
+    char names[2048][256];
+    int nn = 0, rc = 0;
     struct dirent *e;
     while ((e = readdir(d)) != NULL) {
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (nn >= 2048) { sh_err("  too many entries\n"); rc = 1; continue; }
+        snprintf(names[nn], sizeof names[nn], "%s", e->d_name);
+        nn++;
+    }
+    closedir(d);
+    for (int i = 1; i < nn; i++) {
+        char tmp[256];
+        memcpy(tmp, names[i], sizeof tmp);
+        int j = i - 1;
+        while (j >= 0 && strcmp(names[j], tmp) > 0) {
+            memcpy(names[j + 1], names[j], sizeof names[j]);
+            j--;
+        }
+        memcpy(names[j + 1], tmp, sizeof tmp);
+    }
+    for (int i = 0; i < nn; i++) {
         char full[1024];
-        size_t dl = strlen(path), bl = strlen(e->d_name);
+        size_t dl = strlen(path), bl = strlen(names[i]);
         if (dl + bl + 2 > sizeof full) { sh_err("  path too long\n"); rc = 1; continue; }
         memcpy(full, path, dl);
         full[dl] = '/';
-        memcpy(full + dl + 1, e->d_name, bl + 1);
+        memcpy(full + dl + 1, names[i], bl + 1);
         if (find_walk(full, pat, want_f, want_d)) rc = 1;
     }
-    closedir(d);
     return rc;
 }
 
@@ -5661,7 +5752,32 @@ static int man_page(const char *topic) {
         return 0;
     }
     if (!strcmp(topic, "sh")) {
-        printf("SH(1)\nsh -c 'command'   run a command on the HOST shell, outside the world\n  (the honest escape hatch: no S2 rewriting applies).\n");
+        printf("SH(1)\nsh -c 'command'   run a command on the HOST shell, outside the world\n  (the honest escape hatch: no S2 rewriting applies).\n  TRUST: host escape + source run with YOUR privileges; never source untrusted\n  files. S2_NO_HOST=1 disables `!`/sh -c.\n");
+        return 0;
+    }
+    /* FULL-AUDIT O33: previously unmanned topics now have stubs. */
+    if (!strcmp(topic, "test")) {
+        printf("TEST(1)\ntest demo <id>   run one demo as a live system test (ids 1 2 3 4 5 6 7\n  8 9 10 11 12 12b 17). test all runs all 14 (want 14/14).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "help")) {
+        printf("HELP(1)\nhelp   print the command map (same index as `man`).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "tput")) {
+        printf("TPUT(1)\ntput clear   clear the terminal (terminfo passthrough).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "fc")) {
+        printf("FC(1)\nfc -l   list shell history (last commands first).\n");
+        return 0;
+    }
+    if (!strcmp(topic, "ps-keys")) {
+        printf("PS-KEYS(1)\nLive `ps` keys: space run/pause, s step, +/- speed, ijkl rotate,\n  arrows strafe, w water, N Na+, K K+, C Cl-, u base, a alanine,\n  g glycine, d sugar, H/L heat/cool, f freeze, r replace, p clone,\n  x delete, m minimise, n neuron, e catalysis, q quit.\n");
+        return 0;
+    }
+    if (!strcmp(topic, "vi-keys")) {
+        printf("VI-KEYS(1)\n`vi world` keys: hjkl pan, w/b select, i insert, r replace,\n  x delete, p clone, u undo, / search, : shell command, q quit.\n");
         return 0;
     }
     if (!strcmp(topic, "unlink")) {
@@ -5780,8 +5896,11 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
             int n = 1;
             if (nt >= 2 && !parse_int(tok[1], &n)) { sh_err("  usage: shift [n]\n"); return 2; }
             if (n < 0 || n > sh_argc) { sh_err("  shift: can't shift %d\n", n); return 1; }
-            for (int i = 0; i + n < sh_argc; i++)
-                snprintf(sh_argv[i], sizeof sh_argv[i], "%s", sh_argv[i + n]);
+            for (int i = 0; i + n < sh_argc; i++) {
+                /* FULL-AUDIT C25: overlapping snprintf is -Wrestrict UB.
+                 * Same-size buffers: memmove is exact. */
+                memmove(sh_argv[i], sh_argv[i + n], sizeof sh_argv[i]);
+            }
             sh_argc -= n;
             return 0;
         }
@@ -7036,7 +7155,14 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
         }
         else if (tok[0][0] == '!' && (nt >= 2 || tok[0][1] != '\0')) {
             /* full Linux command set, escaped to the real shell.
-             * Both `! make test` and `!make test` work. */
+             * Both `! make test` and `!make test` work.
+             * FULL-AUDIT C19: trust boundary. `!`/`sh -c` run with YOUR
+             * uid/cwd plus full FS write (>, tee, cp/mv/rm). Never source
+             * untrusted scripts. S2_NO_HOST=1 (or --restricted) disables. */
+            if (getenv("S2_NO_HOST")) {
+                sh_err("  host escape disabled (S2_NO_HOST is set)\n");
+                return 2;
+            }
             char cmd[4096];
             size_t L = 0;
             int ai = (tok[0][1] == '\0') ? 1 : 0;

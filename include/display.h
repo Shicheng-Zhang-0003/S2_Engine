@@ -25,13 +25,10 @@
  * All functions are best-effort and never fail the program.
  */
 
+/* FULL-AUDIT C31: re-read per call (isatty + getenv are negligible vs MD).
+ * The old cache-once froze late CARBON_QUIET changes and hid threaded state. */
 static int __attribute__((unused)) display_live(void) {
-    static int init = 0, on = 0;
-    if (!init) {
-        init = 1;
-        on = DISPLAY_ISATTY(STDERR_FILENO) && (getenv("CARBON_QUIET") == NULL);
-    }
-    return on;
+    return DISPLAY_ISATTY(STDERR_FILENO) && (getenv("CARBON_QUIET") == NULL);
 }
 
 static void __attribute__((unused)) progress(const char *fmt, ...) {
