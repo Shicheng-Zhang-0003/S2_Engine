@@ -30,8 +30,8 @@ every line command works, only the alternate-screen reports unavailable).
 | `make` / `make -j$(nproc)` | build everything: `carbonsim`, `s2tui`, and all six test binaries |
 | `./carbonsim` | run the 14-demo record sequence (~2 minutes); stdout is the byte-deterministic record |
 | `./run` | clean build behind a warning gate, run to `runs/<timestamp>.txt`, print old/new digests side by side |
-| `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt`; refuses to promote a run whose stderr is non-empty |
-| `make test` | build and run every gate — what CI should invoke |
+| `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt` + `kcsa.cvmds` (staged atomically as `runs/<stamp>.{txt,cvmds}`); refuses to promote unless stderr is empty AND `make test` is green |
+| `make test` | build and run the six unit gates only (17/22/7/165/51/60) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
 | `make tui` | build just the interactive terminal (`./s2tui`) |
 | `./verify_scripts.sh` | read-only record + spec verifier: baseline digest, `kcsa.cvmds` seal, key/unit compliance, every suite |
 | `./s01_verify_record.sh` | builds normally and under ASan/UBSan, asserts both reproduce the recorded digest with empty stderr |
@@ -39,10 +39,11 @@ every line command works, only the alternate-screen reports unavailable).
 | `make clean` | remove `build/`, both binaries, `audit/build` |
 | `s2tui` | interactive terminal; `help` prints the command map |
 
-The record build uses `-O3 -g -Wall -Wextra -std=c11 -Iinclude` and never
-`-march=native`: floating-point contraction must be portable across machines,
-and the record is only meaningful if it reproduces byte-for-byte elsewhere.
-Set `SOURCE_DATE_EPOCH` for byte-stable side artifacts.
+The record build uses `-O3 -g -Wall -Wextra -Werror -ffp-contract=off -std=c11 -Iinclude` and never
+`-march=native`: `-ffp-contract=off` pins FP codegen (the `-march` ban alone does not stop FMA
+fusion under `-O3` on FMA hosts), and `-Werror` makes warnings fail the build.
+Set `SOURCE_DATE_EPOCH` for byte-stable side artifacts (`./run` defaults it to the tree's own
+commit time so `kcsa.cvmds` seals identically across repeated runs).
 
 **Current gate status** (all green):
 
@@ -52,8 +53,8 @@ Set `SOURCE_DATE_EPOCH` for byte-stable side artifacts.
 | `test_forces` | 22 | analytic dihedrals vs finite-difference oracle, net-zero forces, collinear guard |
 | `test_fire` | 7 | FIRE and steepest descent reach the same minima |
 | `test_regression` | 165 | independent in-repo oracles: quadrature, finite differences, hand-derived values |
-| `test_external` | 49 | values from outside this repository (NIST CODATA, parm99.dat, FIPS, PDB 1K4C) |
-| `test_loop` | 54 | bio/QC/QM loop closure + best-layer: Nernst, kT, Marcus/Shannon/LJ/Coulomb, BJ/penetration, Langevin, flat-bottom, tethers, H-complete ions-hold |
+| `test_external` | 51 | values from outside this repository (NIST CODATA, parm99.dat, FIPS, PDB 1K4C) + HO-eps unit pin |
+| `test_loop` | 60 | bio/QC/QM loop closure + best-layer: Nernst, kT, Marcus/Shannon/LJ/Coulomb, BJ/penetration, Langevin, flat-bottom, tethers, H-complete ions-hold |
 
 plus a warning-free clean build, empty stderr, byte-identical stdout across
 repeated runs, and an intact `kcsa.cvmds` seal.
@@ -88,31 +89,31 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **25 507 lines** (src 20 066 · include 2 848 · tests 2 593).
+Current tree: **26 075 lines** (src 20 565 · include 2 880 · tests 2 630).
 
 | File | Lines | Role |
 |---|---:|---|
-| `src/tui.c` | 6953 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
-| `src/main.c` | 4189 | the 14-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs) |
-| `src/qm.c` | 1890 | QEq, induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver |
+| `src/tui.c` | 7155 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
+| `src/main.c` | 4220 | the 14-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
+| `src/qm.c` | 1896 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
-| `src/forces.c` | 927 | non-bonded pairs, bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown |
-| `src/sim.c` | 847 | lifecycle, molecule constructors, topology rebuild, ion/restraint plumbing (32 restraints) |
-| `src/integrator.c` | 780 | Velocity Verlet, PCG64/LCG, Maxwell–Boltzmann, Berendsen/Andersen/Langevin, steepest descent, FIRE |
+| `src/forces.c` | 1003 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud |
+| `src/sim.c` | 866 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints) |
+| `src/integrator.c` | 847 | Velocity Verlet, S2-PCG64-like/LCG (O'Neill-inspired, NOT reference pcg64), Maxwell–Boltzmann, Berendsen/Andersen/exact-OU-Langevin, steepest descent, FIRE |
 | `src/quantum.c` | 547 | Slater screening and orbital energies, hydrogenic radial profiles, Clementi–Raimondi exponents, real spherical harmonics |
 | `src/kcsa_filter.c` | 767 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit) |
 | `src/aminoacids.c` | 513 | glycine/alanine/dipeptide/polyalanine builders |
-| `src/datastream.c` | 374 | schema-1 writer, self-contained FIPS 180-4 SHA-256, seal verifier |
+| `src/datastream.c` | 374 | schema-1 writer, self-contained FIPS 180-4 SHA-256, seal verifier (fseeko/ftello, record-tree source-hash, \r/bracket hygiene) |
 | `src/periodic_table.c` | 294 | H–Kr element data, UFF ε/σ, Madelung electron configurations |
-| `src/tui_view.c` | 297 | viewport cell model shared by the ANSI frame and the curses screen |
+| `src/tui_view.c` | 383 | viewport cell model shared by the ANSI frame and the curses screen |
 | `src/tui_screen.c` | 169 | ncursesw alternate-screen monitor (optional dep, TTY-gated, piped-safe) |
 | `src/neuron.c` | 164 | Hodgkin–Huxley 1952 (squid giant axon) |
 | `src/loop.c` | 76 | bio/QC/QM loop closure: Nernst, kT scale, LJ/Coulomb from same primaries |
 | `tests/test_regression.c` | 1466 | the 165-check in-repo oracle suite |
-| `tests/test_external.c` | 536 | the 49-check outside-reference suite |
-| `tests/test_loop.c` | 256 | the 54-check loop-closure + best-layer suite |
+| `tests/test_external.c` | 543 | the 51-check outside-reference suite |
+| `tests/test_loop.c` | 273 | the 60-check loop-closure + best-layer suite |
 | `include/loop.h` | 55 | loop bridge contract + abstraction inventory |
-| `include/` | 2758 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
+| `include/` | 2825 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
 | `tests/` (other) | 335 | datastream, forces, fire suites |
 
 ---
@@ -193,11 +194,11 @@ in that table's sign convention (`+ = Na⁺ favored`):
 |---|---|---|
 | vacuum site legs (point/JC/SCF/v2/relaxed/stiff) | +0.21 … +0.75 eV | Na⁺ |
 | computed exchange, rigid filter | −0.5762 eV (deterministic) | K⁺ |
-| computed exchange, relaxed filter | −0.1557 ± 0.9041 eV | K⁺ (within noise) |
+| computed exchange, relaxed filter | −0.1557 ± 0.9041 eV | UNDECIDED (within spread) |
 | two-ion exchange | −0.2706 eV | K⁺/KK |
 | SCF-polar U(z) barrier, d(K−Na) | +2.5912 eV | Na⁺ pays less |
-| polar-WHAM barrier gap | −0.0422 ± 0.2332 eV | K⁺ (within its error) |
-| fixed-charge WHAM gap | +0.1572 eV | Na⁺ |
+| polar-WHAM barrier gap | +0.1155 ± 0.0886 eV | UNDECIDED (within spread) |
+| fixed-charge WHAM gap | +0.1558 eV | Na⁺ |
 | knock-on pair / conductive / landscape | +1.54 / +4.76 / +9.99 eV | Na⁺ |
 | measured dehydration (Marcus 1991 TATB) | K⁺ enters 0.726 eV cheaper | K⁺ |
 
@@ -251,8 +252,13 @@ The POSIX mapping for the rest of the world: `touch` creates matter,
 `fsck` detects topology, `sleep <n>` advances world time, `kill -SIG`
 freezes / stimulates / heats, `nice` minimises, `df`/`du` report state,
 `cp <species> x.mol` exports a template and `dd if=x.mol` instantiates it,
-`make x.rxn` fires a reaction rule, `sync` saves, `man` documents. Demos
-remain live system tests (`test all` = 14/14). The orthographic ASCII grid
+`make x.rxn` fires a reaction rule, `sync` saves, `man` documents (30 topics incl. test/help/tput/fc/ps-keys/vi-keys; `ps`/`vi` live keybinds also in this section). Demos
+remain live system tests (`test all` = 14/14). TRUST: `!`/`sh -c`/`source` run with YOUR
+privileges (host exec + filesystem write) — never source untrusted files;
+set `S2_NO_HOST=1` to disable the host escape. `save`/`load` (`S2SAVE1`) is LOSSY:
+dihedrals, explicit angle overrides, box/PBC, step/time, QM flags and RNG state are NOT
+restored (a loud WARNING prints on every load); `S2SAVE2` with full state is future work.
+The orthographic ASCII grid
 has depth shading, bonds, restraint anchors and a z-slab cutaway. Stream
 contract: stdout is DATA, stderr is diagnostics.
 
@@ -262,6 +268,8 @@ contract: stdout is DATA, stderr is diagnostics.
 
 Run `./carbonsim` for the record, or `test demo <n>` inside `s2tui` for the
 fast live smoke check.
+
+Demo numbers skip 13–16 (never assigned; reserved). 12b is the real-filter twin of 12, 17 is the duplex.
 
 | # | Demo | Current headline |
 |---|---|---|
@@ -275,7 +283,7 @@ fast live smoke check.
 | 8 | T-p-A dinucleotide | real sugar–phosphate backbone, net charge −1.00 e |
 | 9 | Hodgkin–Huxley neuron | action potential, +40 mV peak, 4 spikes / 50 ms |
 | 10 | Gly–Ala dipeptide | genuine 1.33 Å peptide bond |
-| 11 | α-helix | i,i+4 H-bond emerges: H···O 2.1634 Å, N···O 3.1256 Å |
+| 11 | α-helix | i,i+4 H-bond emerges: H···O 2.1204 Å, N···O 3.0982 Å |
 | 12 | KcsA legacy cage | full selectivity leg program; vacuum sites favor Na⁺, exchange favors K⁺ |
 | 12b | Real KcsA filter | deposited TVGYG, 164 atoms, C4 symmetry, CN = 8 at every site |
 | 17 | DNA duplex | G–C / A–T stack with B-DNA rise and twist; G–C BREATHING / A–T HELD |
@@ -348,6 +356,14 @@ Stated plainly, because the numbers above cannot be read correctly without them.
   condensed-phase system.
 * **O(N²) non-bonded loop, no neighbour list.** Fine at the current system
   sizes (≤ hundreds of atoms); pair exclusion is O(coordination).
+  `forces_calculate` warns once above 2000 atoms; cell lists are future work.
+  The RNG labelled PCG64 is S2-PCG64-like (O'Neill-inspired, NOT reference
+  pcg-random.org pcg64 — 64-bit increment, non-reference output permutation);
+  the LCG remains the record default. QEq is QEq-lite (topological 1-2/1-3
+  hard core, not Rappe shielded Coulomb) with a charge-conserving ±2e clamp.
+  Thole damping uses an absolute 2.0 Å width (not AMOEBA dimensionless a).
+  Hydroxyl-H LJ (0.5 Å, 0.001 kcal/mol) is a documented ff99 deviation whose
+  epsilon was a 23× unit bug before the full audit (bare eV); now pinned.
 * **Filter flexibility was tried and collapses** without a real protein force
   field: a restraint weak enough to let the filter respond cannot hold a +1
   ion's Coulomb field. The failure is documented, not tuned away.
@@ -362,7 +378,22 @@ Stated plainly, because the numbers above cannot be read correctly without them.
 * **`±` values are spreads, not errors.** The WHAM `±` is the sample standard
   deviation across 3 independent seed repeats — with n = 3 its own uncertainty
   is ~52%, and the output says so. Within-run sampling error is characterized
-  separately by τ and N_eff, also printed.
+  separately by τ and N_eff, also printed. Rule: when |value| < spread the
+  verdict is UNDECIDED (the record now prints this); 4-decimal barriers with
+  N_eff ~15 are not determined to 1e-4 — read 2 decimals.
+* **How to read τ/N_eff.** τ = integrated autocorrelation time (samples, Geyer
+  IPS, stopped before the first non-positive autocovariance); N_eff ≈ retained
+  samples / τ per window. The record prints mean-τ and N_eff per repeat plus
+  retained/dropped bin counts. With N_eff ~15–30 per window, barriers move ~0.1 eV
+  across seeds (observed: polar-WHAM gap −0.04 → +0.12 across the HO-eps fix,
+  both within spread) — which is why no selectivity free energy is claimed.
+* **Loop closure (one paragraph).** The three tracks never share dynamics, but
+  they share primaries: `src/loop.c` recomputes RT/F, kT, Nernst reversals
+  (squid 440/50 Na⁺, 20/400 K⁺ at 279.45 K → +52.3/−72.1 mV), the 1000:1
+  selectivity scale (−kT ln 1000 ≈ −0.179 eV at 300 K), LJ minima
+  (2^(1/6)·σ) and Coulomb from the same CODATA constants, and enumerates the
+  11 irreducible reduced-model choices (`LOOP_ABSTRACTIONS`) so no new
+  assumption slips in unlisted — adding one breaks `test_loop` by design.
 * **Verdicts** ("HELD", "BREATHING", "EMERGED") are the model's own
   thresholds, calibrated to the model's baseline behavior — not experimental
   pass/fail.
@@ -377,10 +408,17 @@ Stated plainly, because the numbers above cannot be read correctly without them.
 carbonsim, s2tui        built binaries (carbonsim tracked, s2tui untracked)
 output.txt              the record (stdout of ./carbonsim)
 CURRENT_BASELINE_SHA.txt  its SHA-256
-kcsa.cvmds              sealed datastream written by Demo 12
+kcsa.cvmds              sealed datastream written by Demo 12 (promoted atomically with output.txt)
+runs/                   staged candidates (ignored; ring buffer, never committed — 6 unpromoted
+                        diffs beside 2 matching pairs is normal pre-promotion, not failure)
 run, verify_scripts.sh  record workflow and read-only verifier
+                        (CI chain: make test && ./verify_scripts.sh && ./s01_verify_record.sh && make audit)
 s01_verify_record.sh    ASan/UBSan record reproducibility harness
-makefile                one command builds every executable
+makefile                one command builds every executable (-Werror, -ffp-contract=off;
+                        `make run` execs ./run — there is exactly one record path)
+NOTE: `build/*.o` + `carbonsim` are TRACKED per repo custom, so every verifier
+(`make clean` first) leaves `git status` showing rebuilt objects. Review only
+`git diff output.txt CURRENT_BASELINE_SHA.txt kcsa.cvmds` for record moves.
 readme.md               this file
 release_note_v9R4.md    the release's corrections and rationale (history)
 DATASTREAM_SPEC.md      the .cvmds format, schema 1

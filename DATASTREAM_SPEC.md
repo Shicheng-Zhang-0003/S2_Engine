@@ -39,10 +39,15 @@ Key/value pairs, one per line, `key: value`.
 - `build-flags:` exact CFLAGS used (a *record* build must NOT carry `-march=native`)
 - `source-hash:` SHA-256 of the source tree or git commit when VCS is
   available; otherwise a `record-tree-*` token describing the tree state
-  (no-VCS fallback, documented in the header; validators check presence,
-  not hash equality, in that mode)
+  (no-VCS fallback, e.g. `record-tree-v9R4-unversioned`; validators check
+  presence and the `record-tree-` prefix, not hash equality, in that mode).
+  Extra free-form suffixes after `;` are FORBIDDEN (full-audit O10).
 - `rng-seed:` integer seed for any stochastic initialisation
 - `wallclock:` ISO-8601 timestamp of the run
+
+Additional `kebab-case: value` header lines beyond the seven above (e.g.
+`version-internal`, `cage-geometry`) are PERMITTED, are covered by the seal,
+and MUST be ignored by verifiers (full-audit O12).
 
 ### 3.2 `[atoms]` — optional
 Static per-atom identity, one row per atom.
@@ -73,7 +78,12 @@ Columns: `key  value  unit  provenance`
 - `value`: signed decimal number, or a short token string
 - `unit`: `eV`, `A`, `A^3`, `K`, `fs`, `e` (elementary charge),
   `dimensionless`, or `-`
-- `provenance`: `computed`, `computed-jc2008-params` (JC ion sizes),
+- `provenance`: `computed` or `computed-<leg>(-<detail>)*` where `<leg>` is one
+  of `jc2008-params`, `ecc-scaled`, `v2`, `v2-induction`, `v2-pauli`, `scf-qm`,
+  `relaxed-scf`, `stiff-scaffold`, `6fold`, `exchange`, `knockon`, `scf-uz`,
+  `explicit-6water`, `explicit-6water-polar`, `polar-wham`, `polar-wham-300k`,
+  `wham-300k`, `scf-uz`, or a leg documented in §6 (full-audit O13; verifiers
+  MUST whitelist, not substring-match), `computed-jc2008-params` (JC ion sizes),
   `computed-ecc-scaled`, or a citation tag — `Marcus1991-TATB`
   (TATB-based absolute single-ion hydration FREE energies, Marcus 1991
   Faraday Trans. 87, 2995; full-audit N1 corrects the earlier
@@ -91,8 +101,12 @@ Columns: `key  value  unit  provenance`
   with the §3.4 element/energy exceptions; new keys must be lower-case.
 - Energies in eV, distances in Å (volumes `A^3`), charges in `e`,
   temperatures in K unless noted.
-- `ddg/ddu` are differences; sign convention stated in the claim's
-  trailing comment or provenance (legacy `ddG/ddU` accepted).
+- `ddg/ddu` are differences; sign convention stated ONCE in the Demo 12
+  forensic header + readme §8 (`dU = E(K+) − E(Na+)`, `+ = Na+ favored`;
+  exchange lines `negative = K+ selective`; FULL-AUDIT O14: per-claim
+  trailing `#` comments are NOT emitted by ds_add_claim and are NOT
+  required — the demo header carries the convention; legacy `ddG/ddU`
+  accepted).
 - Pore-axis single-point `U(z)` profiles are NOT free-energy PMFs;
   label them `U(z)`, never `PMF`, unless sampling/entropy is included.
 
