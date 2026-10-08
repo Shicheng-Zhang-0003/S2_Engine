@@ -665,25 +665,25 @@
 ║  DEMO 11: Alpha helix - does the i,i+4 H-bond emerge?║
 ╚══════════════════════════════════════════════════════╝
   Built 5-residue poly-alanine chain: 53 atoms, 52 bonds
-  Initial clash relaxation: 18811.68 -> 8.46 eV
+  Initial clash relaxation: 18811.68 -> 8.37 eV
   Added 12 dihedral restraints (phi, psi, omega for applicable
   residues) toward real textbook values.
-  Minimized: PE = 9.6890 eV
+  Minimized: PE = 9.5964 eV
 
   Residue    phi (deg)    psi (deg)   
-  1          -58.61      
-  2          -61.33      
-  3          -58.48      
-  4          -54.08      
-  0                       -48.04      
-  1                       -47.25      
-  2                       -52.46      
-  3                       -48.32      
+  1          -58.71      
+  2          -61.48      
+  3          -58.29      
+  4          -53.97      
+  0                       -47.97      
+  1                       -47.48      
+  2                       -52.32      
+  3                       -47.91      
 
-  Max deviation from target (phi=-57, psi=-47): 5.46 deg
+  Max deviation from target (phi=-57, psi=-47): 5.32 deg
 
   === The i,i+4 backbone hydrogen bond (not programmed in) ===
-  N-H(4) ... O=C(0): H...O = 2.1634 A, N...O = 3.1256 A
+  N-H(4) ... O=C(0): H...O = 2.1204 A, N...O = 3.0982 A
   Real backbone H-bond range: H...O 1.8-2.2 A, N...O 2.8-3.2 A
 
   --> A backbone hydrogen bond formed under steered local
@@ -693,9 +693,9 @@
       helical basin, so this tests cooperation of local
       geometry + non-bonded physics, not spontaneous folding.
   Restraint-release control (dihedrals off, re-minimized):
-  H...O = 2.0526 A, N...O = 3.0582 A -> H-bond PERSISTS without steering
+  H...O = 2.0668 A, N...O = 3.0600 A -> H-bond PERSISTS without steering
 
-  Bond length range: [0.9600, 1.5672] A   Bad bonds: 0   Valence issues: 0
+  Bond length range: [0.9663, 1.5663] A   Bad bonds: 0   Valence issues: 0
 
 ╔══════════════════════════════════════════════════════╗
 ║  DEMO 12: KcsA selectivity filter - K+ vs Na+, second pass║
@@ -862,20 +862,20 @@ Sum minus experimental dG: -0.5469 eV
 --- Explicit hydration (6-water cluster ΔU) ---
   K+: -3.7681 (polar -3.7819) | Na+: -4.6805 (polar -4.6887) | ΔΔU(K-Na)=+0.9124 eV (Marcus ΔΔG=-0.7255)
   Note: cluster ΔU vs bulk ΔG — scale comparison only.
-    sampling: 2400.0 samples/window, mean tau = 87.3 samples, N_eff = 15.4 independent samples/window
-    bins: 17 retained, 11 dropped by min_count=10
-  wham polar repeat 0 (seeds 100): K+ barrier=0.3321 eV | Na+ barrier=0.2774 eV
-    sampling: 2400.0 samples/window, mean tau = 97.5 samples, N_eff = 13.5 independent samples/window
-    bins: 23 retained, 5 dropped by min_count=10
-  wham polar repeat 1 (seeds 1000): K+ barrier=0.4351 eV | Na+ barrier=0.3083 eV
-    sampling: 2400.0 samples/window, mean tau = 69.8 samples, N_eff = 21.3 independent samples/window
+    sampling: 2400.0 samples/window, mean tau = 90.9 samples, N_eff = 16.0 independent samples/window
     bins: 21 retained, 7 dropped by min_count=10
-  wham polar repeat 2 (seeds 2000): K+ barrier=0.3764 eV | Na+ barrier=0.6847 eV
+  wham polar repeat 0 (seeds 100): K+ barrier=0.6019 eV | Na+ barrier=0.5734 eV
+    sampling: 2400.0 samples/window, mean tau = 97.5 samples, N_eff = 17.4 independent samples/window
+    bins: 19 retained, 9 dropped by min_count=10
+  wham polar repeat 1 (seeds 1000): K+ barrier=0.5479 eV | Na+ barrier=0.4355 eV
+    sampling: 2400.0 samples/window, mean tau = 82.2 samples, N_eff = 20.9 independent samples/window
+    bins: 19 retained, 9 dropped by min_count=10
+  wham polar repeat 2 (seeds 2000): K+ barrier=0.5099 eV | Na+ barrier=0.3043 eV
     bins: 20 retained, 8 dropped by min_count=10
-  wham fixed-charge ref (seeds 100): K+ barrier=0.5539 eV | Na+ barrier=0.3967 eV | gap=+0.1572 eV
+  wham fixed-charge ref (seeds 100): K+ barrier=0.5509 eV | Na+ barrier=0.3951 eV | gap=+0.1558 eV
 --- Umbrella polar-WHAM free energy (full QM: SCF dipoles+Pauli+disp, 300 K, 3x[7x12000 steps, sample every 5]) ---
-  K+: barrier=0.3812±0.0517 eV | Na+: barrier=0.4235±0.2268 eV | gap=-0.0422±0.2332 eV
-  Fixed-charge ref gap=+0.1572 eV. Polar sampling decides the kinetics bracket.
+  K+: barrier=0.5532±0.0462 eV | Na+: barrier=0.4378±0.1345 eV | gap=+0.1155±0.0886 eV
+  Fixed-charge ref gap=+0.1558 eV. Polar sampling decides the kinetics bracket.
   Barrier over bins with >=10 counts.
   ERROR BAR DEFINITION (audit S1; full-audit M9): the +/- is the sample standard
     deviation across 3 INDEPENDENT SEED REPEATS of the whole
@@ -898,17 +898,17 @@ Sum minus experimental dG: -0.5469 eV
     K+ dE(8-6)=+9.2220  Na+ dE(8-6)=+9.1330 (neg = prefers 8-fold)
   SCF-polar U(z) min         7.6983     7.4477     0.2505
   SCF-polar barrier          7.4759     4.8847     2.5912
-  polar-WHAM barrier         0.3812     0.4235    -0.0422
-  fixed-WHAM barrier         0.5539     0.3967     0.1572
+  polar-WHAM barrier         0.5532     0.4378     0.1155
+  fixed-WHAM barrier         0.5509     0.3951     0.1558
   knock-on pair             -7.0219    -8.5649     1.5430
   knock-on conductive       -3.3357    -8.0994     4.7637
   knock-on landsc bar       15.9800     5.9874     9.9926
-  knock-on landscape RAW 655317.2873 21246.5744 634070.7129
+  knock-on landsc DIAGNOSTIC 655317.2873 21246.5744 634070.7129
     (RAW row includes the CLASH-flagged z where the ions are driven to
      sub-Angstrom separation; not a barrier. Use the valid-subset row above.)
 --- Computed exchange K+(aq)+Na+.F -> Na+(aq)+K+.F ---
   relaxed-filter: -0.1557 ± 0.9041 eV | rigid-filter: -0.5762 eV (deterministic)
-  (negative = K+ selective; expt -0.179 eV)
+  (negative = K+ selective; expt -0.179 eV; FULL-AUDIT O35/O36: ± is across-seed spread n=3, not SEM; relaxed verdict: UNDECIDED (within spread))
 --- Two-ion exchange 2K+(aq)+NaNa.F -> 2Na+(aq)+KK.F ---
   -0.2706 eV (negative = KK selective; all four terms computed)
   SCOPE: a sum of rigid-cage and 6-water-cluster model terms, not a
@@ -1047,9 +1047,9 @@ MD STABILITY (8000-step ensemble): G-C BREATHING (range 2.91-4.10), A-T HELD (ra
   Phase 2 restraints: 4 sugar-C1' anchors, k=0.50
   Phase 2 trajectory (sugar-tethered, 4000 steps):
     step 0     GC 3.469 3.049 2.908 | AT 3.183 3.381
-    step 2000  GC 3.379 3.413 3.224 | AT 3.348 3.329
-    step 4000  GC 3.528 3.927 3.195 | AT 3.569 3.450
-  Phase 2 verdict: G-C BREATHING* (max 3.93), A-T HELD (max 3.57)
+    step 2000  GC 3.346 3.463 3.192 | AT 3.519 3.506
+    step 4000  GC 3.227 3.686 3.012 | AT 3.410 3.161
+  Phase 2 verdict: G-C BREATHING* (max 3.69), A-T HELD (max 3.52)
   (*3-sample ensemble; same thresholds as Phase 1)
 
   ══════════════════════════════════════════════════
