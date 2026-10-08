@@ -4,6 +4,7 @@
 # s2tui is a live tool, not a record artifact: always untracked.
 s2tui
 build/test_*
+build/verify_cvmds
 build/selftest*
 # make test writes the suite's output here so the gate can read the
 # binary's real exit status instead of a pipeline's (audit fix M5).

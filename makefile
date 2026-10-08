@@ -1,5 +1,8 @@
 CC      = gcc
-CFLAGS_BASE = -O3 -g -Wall -Wextra -std=c11 -Iinclude
+# FULL-AUDIT C24/C25: -ffp-contract=off pins FP codegen (the -march ban alone
+# does not stop FMA fusion under -O3 on FMA hosts; -O3-vs-O0 parity was luck),
+# and -Werror makes warnings fail the build instead of advisory text.
+CFLAGS_BASE = -O3 -g -Wall -Wextra -Werror -ffp-contract=off -std=c11 -Iinclude
 # [s41] datastream build identity: ds_open() records build-compiler and
 # build-flags in every datastream [header] (DATASTREAM_SPEC.md). The
 # strings are injected here so the binary knows how it was built.
@@ -51,8 +54,13 @@ DEPS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.d, $(SRCS))
 TEST_BINS = $(OBJ_DIR)/test_datastream $(OBJ_DIR)/test_forces \
             $(OBJ_DIR)/test_fire $(OBJ_DIR)/test_regression \
             $(OBJ_DIR)/test_external $(OBJ_DIR)/test_loop
+# FULL-AUDIT O16: seal checker (calls ds_verify_file; not a gate itself).
+VERIFY_BINS = $(OBJ_DIR)/verify_cvmds
 
-all: $(OBJ_DIR) $(BIN) $(TUI_BIN) $(TEST_BINS)
+all: $(OBJ_DIR) $(BIN) $(TUI_BIN) $(TEST_BINS) $(VERIFY_BINS)
+
+$(OBJ_DIR)/verify_cvmds: tests/verify_cvmds.c $(OBJ_DIR)/datastream.o
+	$(CC) $(CFLAGS) -o $@ tests/verify_cvmds.c $(OBJ_DIR)/datastream.o
 
 # Live terminal (see readme `s2tui` section): separate binary with its own
 # main, linked against engine objects minus main. Untracked tool, not record.
@@ -86,8 +94,10 @@ $(BIN): $(BIN_OBJS)
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) $(DEPFLAGS) -c -o $@ $<
 
+# FULL-AUDIT O8: `make run` used to bypass ./run discipline (no staging, no
+# digest, no gates). Now it execs ./run so there is exactly one record path.
 run: all
-	./$(BIN)
+	./run
 
 # [s41] datastream selftest: tests/test_datastream.c links against
 # src/datastream.o only — no dependency on the rest of the engine.

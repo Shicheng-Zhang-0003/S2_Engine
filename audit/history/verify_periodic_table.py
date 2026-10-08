@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""HISTORICAL (pre-v9R4), superseded; DO NOT RUN. Kept for provenance only.
+See v9R4/verify_scripts.sh and audit/run_audit.sh for current verifiers.
+Running this file today would re-mutate a fixed tree.
+"""
 """
 Periodic table verification against NIST/CODATA reference values.
 """
