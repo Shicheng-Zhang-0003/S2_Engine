@@ -1229,8 +1229,8 @@ static void test_dihedral_rotational_invariance(void) {
             f[i].position = a[i].position;
         }
         Dihedral dh = {0, 1, 2, 3, 0.1, 1, 0.0};
-        forces_dihedral(a, &dh);
-        forces_dihedral_fd(f, &dh);
+        forces_dihedral(a, 4, &dh);
+        forces_dihedral_fd(f, 4, &dh);
         Vec3 torque = vec3_zero(), scale = vec3_zero();
         for (int i = 0; i < 4; i++) {
             torque = vec3_add(torque, vec3_cross(a[i].position, a[i].force));

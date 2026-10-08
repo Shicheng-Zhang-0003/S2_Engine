@@ -20,7 +20,7 @@
  * effective nuclear charge Z_eff = Z - S, where S is the Slater screening
  * constant calculated from all other electrons by their proximity.
  *
- * Orbital energy: E_nl = -13.605693122994 eV × (Z_eff / n*)²
+ * Orbital energy: E_nl = -0.5*HARTREE_TO_EV eV × (Z_eff / n*)² (≈-13.6057; derived in-line, never hand-typed)
  * where n* is the effective principal quantum number (Slater 1930).
  */
 

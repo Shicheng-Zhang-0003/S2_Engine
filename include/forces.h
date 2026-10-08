@@ -76,7 +76,7 @@ static inline double lj_sigma_combine(double si, double sj) {
  * Returns the energy contributions in `out`.
  * `box` is used for minimum-image PBC; pass NULL for no PBC.
  */
-PairEnergy forces_nonbonded_pair(Atom *atoms, int ia, int ib,
+PairEnergy forces_nonbonded_pair(Atom *atoms, int num_atoms, int ia, int ib,
                                    const SimBox *box,
                                    int use_lj, int use_coulomb,
                                    double dielectric);
@@ -84,7 +84,7 @@ PairEnergy forces_nonbonded_pair(Atom *atoms, int ia, int ib,
 /* Side-effect-free pair energy (no force accumulation).
  * Use for diagnostics that must not perturb dynamics state.
  * Same potential, same cutoff handling via box; forces untouched. */
-PairEnergy forces_nonbonded_energy(const Atom *atoms, int ia, int ib,
+PairEnergy forces_nonbonded_energy(const Atom *atoms, int num_atoms, int ia, int ib,
                                    const SimBox *box,
                                    int use_lj, int use_coulomb,
                                    double dielectric);
@@ -94,7 +94,7 @@ PairEnergy forces_nonbonded_energy(const Atom *atoms, int ia, int ib,
  * V = 0.5 k (r - r0)²   → F_a = k(r-r0) r̂_ab,  F_b = −F_a
  * Returns bond potential energy in eV.
  */
-double forces_bond(Atom *atoms, const Bond *bond);
+double forces_bond(Atom *atoms, int num_atoms, const Bond *bond);
 
 /* ── Harmonic angle force (accumulates onto all three atoms) ─────────────── */
 /*
@@ -102,7 +102,7 @@ double forces_bond(Atom *atoms, const Bond *bond);
  * Gradient computed analytically via the chain rule through acos.
  * Returns angle potential energy in eV.
  */
-double forces_angle(Atom *atoms, const Angle *angle);
+double forces_angle(Atom *atoms, int num_atoms, const Angle *angle);
 
 /* ── Dihedral (torsion) force (accumulates onto all four atoms) ──────────── */
 /*
@@ -124,12 +124,12 @@ double forces_angle(Atom *atoms, const Angle *angle);
  *
  * Returns the dihedral potential energy in eV.
  */
-double forces_dihedral(Atom *atoms, const Dihedral *dihedral);
+double forces_dihedral(Atom *atoms, int num_atoms, const Dihedral *dihedral);
 
 /* Finite-difference torsion force (former default, validation oracle).
  * Same energy; forces via central differences (h=1e-5 A, 24 evals).
  * See tests/test_forces.c for the agreement contract. */
-double forces_dihedral_fd(Atom *atoms, const Dihedral *dihedral);
+double forces_dihedral_fd(Atom *atoms, int num_atoms, const Dihedral *dihedral);
 
 /* ── Master force calculation ────────────────────────────────────────────── */
 /*

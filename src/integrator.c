@@ -41,7 +41,12 @@
 static void kick_clamped(Atom *a, double inv_m, double dt) {
     double fx = a->force.x, fy = a->force.y, fz = a->force.z;
     double f2 = fx * fx + fy * fy + fz * fz;
-    if (isfinite(f2) && f2 > INTEGRATOR_FCAP_EV_A * INTEGRATOR_FCAP_EV_A) {
+    /* FULL-AUDIT C6: a non-finite f2 (inf from r->0 LJ 1/r^12 blowup, or NaN
+     * from a poisoned force path) previously SKIPPED the clamp and integrated
+     * inf into velocity, teleporting the atom to inf. Non-finite force must
+     * never integrate: zero the kick. */
+    if (!isfinite(f2)) return;
+    if (f2 > INTEGRATOR_FCAP_EV_A * INTEGRATOR_FCAP_EV_A) {
         double s = INTEGRATOR_FCAP_EV_A / sqrt(f2);
         fx *= s; fy *= s; fz *= s;
     }
@@ -113,9 +118,10 @@ void integrator_step(Simulation *sim) {
         integrator_langevin(sim);
 
     /* 4b. Diagnostic temperature cap: distinguish heat artefacts from
-     * real dynamics. Edge-triggered note (transition only, no spam). */
+     * real dynamics. Edge-triggered note (transition only, no spam).
+     * FULL-AUDIT C7: latch lives in the Simulation, not a function-static,
+     * so interleaved instances/threads cannot suppress each other's notes. */
     if (sim->max_temperature > 0.0 && isfinite(sim->max_temperature)) {
-        static int was_capped = 0;
         double T = integrator_temperature(sim);
         if (isfinite(T) && T > sim->max_temperature) {
             double s = sqrt(sim->max_temperature / T);
@@ -123,12 +129,15 @@ void integrator_step(Simulation *sim) {
                 Atom *a = &sim->atoms[i];
                 a->velocity.x *= s; a->velocity.y *= s; a->velocity.z *= s;
             }
-            if (!was_capped)
+            /* Record contract: diagnostics to stderr ONLY when live (TTY).
+             * The cap still applies silently on redirect so stdout stays the
+             * sole DATA stream and s01 empty-stderr holds. */
+            if (!sim->temp_capped_latched && display_live())
                 fprintf(stderr, "  capped T=%.3gK to %.3gK (set maxtemp to change)\n",
                         T, sim->max_temperature);
-            was_capped = 1;
+            sim->temp_capped_latched = 1;
         } else {
-            was_capped = 0;
+            sim->temp_capped_latched = 0;
         }
     }
 
@@ -179,7 +188,23 @@ double integrator_temperature(const Simulation *sim) {
     if (!sim || sim->num_atoms < 2) return 0.0;
     double ke  = integrator_kinetic_energy(sim);
     if (!isfinite(ke)) return 0.0;
-    long dof = 3L * (long)sim->num_atoms - 3L - (long)sim->num_constrained_dof;
+    /* FULL-AUDIT C8: num_constrained_dof has no setter and was never
+     * validated. A negative or absurd value silently biases every printed T
+     * (dof huge -> T~0; dof 3N-4 by typo -> 3x error). Clamp to the honest
+     * range [0, 3N-4] with a warn-once so miscounts fail loudly. */
+    long nc = (long)sim->num_constrained_dof;
+    if (nc < 0 || nc > 3L * (long)sim->num_atoms - 4L) {
+        static int warned = 0;
+        if (!warned) {
+            fprintf(stderr, "integrator_temperature: WARNING num_constrained_dof=%ld out of range [0,%ld]; clamped to range\n",
+                    nc, 3L * (long)sim->num_atoms - 4L);
+            warned = 1;
+        }
+        if (nc < 0) nc = 0;
+        else nc = 3L * (long)sim->num_atoms - 4L;
+        if (nc < 0) nc = 0;
+    }
+    long dof = 3L * (long)sim->num_atoms - 3L - nc;
     if (dof < 1) dof = 1;
     return (2.0 * ke) / ((double)dof * KB_EV);
 }
@@ -252,7 +277,7 @@ void integrator_berendsen(Simulation *sim) {
  *    behaviour in the low-order bits and visible lattice structure, so
  *    it is a mediocre source for molecular dynamics.
  *
- *  - PCG64 (O'Neill 2014, pcg_setseq_128_xsl_rr_64). A permuted
+ *  - S2-PCG64-like (O'Neill-inspired, NOT reference pcg64). A permuted
  *    congruential generator with a 2^64 period, proper output
  *    permutation, and a 128-bit LCG state. Statistically far stronger
  *    than the LCG for the same cost. Select it with
@@ -264,7 +289,7 @@ void integrator_berendsen(Simulation *sim) {
  * each generator reproduce a fixed reference stream bit-for-bit.
  */
 
-/* PCG64 (O'Neill 2014, pcg_setseq_128_xsl_rr_64 with a 64-bit increment —
+/* S2-PCG64-like (O'Neill-inspired, NOT reference pcg-random.org pcg64; see M39 —
  * the standard `pcg64` of pcg-random.org). 128-bit LCG state, 64-bit
  * output, 2^64 period. */
 #define PCG_DEFAULT_INCREMENT 6364136223846793005ULL
@@ -436,12 +461,14 @@ void integrator_andersen(Simulation *sim) {
 /* ══════════════════════════════════════════════════════════════════════════
  * Langevin thermostat (opt-in production NVT for duplex/filter legs).
  *
- * v += -gamma*v*dt + sqrt(2*gamma*kT/m)*sqrt(dt)*N(0,1) per component
- * (Euler-Maruyama on top of Verlet velocities; friction gamma in 1/fs,
- * default 1/tau if gamma<=0). Rigorously canonical like Andersen but
- * gentle (no full-velocity resets): preserves duplex H-bond lifetimes
- * and filter knock-on kinetics that Andersen collisions randomize.
- * gamma=0 reduces to NVE. Deterministic given sim RNG stream.
+ * Exact Ornstein-Uhlenbeck propagation (Gronbech-Jensen/Farago), NOT
+ * Euler-Maruyama: c1 = exp(-gamma*dt), v <- c1*v + sigma_v*sqrt(1-c1^2)*N(0,1)
+ * per component (FULL-AUDIT M18: the old header comment said Euler-Maruyama
+ * while the code has always been exact OU; comment corrected to match code).
+ * Friction gamma in 1/fs, default 1/tau if gamma<=0. Rigorously canonical
+ * like Andersen but gentle (no full-velocity resets): preserves duplex
+ * H-bond lifetimes and filter knock-on kinetics that Andersen collisions
+ * randomize. gamma=0 reduces to NVE. Deterministic given sim RNG stream.
  * ══════════════════════════════════════════════════════════════════════════ */
 void integrator_langevin(Simulation *sim) {
     if (!sim || !sim->atoms || sim->num_atoms < 1) return;

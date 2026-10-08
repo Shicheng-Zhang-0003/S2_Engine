@@ -146,8 +146,13 @@
 /* These are NOT derived from a table: both nucleobases.c and aminoacids.c
  * independently settled on 0.5 A / 0.001 kcal/mol after the failure
  * described above, and the consolidation confirmed the two copies agreed
- * rather than assuming they did. */
+ * rather than assuming they did.
+ *
+ * FULL-AUDIT M41: epsilon is 0.001 KCAL/MOL, not 0.001 eV. The bare
+ * literal overstated the well depth 23.06x (0.001 eV = 0.02306 kcal/mol)
+ * and propagated sqrt(23)~4.8x into every HO-X pair via the geometric
+ * mean. The conversion is now explicit like every sibling macro. */
 #define LJ_AMBER_HO_SIGMA     0.5
-#define LJ_AMBER_HO_EPS       0.001
+#define LJ_AMBER_HO_EPS       (0.001 * KCAL_MOL_TO_EV)
 
 #endif /* AMBER_LJ_H */

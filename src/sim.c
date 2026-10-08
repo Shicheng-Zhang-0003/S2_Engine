@@ -151,8 +151,17 @@ int sim_add_ion(Simulation *sim, int Z, int formal_charge,
     /* Electron configuration for the actual electron count */
     pt_electron_config_n(Z, Z - formal_charge, &a->electron_config);
 
-    /* Populate orbital table */
-    quantum_fill_orbitals(a);
+    /* Populate orbital table (FULL-AUDIT C10: use the checked variant so
+     * Z>=57 truncation is visible to the caller, not dropped on the floor.
+     * The warning still fires inside; over-cap Z is rejected loudly). */
+    {
+        int truncated = 0;
+        quantum_fill_orbitals_checked(a, &truncated);
+        if (truncated) {
+            sim->num_atoms--;
+            return SIM_ERR_BADPARAM;
+        }
+    }
 
     return idx;
 }
@@ -536,6 +545,9 @@ int sim_rebuild_angles_geometric(Simulation *sim, double k_default) {
 
                 int ia = b->bond_partners[p];
                 int ic = b->bond_partners[q];
+                /* FULL-AUDIT C1: same P6 guard as sim_rebuild_angles.
+                 * Corrupt partner indices must skip, never OOB-read. */
+                if (ia < 0 || ia >= sim->num_atoms || ic < 0 || ic >= sim->num_atoms) continue;
 
                 double theta = vec3_angle(
                     vec3_sub(sim->atoms[ia].position, b->position),
