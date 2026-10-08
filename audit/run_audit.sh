@@ -25,8 +25,8 @@ REVERT=0
 cd "$TREE"
 mkdir -p "$BUILD"
 
-# Engine objects, minus main.o. Rebuilt if needed; `make` is the honest way
-# to ask, and a stale object is how this tree once hid a build failure.
+# Engine objects, minus main.o. FULL-AUDIT O27: hermetic — build first instead
+# of trusting ambient .o (a stale object once hid a build failure).
 # Excludes tui.o/tui_view.o (separate binary with its own main) — same
 # filter as makefile ENG_OBJS — otherwise every harness link fails with
 # multiple definition of `main`. tui_screen.o is likewise TUI-only (and
@@ -38,7 +38,17 @@ for o in "$TREE"/build/*.o; do
     OBJS+=("$o")
 done
 if [ "${#OBJS[@]}" -eq 0 ]; then
-    echo "FATAL: no engine objects in $TREE/build — run 'make' first" >&2
+    echo "audit: no engine objects; running make first (hermetic)" >&2
+    (cd "$TREE" && make >/dev/null 2>&1) || { echo "FATAL: make failed" >&2; exit 2; }
+    OBJS=()
+    for o in "$TREE"/build/*.o; do
+        b="$(basename "$o")"
+        case "$b" in main.o|tui.o|tui_view.o|tui_screen.o|test_*|*.d) continue ;; esac
+        OBJS+=("$o")
+    done
+fi
+if [ "${#OBJS[@]}" -eq 0 ]; then
+    echo "FATAL: no engine objects in $TREE/build after make" >&2
     exit 2
 fi
 
@@ -146,8 +156,12 @@ if [ "$REVERT" -eq 1 ]; then
         grep '^  FAIL' "$STAGE/regression.log" | sed 's/^/    /'
         # A revert run that fails everything is broken; one that passes
         # everything means the suite no longer tests the defects.
-        if [ "$rc" -ne 0 ] && [ "$nf" -ge 1 ]; then
-            printf '  PASS  the pre-fix engine is still caught by the suite (%s red checks)\n' "$nf"
+        # FULL-AUDIT O27: pin nf>=4 (coupled-dipole residual, rotation
+        # covariance, QEq conservation, SCF conservation) — a suite catching
+        # 1 of 4 defects must NOT pass revert. Harness -O2 vs engine -O3
+        # flag skew is documented and accepted (record forbids -march, not -O).
+        if [ "$rc" -ne 0 ] && [ "$nf" -ge 4 ]; then
+            printf '  PASS  the pre-fix engine is still caught by the suite (%s red checks, want >=4)\n' "$nf"
             pass=$((pass+1))
         else
             printf '  FAIL  the suite did not catch the pre-fix engine\n'

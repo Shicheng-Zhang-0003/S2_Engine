@@ -87,6 +87,8 @@ echo; echo "=== datastream ==="
 if ! make selftest >"$AUDIT_TMP/selftest_build.log" 2>&1; then echo "  FAIL  make selftest builds"; cat "$AUDIT_TMP/selftest_build.log" | head -10; fail=1; fi
 ./build/test_datastream >/dev/null 2>&1 && ST=0 || ST=1
 chk "selftest green" "0" "$ST"
+DS_PASS=$(./build/test_datastream 2>&1 | grep -c '^  PASS' || true)
+chk "datastream gate count == 17" "17" "$DS_PASS"
 if ! make selftest-forces >"$AUDIT_TMP/forces_build.log" 2>&1; then echo "  FAIL  make selftest-forces builds"; fail=1; fi
 ./build/test_forces >/dev/null 2>&1 && FT=0 || FT=1
 if ! make selftest-regression >"$AUDIT_TMP/regression_build.log" 2>&1; then echo "  FAIL  make selftest-regression builds"; fail=1; fi
@@ -106,13 +108,19 @@ ET_FAIL=$(grep -c '^  FAIL' "$VERIFY_EXT_LOG" 2>/dev/null || true)
 RT_PASS=$(grep -c '^  PASS' "$VERIFY_REG_LOG" 2>/dev/null || true)
 RT_FAIL=$(grep -c '^  FAIL' "$VERIFY_REG_LOG" 2>/dev/null || true)
 chk "forces selftest green (P2)" "0" "$FT"
+FT_PASS=$(./build/test_forces 2>&1 | grep -c '^  PASS' || true)
+chk "forces gate count == 22" "22" "$FT_PASS"
 if ! make selftest-fire >"$AUDIT_TMP/fire_build.log" 2>&1; then echo "  FAIL  make selftest-fire builds"; fail=1; fi
 ./build/test_fire >/dev/null 2>&1 && FR=0 || FR=1
 chk "fire selftest green" "0" "$FR"
+FR_PASS=$(./build/test_fire 2>&1 | grep -c '^  PASS' || true)
+chk "fire gate count == 7" "7" "$FR_PASS"
 chk "selftest-regression green" "0" "$RT"
+chk "regression gate count == 165" "165" "$RT_PASS"
 printf '  ---- audit regression suite: %s checks passed, %s failed ----\n' "$RT_PASS" "$RT_FAIL"
 [ "$RT_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_REG_LOG" | head -20
 chk "selftest-external green" "0" "$ET"
+chk "external gate count == 51" "51" "$ET_PASS"
 printf '  ---- external sources: %s checks passed, %s failed ----\n' "$ET_PASS" "$ET_FAIL"
 [ "$ET_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_EXT_LOG" | head -20
 # Loop-closure suite: bio/QC/QM share one physics (Nernst, kT scale,
@@ -122,10 +130,16 @@ if ! make selftest-loop >"$AUDIT_TMP/loop_build.log" 2>&1; then echo "  FAIL  ma
 LT_PASS=$(grep -c '^  PASS' "$VERIFY_LOOP_LOG" 2>/dev/null || true)
 LT_FAIL=$(grep -c '^  FAIL' "$VERIFY_LOOP_LOG" 2>/dev/null || true)
 chk "selftest-loop green" "0" "$LT"
+chk "loop gate count == 60" "60" "$LT_PASS"
 printf '  ---- loop-closure: %s checks passed, %s failed ----\n' "$LT_PASS" "$LT_FAIL"
 [ "$LT_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_LOOP_LOG" | head -20
 if [ -f kcsa.cvmds ]; then
-  ./build/test_datastream >/dev/null 2>&1 # ensures verifier linked; use binary below
+  # FULL-AUDIT O16: primary seal check calls ds_verify_file (no fork risk).
+  if [ -x ./build/verify_cvmds ]; then
+    if ./build/verify_cvmds kcsa.cvmds >/dev/null 2>&1; then SEAL_C="OK"; else SEAL_C="BAD"; fi
+    chk "kcsa.cvmds seal intact (ds_verify_file)" "OK" "$SEAL_C"
+  fi
+  # python cross-check kept as second opinion, not primary.
   python3 - <<'PY'
 import sys
 PY
@@ -140,10 +154,27 @@ print('OK' if hashlib.sha256(d[:i]).hexdigest()==h else 'BAD')")
   chk "no legacy UPPER keys (q_O/dE/S_/BO_/alpha_O)" "0" "$(grep -cE 'q_O_mean|q_K|q_Na|dE_K|dE_Na|S_K|S_Na|BO_K|BO_Na|alpha_O|E_K|E_Na|ddG|ddU' kcsa.cvmds || true)"
   chk "lower-case keys present" "1" "$(grep -Fc 'kcsa.qm.alpha_o' kcsa.cvmds)"
   chk "charge unit e present" "1" "$(grep -Fc 'kcsa.qm.q_k' kcsa.cvmds)"
+  chk "header schema present" "1" "$(grep -Fc 'schema: 1' kcsa.cvmds)"
+  chk "header demo kcsa present" "1" "$(grep -Fc 'demo: kcsa' kcsa.cvmds)"
+  chk "source-hash record-tree-* present" "1" "$(grep -Fc 'source-hash: record-tree-' kcsa.cvmds)"
+  chk "provenance legacy-free (JC2008-alone deprecated)" "0" "$(grep -cE ' JC2008( |$)' kcsa.cvmds || true)"
+  chk "no digest duplicated in prose" "0" "$(grep -rE '[0-9a-f]{64}' readme.md release_note_v9R4.md DATASTREAM_SPEC.md 2>/dev/null | wc -l)"
 else
   echo "  FAIL  kcsa.cvmds missing"; fail=1
 fi
 
 echo
 if [ "$fail" -ne 0 ]; then echo "VERIFY FAILED"; exit 1; fi
+echo; echo "=== stdout/stderr + TUI contract ==="
+if printf 'help\ntest all\n' | timeout 60 ./s2tui >/dev/null 2>&1; then
+  echo "  PASS  s2tui smoke (help + test all)"
+else
+  echo "  FAIL  s2tui smoke (help + test all)"; fail=1
+fi
+if printf 'screen\n' | S2TUI_SCREEN=0 timeout 20 ./s2tui >/dev/null 2>&1; then
+  echo "  PASS  s2tui screen forced-line degrade"
+else
+  echo "  FAIL  s2tui screen forced-line degrade"; fail=1
+fi
+
 echo "VERIFY PASSED"

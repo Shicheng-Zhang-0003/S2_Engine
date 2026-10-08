@@ -1,8 +1,11 @@
+#define _POSIX_C_SOURCE 200809L /* FULL-AUDIT C30: expose fseeko/ftello + off_t under -std=c11 */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include <time.h>
 #include "../include/datastream.h"
 
@@ -153,7 +156,7 @@ void ds_sha256_hex(const void *data, size_t len, char out65[65]) {
     sha256_init(&s);
     sha256_update(&s, data, len);
     sha256_final(&s, d);
-    for (i = 0; i < 32; i++) sprintf(out65 + 2*i, "%02x", d[i]);
+    for (i = 0; i < 32; i++) snprintf(out65 + 2*i, 3, "%02x", d[i]); /* FULL-AUDIT C29: snprintf, never sprintf */
     out65[64] = '\0';
 }
 
@@ -165,7 +168,7 @@ static void ds_append(DSWriter *w, const char *fmt, ...) {
     if (!w || w->failed || !fmt) { if (w) w->failed = 1; return; }
     va_start(ap, fmt);
     va_copy(ap2, ap);
-    n = vsnprintf(NULL, 0, fmt, ap);
+    n = vsnprintf(NULL, 0, fmt, ap); /* C99 sizing query; glibc + C23-portable. Strictly-portable pre-C99 parsers would want a stack probe first — not targeted. */
     va_end(ap);
     if (n < 0) { va_end(ap2); w->failed = 1; return; }
     if (w->len > (size_t)2147483647 - (size_t)n - 1) { va_end(ap2); w->failed = 1; return; }
@@ -244,7 +247,8 @@ static int ds_text_ok(const char *s) {
 
 void ds_set_header(DSWriter *w, const char *key, const char *value) {
     if (!w || w->failed) return;
-    if (!ds_text_ok(key) || !value || strchr(value, '\n')) { w->failed = 1; return; }
+    /* FULL-AUDIT C29: values must not smuggle \r/[] either (viewer-line rewrite). */
+    if (!ds_text_ok(key) || !value || !ds_text_ok(value)) { w->failed = 1; return; }
     ds_append(w, "%s: %s\n", key, value);
 }
 
@@ -323,16 +327,17 @@ int ds_verify_file(const char *path) {
     char hex[65];
     int rc = -1;
     if (!f || !path) { if (f) fclose(f); return -1; }
-    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
+    if (fseeko(f, 0, SEEK_END) != 0) { fclose(f); return -1; }
     {
-        long szl = ftell(f);
+        off_t szo = ftello(f);
+        long szl = (szo > (off_t)2147483647) ? -1 : (long)szo; /* FULL-AUDIT C30: 64-bit offsets; >2GB rejected below */
         if (szl < 0) { fclose(f); return -1; }
         sz = (int64_t)szl;
         /* If long truncated (szl==LONG_MAX but file larger), reject rather
          * than verify a prefix. .cvmds files are kB-scale; >2GB is abuse. */
         if (sz < 90) { fclose(f); return -1; }
     }
-    if (fseek(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
+    if (fseeko(f, 0, SEEK_SET) != 0) { fclose(f); return -1; }
     buf = (char *)malloc((size_t)sz + 1);
     if (!buf) { fclose(f); return -1; }
     if (fread(buf, 1, (size_t)sz, f) != (size_t)sz) {
@@ -346,7 +351,9 @@ int ds_verify_file(const char *path) {
          * content is masquerading as structure (only possible if the
          * writer's marker hygiene was bypassed) - reject. */
         endline2 = endline ? strstr(endline + 1, "\n[end]\n") : NULL;
-        hashfield = strstr(buf, "\npayload-sha256: ");
+        /* FULL-AUDIT C30: search forward from [end], not from buf start,
+         * and require the hash line to be the final line (no trailing claims). */
+        hashfield = endline ? strstr(endline, "\npayload-sha256: ") : NULL;
         if (endline && !endline2 && hashfield && hashfield > endline) {
             /* payload = everything before the newline that precedes [end] */
             size_t payload_len = (size_t)(endline - buf);

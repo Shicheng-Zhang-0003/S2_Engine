@@ -51,6 +51,8 @@ printf 'run: building\n' >&2
 # Full-audit P20: clean-first + warning gate. An incremental `make` is a no-op
 # against tracked objects and cannot fail (B1 class). Fail closed on warnings.
 make clean >/dev/null 2>&1
+# FULL-AUDIT O23: hermetic log path (missing dir previously failed closed-open).
+mkdir -p "${TMPDIR:-/tmp/opencode}/s2audit"
 if ! make > "${TMPDIR:-/tmp/opencode}/s2audit/run_build.log" 2>&1; then echo "run: clean build failed" >&2; exit 1; fi
 if grep -q 'warning:' "${TMPDIR:-/tmp/opencode}/s2audit/run_build.log"; then echo "run: build produced warnings" >&2; exit 1; fi
 
@@ -58,9 +60,21 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$RUNS_DIR"
 OUT="$RUNS_DIR/$STAMP.txt"
 ERR="$RUNS_DIR/$STAMP.stderr.txt"
+CVMD="$RUNS_DIR/$STAMP.cvmds"
+
+# FULL-AUDIT O17: byte-stable side artifacts. ds_open() honors
+# SOURCE_DATE_EPOCH; default to the tree's own commit time so repeated
+# runs seal identically unless the caller overrides.
+if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
+  SOURCE_DATE_EPOCH="$(git log -1 --format=%ct 2>/dev/null || date +%s)"
+  export SOURCE_DATE_EPOCH
+fi
 
 printf 'run: executing (about two minutes)\n' >&2
 ./carbonsim > "$OUT" 2> "$ERR"
+# FULL-AUDIT O21: stage the kcsa.cvmds side effect alongside stdout so the
+# sealed pair cannot fork (record = stdout + cvmds, promoted atomically).
+if [ -f kcsa.cvmds ]; then cp kcsa.cvmds "$CVMD"; fi
 
 if [ -s "$ERR" ]; then
   echo "run: engine wrote to stderr; not promoting a run whose stderr is not empty" >&2
@@ -76,15 +90,34 @@ echo "  this run         : $NEW   ($OUT)"
 echo "  recorded ledger  : $(cat "$LEDGER" 2>/dev/null | tr -d ' \n' || echo '(absent)')"
 
 if [ -z "$(cat "$ERR")" ] && [ "$OLD" = "$NEW" ]; then
-  echo "  verdict          : identical to the record; nothing to promote"
+  echo "  verdict          : identical to the record; nothing to promote (stdout)"
+  # FULL-AUDIT O21: the cvmds sidecar still moves (wallclock/source-hash) while
+  # stdout stands still. Refresh it when the staged copy seal-verifies.
+  if [ -f "$CVMD" ] && [ -x ./build/verify_cvmds ] && ./build/verify_cvmds "$CVMD" >/dev/null 2>&1; then
+    if ! cmp -s "$CVMD" kcsa.cvmds; then
+      cp "$CVMD" kcsa.cvmds
+      echo "  sidecar          : kcsa.cvmds refreshed (sealed; stdout unchanged)"
+    fi
+  fi
   exit 0
 fi
 
+# FULL-AUDIT O22: promotion requires empty stderr AND a green verifier.
+# An empty stderr alone can still promote red science; warn loudly.
 if [ "$ACCEPT" -eq 1 ] && [ -z "$(cat "$ERR")" ]; then
+  if [ -f "$CVMD" ] && ! ./build/verify_cvmds "$CVMD" >/dev/null 2>&1 && [ -x ./build/verify_cvmds ]; then
+    echo "run: WARNING: staged cvmds seal did not verify; promoting stdout only" >&2
+  fi
+  if ! make test >/dev/null 2>&1; then
+    echo "run: REFUSING promotion: make test is red (run with empty arg to stage without promoting)" >&2
+    exit 1
+  fi
   cp "$OUT" "$RECORD"
   printf '%s\n' "$NEW" > "$LEDGER"
-  echo "  verdict          : PROMOTED to $RECORD and $LEDGER"
+  if [ -f "$CVMD" ]; then cp "$CVMD" kcsa.cvmds; fi
+  echo "  verdict          : PROMOTED to $RECORD and $LEDGER (+ kcsa.cvmds)"
   echo "                    review 'git diff $RECORD' before committing"
+  echo "                    then run ./verify_scripts.sh && ./s01_verify_record.sh"
   exit 0
 fi
 

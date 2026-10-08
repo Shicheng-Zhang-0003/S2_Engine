@@ -68,6 +68,11 @@ echo "[5/6] restore tracked build (tree dirtied by clean)"
 # Full-audit O6: the final `make clean` deleted TRACKED build/*.o + carbonsim,
 # leaving the tree git-dirty by design. Rebuild normal so the working tree is
 # left in its committed state (clean build, zero warnings) rather than dirty.
+# FULL-AUDIT s01-hardening: clean-first, not plain `make`. A plain make trusts
+# ambient .o files, which are ASan-tainted at this point; flag changes are
+# invisible to mtime comparison, so the relink fails with __asan undefined
+# references (observed 2026-10-08: restore linked ASan .o without -fsanitize).
+make -C "$TREE" clean >/dev/null
 make -C "$TREE" >"$SCRATCH/build_restore.log" 2>&1 || { echo "FATAL: restore build failed"; exit 1; }
 
 echo "[6/6] assertions"
