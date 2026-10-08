@@ -154,7 +154,7 @@ double integrator_minimize_frozen(Simulation *sim, const int *frozen,
                                    double force_tolerance);
 
 /*
- * FIRE energy minimization (Bitzek et al., PRL 96, 054102 (2006)):
+ * FIRE energy minimization (Bitzek et al., PRL 97, 170201 (2006)):
  * inertial dynamics with velocity mixing toward forces and adaptive
  * timestep; faster than steepest descent on stiff/ill-conditioned
  * landscapes. Velocities and dt are saved and restored (FIRE owns them
