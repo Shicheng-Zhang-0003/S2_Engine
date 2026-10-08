@@ -264,7 +264,9 @@ ViewCells *view_compute(const Simulation *sim, const ViewCam *cam,
         }
     }
     /* restraint anchors as x (same fit scale) */
-    if (sim && pr) {
+    /* FULL-AUDIT C33: check the arrays alongside the count (corrupt/partial
+     * sims must not segfault the renderer). */
+    if (sim && pr && sim->restraint_anchor && sim->restraint_k) {
         for (r = 0; r < sim->num_restraints; r++) {
             Vec3 d = vec3_sub(sim->restraint_anchor[r], ctr);
             double x1, y1, y2;

@@ -34,10 +34,12 @@ int screen_init(void) {
     if (!screen_available()) return 1;
     setlocale(LC_ALL, "");
     if (initscr() == NULL) return 1;
-    cbreak();
-    noecho();
-    keypad(stdscr, TRUE);
-    curs_set(0);
+    /* FULL-AUDIT C33: curses setup returns are cosmetic-only (screen never
+     * feeds the record); explicitly ignored so -Werror stays quiet. */
+    (void)cbreak();
+    (void)noecho();
+    (void)keypad(stdscr, TRUE);
+    (void)curs_set(0);
     set_escdelay(25);
     if (has_colors()) {
         start_color();
@@ -51,8 +53,8 @@ int screen_init(void) {
 
 void screen_shutdown(void) {
     if (!screen_inited) return;
-    curs_set(1);
-    endwin();
+    (void)curs_set(1);
+    (void)endwin();
     screen_inited = 0;
 }
 
