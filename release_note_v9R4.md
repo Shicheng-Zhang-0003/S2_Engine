@@ -276,10 +276,11 @@ Equally worth recording, because it bounds where the doubt lies.
 ## 6. Verification
 
 ```
-clean build                          0 errors, 0 warnings
+clean build (-Werror -ffp-contract=off)  0 errors, 0 warnings
 selftest / forces / fire             17 / 22 / 7 checks green
 selftest-regression                  165 checks green
-selftest-external                    49 checks green (full-audit O8: was omitted)
+selftest-external                    51 checks green (49 + HO-eps unit pins)
+selftest-loop                        60 checks green
 ASan + UBSan                         0 memory errors, 0 UB, empty stderr
 stdout byte-identical across runs    yes
 stdout byte-identical under ASan     yes
@@ -308,3 +309,56 @@ sit next to each other in a way that invites the wrong conclusion.
 * The umbrella barriers are reported to four decimals with a three-seed
   spread, and the measured N_eff of 15–30 per window means they are not
   determined to that precision. The program says so in its own output.
+
+---
+
+## 8. Full-audit follow-through (post-v9R4 operation)
+
+A second, deeper pass (118 findings: 47 math/physics, 34 programming, 37
+operational) verified every equation against its canonical external source
+and repaired what it found. Truth changes, all pinned by tests:
+
+* **HO epsilon unit fix (CRITICAL).** Hydroxyl-H LJ was `0.001` bare-eV
+  against a documented `0.001 kcal/mol` (23.06× too deep, ~4.8× into every
+  HO–X pair via the geometric mean). Now `(0.001 * KCAL_MOL_TO_EV)` with a
+  `test_external` pin. Record moves honestly: helix PE 9.689 → 9.596 eV,
+  H-bond 2.1634 → 2.1204 Å, polar-WHAM gap −0.0422 ± 0.2332 → +0.1155 ±
+  0.0886 eV (sign flips inside spread — still UNDECIDED, still no
+  selectivity claim; verdicts HELD/BREATHING unchanged).
+* **PCG64 claim narrowed.** The stream is O'Neill-inspired, not reference
+  pcg64 (64-bit increment, non-reference output permutation). Renamed
+  S2-PCG64-like in code and docs; LCG stays the record default.
+* **QEq/Thole relabelled.** QEq-lite (topological hard core, not Rappe
+  shielding) and absolute-width Thole damping are now named as what they are.
+* **Force-layer trust boundaries.** Bond/angle/dihedral/pair entry points now
+  take `num_atoms` and reject upper-bound OOB (wild read + wild force write
+  on corrupt topology); LJ-energy diagnostic mirrors the P9 guard; angle
+  forces gate finiteness; `kick_clamped` zeroes non-finite kicks instead of
+  integrating inf; per-sim temperature-cap latch; constrained-DOF validation.
+* **Fail loud.** QM caps (SCF 128, polar 256, coupled-SCF 64) warn-once on
+  stderr instead of substituting U=0 at exit 0; `main` returns 1 on demo
+  failure; temperature-cap diagnostics are TTY-gated so the record stderr
+  stays empty.
+* **TUI hardening.** Create-then-swap `new`, full-consumption numeric parsing
+  with INT range checks, unsigned `$(( ))` arithmetic (no UB), lossy-save
+  WARNING (S2SAVE1 drops dihedrals/angles/box/flags/RNG), velocity finiteness,
+  restraint-cap-bounded loader, `S2_NO_HOST` restricted mode with documented
+  trust boundary, TMPDIR validation, overlap-safe `shift`, man stubs for
+  `test/help/tput/fc/ps-keys/vi-keys`.
+* **Build.** `-ffp-contract=off` (FMA fusion pinned, not just `-march` banned)
+  and `-Werror`; datastream `record-tree-<git-sha>` source-hash, `\r`/bracket
+  hygiene, `fseeko`/`ftello`, NULL-safe seal search; `verify_cvmds` C tool
+  calls `ds_verify_file` as primary with python as second opinion.
+* **Operations.** `./run` stages `runs/<stamp>.{txt,cvmds}` and promotes
+  atomically, defaults `SOURCE_DATE_EPOCH` to the tree commit time, and
+  refuses `--accept` unless `make test` is green; `make run` execs `./run`;
+  `verify_scripts.sh` asserts exact gate counts (17/22/7/165/51/60), header
+  presence, provenance/unit hygiene, no-digest-in-prose, and a TUI smoke;
+  spec schema-1 frozen with `computed-<leg>` grammar and the sign convention
+  carried once in the Demo 12 header; `run_audit.sh` builds hermetically and
+  requires ≥4 red checks on revert; history scripts carry HISTORICAL headers.
+
+Verification at promotion: `make test` 6/6 green, `./verify_scripts.sh`
+VERIFY PASSED (incl. TUI smoke + seal), record digest `see
+CURRENT_BASELINE_SHA.txt`, stderr empty, `s01` ASan/UBSan byte-identity per
+`s01_verify_record.sh`.
