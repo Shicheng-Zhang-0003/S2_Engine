@@ -59,6 +59,11 @@
  *   missing carbonyl is modelled. That is a modelling decision about the
  *   N-terminus, not a transcription slip, and it belongs with whoever
  *   decides whether this segment should be capped at N as well as at C.
+ *   FULL-AUDIT M44 decision: keep rigid + disclosed. The two candidate
+ *   fixes are (a) acetyl N-cap + sp2 rebuild, (b) N-methylamide C74 proxy +
+ *   sp3 rebuild; both move heavy atoms the deposited geometry pins, so
+ *   neither is applied silently. Revisit only with a C74 model + CN=8
+ *   re-validation (see test_external 1K4C checks).
  *   OXT: C79's carboxyl gets the standard 1.25 A terminal oxygen on the
  *   external bisector of CA79 and O79, making the segment a valid
  *   neutral pentapeptide. GLY79's own carbonyl oxygen points 4.82 A off

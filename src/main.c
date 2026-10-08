@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L /* FULL-AUDIT O10: popen/pclose for source-hash */
 #include <stdio.h>
 #include <math.h>
 #include <time.h>
@@ -38,6 +39,9 @@ static void demo_clock_done(const char *name) {
  * the demo count and the guard bounds-checks against that, so the next demo
  * added cannot quietly disappear from the recap. */
 #define DEMO_VERDICT_COUNT 14
+/* FULL-AUDIT C27: fail-closed exit status. Demo alloc-failure paths
+ * previously printed to stdout and main() unconditionally returned 0. */
+static int g_failed = 0;
 static char g_verdict[DEMO_VERDICT_COUNT][128];
 static void set_verdict(int i, const char *fmt, ...) {
     va_list ap;
@@ -320,7 +324,7 @@ static void demo_water_md(void) {
     banner("DEMO 3: H2O molecule — Berendsen MD at 300 K");
 
     Simulation *sim = sim_create(16, 32);
-    if (!sim) { printf("  ERROR: allocation failed\n"); return; }
+    if (!sim) { fprintf(stderr, "  ERROR: allocation failed\n"); g_failed = 1; return; }
 
     /* Place water at origin */
     sim_place_h2o(sim, vec3_zero());
@@ -416,7 +420,7 @@ static void demo_water_cluster(void) {
     banner("DEMO 4: Cyclic (H2O)3 — emergent hydrogen-bonded ring");
 
     Simulation *sim = sim_create(64, 128);
-    if (!sim) { printf("  ERROR: allocation failed\n"); return; }
+    if (!sim) { fprintf(stderr, "  ERROR: allocation failed\n"); g_failed = 1; return; }
 
     const double PI    = 3.14159265358979323846;
     const double r_OO   = 2.95;                  /* Å, O···O H-bond distance */
@@ -984,7 +988,7 @@ static void demo_basepairing(void) {
                 for (int jj = c; jj < c+13; jj++) {
                     double d = vec3_dist(sim->atoms[ii].position, sim->atoms[jj].position);
                     if (d < min_d) { min_d = d; mi = ii; mj = jj; }
-                    PairEnergy pe = forces_nonbonded_energy(sim->atoms, ii, jj,
+                    PairEnergy pe = forces_nonbonded_energy(sim->atoms, sim->num_atoms, ii, jj,
                                                            &sim->box, 1, 0, sim->dielectric);
                     if (pe.lj_energy > max_lj) { max_lj = pe.lj_energy; li = ii; lj_idx = jj; }
                 }
@@ -3204,7 +3208,9 @@ static void demo_kcsa_filter(void) {
          * labelled as what it is — the raw scan extent, reported so the
          * CLASH rows are visible rather than hidden — instead of sitting in
          * a column of dU(K−Na) values as though it were one. */
-        printf("  %-22s %10.4f %10.4f %10.4f\n", "knock-on landscape RAW", kn_k_max - kn_k_min, kn_na_max - kn_na_min,
+        /* FULL-AUDIT O37: RAW row is clash-inclusive diagnostic (6e5 eV), not a
+         * barrier. Labelled DIAGNOSTIC in-leg so it cannot be quoted as one. */
+        printf("  %-22s %10.4f %10.4f %10.4f\n", "knock-on landsc DIAGNOSTIC", kn_k_max - kn_k_min, kn_na_max - kn_na_min,
                (kn_k_max - kn_k_min) - (kn_na_max - kn_na_min));
         printf("    (RAW row includes the CLASH-flagged z where the ions are driven to\n");
         printf("     sub-Angstrom separation; not a barrier. Use the valid-subset row above.)\n");
@@ -3245,7 +3251,8 @@ static void demo_kcsa_filter(void) {
         printf("--- Computed exchange K+(aq)+Na+.F -> Na+(aq)+K+.F ---\n");
         printf("  relaxed-filter: %+.4f ± %.4f eV | rigid-filter: %+.4f eV (deterministic)\n",
                exch, exch_err, rigid_exch);
-        printf("  (negative = K+ selective; expt -0.179 eV)\n");
+        printf("  (negative = K+ selective; expt -0.179 eV; FULL-AUDIT O35/O36: ± is across-seed spread n=3, not SEM;");
+        printf(" %s)\n", (exch_err > 0 && fabs(exch) < exch_err) ? "relaxed verdict: UNDECIDED (within spread)" : "relaxed verdict: sign holds outside spread");
         printf("--- Two-ion exchange 2K+(aq)+NaNa.F -> 2Na+(aq)+KK.F ---\n");
         printf("  %+.4f eV (negative = KK selective; all four terms computed)\n", exch2);
         /* AUDIT FIX V2: this number needs the caveat its one-ion sibling has.
@@ -3269,7 +3276,40 @@ static void demo_kcsa_filter(void) {
             ds_set_header(w, "rng-seed", "7");
             ds_set_header(w, "version-internal", S2_VERSION_INTERNAL);
             ds_set_header(w, "version-external", S2_VERSION_EXTERNAL);
-            ds_set_header(w, "source-hash", "git-tracked-tree; see CURRENT_BASELINE_SHA.txt");
+            /* FULL-AUDIT O10: spec requires a SHA or record-tree-* token.
+             * Prefer the git commit when available, else a record-tree token. */
+            {
+                char sh[64] = "";
+                FILE *gp = popen("git rev-parse HEAD 2>/dev/null", "r");
+                if (gp) {
+                    if (fgets(sh, sizeof sh, gp)) {
+                        size_t L = strlen(sh);
+                        while (L && (sh[L-1] == '\n' || sh[L-1] == '\r' || sh[L-1] == ' ')) sh[--L] = '\0';
+                        if (L == 40) {
+                            char tok[96];
+                            /* FULL-AUDIT O10: a dirty tree is not the commit.
+                             * Suffix -dirty when `git status` is non-empty. */
+                            int dirty = 0;
+                            FILE *gs = popen("git status --porcelain 2>/dev/null", "r");
+                            if (gs) {
+                                char lb[256];
+                                if (fgets(lb, sizeof lb, gs)) dirty = 1;
+                                pclose(gs);
+                            }
+                            snprintf(tok, sizeof tok, "record-tree-%s%s", sh,
+                                     dirty ? "-dirty" : "");
+                            ds_set_header(w, "source-hash", tok);
+                        } else {
+                            ds_set_header(w, "source-hash", "record-tree-v9R4-unversioned");
+                        }
+                    } else {
+                        ds_set_header(w, "source-hash", "record-tree-v9R4-unversioned");
+                    }
+                    pclose(gp);
+                } else {
+                    ds_set_header(w, "source-hash", "record-tree-v9R4-unversioned");
+                }
+            }
             ds_set_header(w, "build-flags-note", "record build must not carry -march=native");
             ds_set_header(w, "cage-geometry",
                           "LEGACY demo-12 constructed cage: 3d-2.70-2.83-xy-derived-zsep-3.084");
@@ -3753,7 +3793,7 @@ printf("    A-T: N1...N3=%.3f  N6...O4=%.3f\n", pm_at1, pm_at2);
         for (int j = i + 1; j < sim->num_atoms; j++) {
             int bj = (j>=g&&j<g+16)?0:(j>=c&&j<c+13)?1:(j>=a&&j<a+15)?2:3;
             if (bi == bj) continue;
-            PairEnergy pe = forces_nonbonded_energy(sim->atoms, i, j,
+            PairEnergy pe = forces_nonbonded_energy(sim->atoms, sim->num_atoms, i, j,
                                                     &sim->box, 1, 1, sim->dielectric);
             int cross = ((bi < 2) != (bj < 2));
             if (cross) { lj_st += pe.lj_energy; c_st += pe.coulomb_energy; }
@@ -3879,7 +3919,7 @@ for (int step = 0; step <= N_steps; step++) {
             for (int j = i + 1; j < sim->num_atoms; j++) {
                 int bj = (j>=g&&j<g+16)?0:(j>=c&&j<c+13)?1:(j>=a&&j<a+15)?2:3;
                 if (bi == bj || (bi < 2) == (bj < 2)) continue;
-                PairEnergy pe = forces_nonbonded_energy(sim->atoms, i, j,
+                PairEnergy pe = forces_nonbonded_energy(sim->atoms, sim->num_atoms, i, j,
                                                         &sim->box, 1, 1, sim->dielectric);
                 lj_st += pe.lj_energy; c_st += pe.coulomb_energy;
             }
@@ -4174,6 +4214,7 @@ int main(void) {
         printf("  ══════════════════════════════════════════════════\n");
     }
 
+    if (g_failed) fprintf(stderr, "  RECORD FAILED: one or more demos errored\n");
     printf("\n  All demos complete.\n");
     printf("  Three validated tracks now exist: nucleic acids (bases through a\n"
            "  real phosphodiester bond), proteins (a real peptide bond AND, given\n"
@@ -4185,5 +4226,5 @@ int main(void) {
            "  gating from actual protein structure rather than empirical rate\n"
            "  equations - closing the loop between the protein and\n"
            "  electrophysiology tracks.\n\n");
-    return 0;
+    return g_failed ? 1 : 0;
 }

@@ -12,9 +12,14 @@
 /* Forward: SCF-consistent spatial Zeff (defined with screening block). */
 static int qm_pair_excluded(const Simulation *sim, int i, int j);
 
-/* QEq hard-core exclusion: Rappe-Goddard sets A_ij = 0 for topologically
- * bonded 1-2 and 1-3 pairs, so screening is not double-counted between
- * atoms joined by a bond. Shared with the Pauli/dispersion exclusion. */
+/* QEq hard-core exclusion (FULL-AUDIT M27: QEq-lite, NOT literal Rappe-Goddard).
+ * Rappe-Goddard (JPCB 95,3358,1991) uses a SHIELDED Coulomb taper for bonded
+ * neighbours; this engine zeroes A_ij for topological 1-2/1-3 pairs instead.
+ * The deviation is deliberate: full 1/r on bonded neighbours overpowered the
+ * hardness and ran away to q(C)=+4.82e (measured), so the hard core plus the
+ * charge-conserving +-2e mean-contraction keeps the solve feasible. Shared
+ * with the Pauli/dispersion exclusion. Cite as QEq-lite with topological
+ * hard core; a shielded-Coulomb variant is future work. */
 static int qm_pair_excluded(const Simulation *sim, int i, int j);
 
 /* Clamp for QEq partial charges. Beyond +/-2 e no carbonyl or amide
@@ -934,7 +939,8 @@ double qm_polarizability(const Atom *atom) {
  */
 #define QM_FIELD_C (1.0 / COULOMB_MD)
 
-/* Thole damping width (A) for induction: f(r) = 1 - exp(-(r/a)^3).
+/* Thole-INSPIRED absolute-width damping (A) for induction (FULL-AUDIT M28:
+ * not AMOEBA dimensionless a): f(r) = 1 - exp(-(r/a)^3).
  * At r >> a, f→1 (exact point field); at r→0, f~(r/a)^3 kills the
  * 1/r^2 singularity (E_d ~ r, U finite). a=2.0 keeps first-shell
  * ion-O (2.35-2.75 A, f=0.80-0.93) near-exact while preventing the

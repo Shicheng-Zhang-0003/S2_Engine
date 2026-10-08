@@ -389,6 +389,11 @@ typedef struct {
     uint64_t rng_state;
     uint64_t rng_state_hi;      /* high word of the 128-bit PCG64 state */
     int      rng_kind;          /* INTEGRATOR_RNG_* ; LCG is the default  */
+    /* FULL-AUDIT C7: per-sim temperature-cap latch. integrator_step's
+     * diagnostic cap previously used a function-static flag shared across
+     * all Simulation instances and threads; sim A tripping the cap would
+     * suppress the edge-triggered note for sim B. Now per-instance. */
+    int      temp_capped_latched;
 } Simulation;
 
 /* ══════════════════════════════════════════════════════════════════════════

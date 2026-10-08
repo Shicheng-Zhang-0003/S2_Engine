@@ -27,8 +27,8 @@ static void run_case(const char *name, Vec3 p[4], double k, int n, double delta)
     memset(af, 0, sizeof af);
     for (int i = 0; i < 4; i++) { aa[i].position = p[i]; af[i].position = p[i]; }
     Dihedral dh = {0, 1, 2, 3, k, n, delta};
-    double Ea = forces_dihedral(aa, &dh);
-    double Ef = forces_dihedral_fd(af, &dh);
+    double Ea = forces_dihedral(aa, 4, &dh);
+    double Ef = forces_dihedral_fd(af, 4, &dh);
     double maxd = 0.0;
     Vec3 sum = vec3_zero();
     for (int i = 0; i < 4; i++) {
@@ -77,7 +77,7 @@ int main(void) {
         ac[0].position = vec3(0,0,0); ac[1].position = vec3(1,0,0);
         ac[2].position = vec3(2,0,0); ac[3].position = vec3(3,0,0);
         Dihedral dh = {0, 1, 2, 3, 0.1, 1, 0.0};
-        double E = forces_dihedral(ac, &dh);
+        double E = forces_dihedral(ac, 4, &dh);
         double f = 0.0;
         for (int i = 0; i < 4; i++) f += vec3_norm(ac[i].force);
         check(isfinite(E) && f == 0.0, "collinear: finite energy, zero forces");

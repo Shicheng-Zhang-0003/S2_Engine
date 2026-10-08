@@ -173,6 +173,13 @@ static void test_amber_lj_external(void) {
     okrel("LJ_AMBER_O_SIGMA = 2.95992 A (AMBER R* 1.6612)",
           LJ_AMBER_O_SIGMA, 2.959922, 1e-6);
 
+    /* FULL-AUDIT M41: hydroxyl-H eps is 0.001 KCAL/MOL, not 0.001 eV.
+     * The bare literal overstated the well 23.06x. Pin the unit. */
+    okrel("LJ_AMBER_HO_EPS = 0.001 kcal/mol in eV",
+          LJ_AMBER_HO_EPS, 0.001 * KCAL_MOL_TO_EV, 1e-15);
+    okrel("LJ_AMBER_HO_SIGMA = 0.5 A (documented deviation)",
+          LJ_AMBER_HO_SIGMA, 0.5, 1e-15);
+
     /* Lorentz-Berthelot against its definition. AMBER combines R_min-half
      * arithmetically and epsilon geometrically. Because the conversion
      * carries a factor 2 and divides by 2^(1/6), that is exactly
@@ -368,7 +375,7 @@ static void test_nonbonded_external(void) {
         at[0].lj_sigma = at[1].lj_sigma = sig;
         at[0].lj_epsilon = at[1].lj_epsilon = eps;
         at[0].partial_charge = q; at[1].partial_charge = -q;
-        PairEnergy pe = forces_nonbonded_energy(at, 0, 1, NULL, 1, 1, 1.0);
+        PairEnergy pe = forces_nonbonded_energy(at, 2, 0, 1, NULL, 1, 1, 1.0);
         double sr = sig / r;
         double ref = 4 * eps * (pow(sr, 12) - pow(sr, 6)) - COULOMB_MD * q * q / r;
         double rel = fabs((pe.lj_energy + pe.coulomb_energy) - ref) / fabs(ref);
@@ -393,10 +400,10 @@ static void test_nonbonded_external(void) {
             }
             p[0].position = ax;                    m[0].position = vec3_scale(ax, -1.0);
             p[1].position = m[1].position = vec3(r, 0, 0);
-            double vp = forces_nonbonded_energy(p, 0, 1, NULL, 1, 1, 1.0).lj_energy
-                      + forces_nonbonded_energy(p, 0, 1, NULL, 1, 1, 1.0).coulomb_energy;
-            double vm = forces_nonbonded_energy(m, 0, 1, NULL, 1, 1, 1.0).lj_energy
-                      + forces_nonbonded_energy(m, 0, 1, NULL, 1, 1, 1.0).coulomb_energy;
+            double vp = forces_nonbonded_energy(p, 2, 0, 1, NULL, 1, 1, 1.0).lj_energy
+                      + forces_nonbonded_energy(p, 2, 0, 1, NULL, 1, 1, 1.0).coulomb_energy;
+            double vm = forces_nonbonded_energy(m, 2, 0, 1, NULL, 1, 1, 1.0).lj_energy
+                      + forces_nonbonded_energy(m, 2, 0, 1, NULL, 1, 1, 1.0).coulomb_energy;
             F[k] = -(vp - vm) / (2 * h);
         }
         Atom at[2];
@@ -406,7 +413,7 @@ static void test_nonbonded_external(void) {
         at[0].lj_sigma = at[1].lj_sigma = sig;
         at[0].lj_epsilon = at[1].lj_epsilon = eps;
         at[0].partial_charge = q; at[1].partial_charge = -q;
-        forces_nonbonded_pair(at, 0, 1, NULL, 1, 1, 1.0);
+        forces_nonbonded_pair(at, 2, 0, 1, NULL, 1, 1, 1.0);
         double fc[3] = { at[0].force.x, at[0].force.y, at[0].force.z };
         double err = 0, ref = 0;
         for (int k = 0; k < 3; k++) { err += (fc[k] - F[k]) * (fc[k] - F[k]); ref += F[k] * F[k]; }

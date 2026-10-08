@@ -302,14 +302,16 @@ static double lj_switch_fn(double r, double r_switch, double r_cutoff,
  * do_switch is 0 this is identical to the original hard-cutoff path.
  * When do_switch is set, the switched force coefficient for each term is
  * f*S + V*(dS/dr)/r, which reduces to f when S=1 and dS/dr=0. */
-static PairEnergy pair_nonbonded_core(Atom *atoms, int ia, int ib,
+static PairEnergy pair_nonbonded_core(Atom *atoms, int num_atoms, int ia, int ib,
                                       const SimBox *box,
                                       int use_lj, int use_coulomb,
                                       double dielectric,
                                       int do_switch,
                                       double r_switch, double r_cutoff) {
     PairEnergy result = {0.0, 0.0};
-    if (!atoms || ia < 0 || ib < 0 || ia == ib) return result;
+    /* FULL-AUDIT C3: upper-bound check. Caller-supplied indices must never
+     * become wild reads/writes into atoms[]. */
+    if (!atoms || num_atoms < 1 || ia < 0 || ib < 0 || ia >= num_atoms || ib >= num_atoms || ia == ib) return result;
     if (!(dielectric > 1e-9) || !isfinite(dielectric)) dielectric = 1.0;
     Atom *ai = &atoms[ia];
     Atom *bi = &atoms[ib];
@@ -363,23 +365,26 @@ static PairEnergy pair_nonbonded_core(Atom *atoms, int ia, int ib,
 /* Public, unswitched entry point (used by the base-pairing diagnostics,
  * which inspect specific close pairs and must not be affected by the
  * cutoff switch). Identical to the pre-F5 behaviour. */
-PairEnergy forces_nonbonded_pair(Atom *atoms, int ia, int ib,
+PairEnergy forces_nonbonded_pair(Atom *atoms, int num_atoms, int ia, int ib,
                                  const SimBox *box,
                                  int use_lj, int use_coulomb,
                                  double dielectric) {
-    return pair_nonbonded_core(atoms, ia, ib, box, use_lj, use_coulomb,
+    return pair_nonbonded_core(atoms, num_atoms, ia, ib, box, use_lj, use_coulomb,
                                dielectric, 0, 0.0, 0.0);
 }
 
 /* Side-effect-free variant: identical potential, no force writes.
  * Implemented directly (not via save/restore) so diagnostics cannot
  * leak residue even if future re-ordering forgets the zeroing step. */
-PairEnergy forces_nonbonded_energy(const Atom *atoms, int ia, int ib,
+PairEnergy forces_nonbonded_energy(const Atom *atoms, int num_atoms, int ia, int ib,
                                    const SimBox *box,
                                    int use_lj, int use_coulomb,
                                    double dielectric) {
     PairEnergy out = {0.0, 0.0};
-    if (!atoms || ia < 0 || ib < 0 || ia == ib) return out;
+    /* FULL-AUDIT C3/C4: upper bounds + mirrored P9 eps/sigma guard so the
+     * diagnostic agrees with the dynamics path instead of returning NaN
+     * where the core returns 0. */
+    if (!atoms || num_atoms < 1 || ia < 0 || ib < 0 || ia >= num_atoms || ib >= num_atoms || ia == ib) return out;
     if (!(dielectric > 1e-9) || !isfinite(dielectric)) dielectric = 1.0;
     Vec3 r_ij = vec3_sub(atoms[ib].position, atoms[ia].position);
     if (!isfinite(r_ij.x) || !isfinite(r_ij.y) || !isfinite(r_ij.z)) return out;
@@ -391,9 +396,14 @@ PairEnergy forces_nonbonded_energy(const Atom *atoms, int ia, int ib,
     if (use_lj) {
         double eps = lj_eps_combine(atoms[ia].lj_epsilon, atoms[ib].lj_epsilon);
         double sigma = lj_sigma_combine(atoms[ia].lj_sigma, atoms[ib].lj_sigma);
+        if (!isfinite(eps) || !isfinite(sigma) || !(sigma > 1e-12)) {
+            /* skip LJ, keep Coulomb (mirrors pair_nonbonded_core P9) */
+        } else {
         double sr2 = (sigma * sigma) / r2;
         double sr6 = sr2 * sr2 * sr2;
-        out.lj_energy = 4.0 * eps * (sr6 * sr6 - sr6);
+        double vlj = 4.0 * eps * (sr6 * sr6 - sr6);
+        out.lj_energy = isfinite(vlj) ? vlj : 0.0;
+        }
     }
     if (use_coulomb) {
         double qi = atoms[ia].partial_charge, qj = atoms[ib].partial_charge;
@@ -413,9 +423,13 @@ PairEnergy forces_nonbonded_energy(const Atom *atoms, int ia, int ib,
  * F_a  = k(r−r0) × r̂_ab   (toward b when stretched, away when compressed)
  * F_b  = −F_a
  * ══════════════════════════════════════════════════════════════════════════ */
-double forces_bond(Atom *atoms, const Bond *bond) {
+double forces_bond(Atom *atoms, int num_atoms, const Bond *bond) {
     if (!atoms || !bond) return 0.0;
+    /* FULL-AUDIT C2: upper-bound check — stored topology indices must never
+     * become wild reads/writes. */
+    if (num_atoms < 1) return 0.0;
     if (bond->atom_a < 0 || bond->atom_b < 0) return 0.0;
+    if (bond->atom_a >= num_atoms || bond->atom_b >= num_atoms) return 0.0;
     /* Full-audit P5: reject non-finite parameters. A garbage r0/k (e.g. from
      * a failed lookup that was not checked) previously produced NaN energy
      * and forces. */
@@ -462,9 +476,13 @@ double forces_bond(Atom *atoms, const Bond *bond) {
  *   F_a = −dV/dθ × dθ/d(cosθ) × ∂cosθ/∂r_a
  *        = [k(θ−θ0)/sin θ] × (e_bc − cosθ e_ba) / d_ba
  * ══════════════════════════════════════════════════════════════════════════ */
-double forces_angle(Atom *atoms, const Angle *angle) {
+double forces_angle(Atom *atoms, int num_atoms, const Angle *angle) {
     if (!atoms || !angle) return 0.0;
+    /* FULL-AUDIT C2/C5: upper bounds + parameter finiteness (mirrors P5). */
+    if (num_atoms < 1) return 0.0;
     if (angle->atom_a < 0 || angle->atom_b < 0 || angle->atom_c < 0) return 0.0;
+    if (angle->atom_a >= num_atoms || angle->atom_b >= num_atoms || angle->atom_c >= num_atoms) return 0.0;
+    if (!isfinite(angle->k) || !isfinite(angle->theta0)) return 0.0;
     Atom *a = &atoms[angle->atom_a];
     Atom *b = &atoms[angle->atom_b];
     Atom *c = &atoms[angle->atom_c];
@@ -491,6 +509,9 @@ double forces_angle(Atom *atoms, const Angle *angle) {
 
     /* Prefactor: k(θ−θ0)/sinθ */
     double pre = angle->k * (theta - angle->theta0) / sin_theta;
+    /* FULL-AUDIT C5: finiteness gate (mirrors P5). A NaN theta0/k or a
+     * degenerate sin must not inject NaN forces into all three atoms. */
+    if (!isfinite(energy) || !isfinite(pre)) return isfinite(energy) ? energy : 0.0;
 
     /* ∂cosθ/∂r_a = (e_bc − cosθ e_ba) / d_ba */
     Vec3 dcos_a = vec3_scale(
@@ -522,7 +543,10 @@ double forces_angle(Atom *atoms, const Angle *angle) {
  *
  * V = k * (1 + cos(n*phi - delta))
  * ══════════════════════════════════════════════════════════════════════════ */
-static double dihedral_energy_only(const Atom *atoms, const Dihedral *dh) {
+static double dihedral_energy_only(const Atom *atoms, int num_atoms, const Dihedral *dh) {
+    if (!atoms || !dh || num_atoms < 1) return 0.0;
+    if (dh->atom_a < 0 || dh->atom_b < 0 || dh->atom_c < 0 || dh->atom_d < 0) return 0.0;
+    if (dh->atom_a >= num_atoms || dh->atom_b >= num_atoms || dh->atom_c >= num_atoms || dh->atom_d >= num_atoms) return 0.0;
     Vec3 pa = atoms[dh->atom_a].position;
     Vec3 pb = atoms[dh->atom_b].position;
     Vec3 pc = atoms[dh->atom_c].position;
@@ -548,9 +572,12 @@ static double dihedral_energy_only(const Atom *atoms, const Dihedral *dh) {
     return dh->k * (1.0 + cos(dh->n * phi - dh->delta));
 }
 
-double forces_dihedral(Atom *atoms, const Dihedral *dh) {
+double forces_dihedral(Atom *atoms, int num_atoms, const Dihedral *dh) {
     if (!atoms || !dh) return 0.0;
+    /* FULL-AUDIT C2: upper-bound check. */
+    if (num_atoms < 1) return 0.0;
     if (dh->atom_a < 0 || dh->atom_b < 0 || dh->atom_c < 0 || dh->atom_d < 0) return 0.0;
+    if (dh->atom_a >= num_atoms || dh->atom_b >= num_atoms || dh->atom_c >= num_atoms || dh->atom_d >= num_atoms) return 0.0;
     /* Analytic torsion gradient (audit P2 closed): exact chain rule
      * through phi = atan2(y, x), x = n1.n2, y = m1.n2, with
      * n1 = b1xb2, n2 = b2xb3, m1 = n1 x b2hat.
@@ -644,10 +671,12 @@ double forces_dihedral(Atom *atoms, const Dihedral *dh) {
  * re-evaluates dihedral_energy_only. tests/test_forces.c asserts the
  * analytic forces_dihedral() above agrees with this to 1e-6 on
  * generic, helical, and near-planar geometries. */
-double forces_dihedral_fd(Atom *atoms, const Dihedral *dh) {
+double forces_dihedral_fd(Atom *atoms, int num_atoms, const Dihedral *dh) {
     if (!atoms || !dh) return 0.0;
+    if (num_atoms < 1) return 0.0;
     if (dh->atom_a < 0 || dh->atom_b < 0 || dh->atom_c < 0 || dh->atom_d < 0) return 0.0;
-    double energy = dihedral_energy_only(atoms, dh);
+    if (dh->atom_a >= num_atoms || dh->atom_b >= num_atoms || dh->atom_c >= num_atoms || dh->atom_d >= num_atoms) return 0.0;
+    double energy = dihedral_energy_only(atoms, num_atoms, dh);
     if (!isfinite(energy)) return 0.0;
 
     const double h = 1.0e-5; /* Angstrom */
@@ -661,10 +690,10 @@ double forces_dihedral_fd(Atom *atoms, const Dihedral *dh) {
             double original = *coords[c];
 
             *coords[c] = original + h;
-            double E_plus = dihedral_energy_only(atoms, dh);
+            double E_plus = dihedral_energy_only(atoms, num_atoms, dh);
 
             *coords[c] = original - h;
-            double E_minus = dihedral_energy_only(atoms, dh);
+            double E_minus = dihedral_energy_only(atoms, num_atoms, dh);
 
             *coords[c] = original; /* restore exactly */
 
@@ -685,6 +714,18 @@ double forces_dihedral_fd(Atom *atoms, const Dihedral *dh) {
  * ══════════════════════════════════════════════════════════════════════════ */
 void forces_calculate(Simulation *sim) {
     if (!sim || !sim->atoms || sim->num_atoms < 1) return;
+    /* FULL-AUDIT C34: O(N^2) pair loop with an O(A)-per-pair fallback scan.
+     * MAX_ATOMS advertises 100k but N=1e4 is already ~1e8 pair-steps; warn
+     * once above 2000 atoms so a TUI spawn-toward-the-cap cannot hang the
+     * terminal silently. Physics unchanged; cell lists are future work. */
+    if (sim->num_atoms > 2000) {
+        static int warned_scale = 0;
+        if (!warned_scale) {
+            fprintf(stderr, "forces_calculate: WARNING n=%d exceeds O(N^2) comfort (~2000); steps will be slow (no cell lists yet)\n",
+                    sim->num_atoms);
+            warned_scale = 1;
+        }
+    }
     if (!sim->bonds && sim->num_bonds > 0) return;
     if (!sim->angles && sim->num_angles > 0) return;
     if (!sim->dihedrals && sim->num_dihedrals > 0) return;
@@ -694,9 +735,21 @@ void forces_calculate(Simulation *sim) {
      * charges — the honest fallback, since inventing charges would be worse.
      * Single-atom (n<2) and n>128 systems cannot run QEq by construction. */
     if (sim->use_scf) {
+        /* FULL-AUDIT C9/C28: fail LOUD, not open. Over-cap or failed SCF
+         * previously discarded its return code and continued with U=0 /
+         * stale charges at exit 0. Warn-once on stderr so the s01
+         * empty-stderr gate trips whenever requested physics is skipped. */
         if (sim->scf_pinned_idx >= 0) {
-            (void)qm_scf_charges(sim, sim->scf_total_q, sim->dielectric,
+            int rc = qm_scf_charges(sim, sim->scf_total_q, sim->dielectric,
                            sim->scf_pinned_idx, sim->scf_pinned_q);
+            if (rc != 0) {
+                static int warned_scf = 0;
+                if (!warned_scf) {
+                    fprintf(stderr, "forces_calculate: WARNING use_scf requested but solver returned %d (n=%d, cap 128); charges unchanged\n",
+                            rc, sim->num_atoms);
+                    warned_scf = 1;
+                }
+            }
         } else {
             double qq[128];
             int nn = sim->num_atoms < 128 ? sim->num_atoms : 128;
@@ -815,7 +868,7 @@ void forces_calculate(Simulation *sim) {
             if (!cutoff_ok || vec3_norm2(r_ij) > cutoff2) continue;
 
             PairEnergy pe = pair_nonbonded_core(
-                sim->atoms, i, j,
+                sim->atoms, N, i, j,
                 &sim->box,
                 sim->use_lj,
                 sim->use_coulomb,
@@ -830,19 +883,19 @@ void forces_calculate(Simulation *sim) {
     /* 3. Bonded stretches */
     if (sim->use_bonds) {
         for (int b = 0; b < sim->num_bonds; b++)
-            E_bond += forces_bond(sim->atoms, &sim->bonds[b]);
+            E_bond += forces_bond(sim->atoms, N, &sim->bonds[b]);
     }
 
     /* 4. Angle bends */
     if (sim->use_angles) {
         for (int a = 0; a < sim->num_angles; a++)
-            E_angle += forces_angle(sim->atoms, &sim->angles[a]);
+            E_angle += forces_angle(sim->atoms, N, &sim->angles[a]);
     }
 
     /* 5. Dihedral torsions */
     if (sim->use_dihedrals) {
         for (int d = 0; d < sim->num_dihedrals; d++)
-            E_dihedral += forces_dihedral(sim->atoms, &sim->dihedrals[d]);
+            E_dihedral += forces_dihedral(sim->atoms, N, &sim->dihedrals[d]);
     }
 
     /* 6. Harmonic / flat-bottom positional restraints.
@@ -875,11 +928,31 @@ void forces_calculate(Simulation *sim) {
     /* 7. qm v2/v4: induced-dipole polarization (analytic forces).
      * use_pol_scf (coupled dipoles) supersedes use_polar (first-order). */
     double E_polar = 0.0;
+    /* FULL-AUDIT C9: caps fail loud. First-order polar caps at 256 atoms,
+     * coupled-SCF at 64; over-cap previously added U=0 silently. */
     if (sim->use_pol_scf) {
-        E_polar = qm_induction_scf_forces(sim, sim->dielectric, NULL);
+        int rc = 0;
+        E_polar = qm_induction_scf_forces(sim, sim->dielectric, &rc);
+        if (rc != 0) {
+            static int warned_pscf = 0;
+            if (!warned_pscf) {
+                fprintf(stderr, "forces_calculate: WARNING use_pol_scf requested but solver rc=%d (n=%d, cap 64); U=0 substituted\n",
+                        rc, sim->num_atoms);
+                warned_pscf = 1;
+            }
+            E_polar = 0.0;
+        }
         if (!isfinite(E_polar)) E_polar = 0.0;
     } else if (sim->use_polar) {
         E_polar = qm_induction_forces(sim, sim->dielectric);
+        if (sim->num_atoms > 256) {
+            static int warned_pol = 0;
+            if (!warned_pol) {
+                fprintf(stderr, "forces_calculate: WARNING use_polar requested but n=%d exceeds cap 256; U=0 substituted\n",
+                        sim->num_atoms);
+                warned_pol = 1;
+            }
+        }
         if (!isfinite(E_polar)) E_polar = 0.0;
     }
 

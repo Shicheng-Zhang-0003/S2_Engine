@@ -135,7 +135,12 @@ static inline double vec3_angle(Vec3 a, Vec3 b) {
  * m1 = n1 x b2_hat  (a vector in the n1 plane, perpendicular to b2)
  * phi = atan2(m1 . n2, n1 . n2)
  */
+/* FULL-AUDIT C32: degenerate quads (zero/collinear legs) make phi
+ * undefined; direct callers outside forces.c got atan2(NaN). Guard here. */
 static inline double vec3_dihedral(Vec3 b1, Vec3 b2, Vec3 b3) {
+    if (!isfinite(b1.x + b1.y + b1.z + b2.x + b2.y + b2.z + b3.x + b3.y + b3.z)) return 0.0;
+    if (vec3_norm(b1) < 1.0e-10 || vec3_norm(b2) < 1.0e-10 || vec3_norm(b3) < 1.0e-10) return 0.0;
+    if (vec3_norm(vec3_cross(b1, b2)) < 1.0e-12 || vec3_norm(vec3_cross(b2, b3)) < 1.0e-12) return 0.0;
     Vec3 n1 = vec3_cross(b1, b2);
     Vec3 n2 = vec3_cross(b2, b3);
     Vec3 b2_hat = vec3_normalize(b2);
@@ -170,6 +175,9 @@ static inline void vec3_print(const char *label, Vec3 v) {
  * `axis` need not be pre-normalised; this function normalises it.
  */
 static inline Vec3 vec3_rotate_axis_angle(Vec3 v, Vec3 axis, double angle) {
+    /* FULL-AUDIT C32: degenerate axis previously returned v*cos(t) (silent
+     * wrong rotation). Return v unchanged: the honest identity. */
+    if (!isfinite(axis.x + axis.y + axis.z) || vec3_norm(axis) < 1.0e-12) return v;
     axis = vec3_normalize(axis);
     double c = cos(angle), s = sin(angle);
     Vec3 term1 = vec3_scale(v, c);
