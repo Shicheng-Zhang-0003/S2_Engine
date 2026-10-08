@@ -1,13 +1,13 @@
 [header]
 schema: 1
 demo: kcsa
-build-compiler: unknown
-build-flags: unknown
-wallclock: 2026-10-08T20:05:14Z
+build-compiler: gcc 13.3.0
+build-flags: -O3 -g -Wall -Wextra -Werror -ffp-contract=off -std=c11 -Iinclude
+wallclock: 2026-10-08T20:13:44Z
 rng-seed: 7
 version-internal: v9R4
 version-external: V0.9RC4
-source-hash: record-tree-14f189326db3967a7aa9cfa752ee2a0664964948
+source-hash: record-tree-88764d07a0322110ec27caa9cd999dcad9bb94fa
 build-flags-note: record build must not carry -march=native
 cage-geometry: LEGACY demo-12 constructed cage: 3d-2.70-2.83-xy-derived-zsep-3.084
 real-filter-geometry: demo 12b: PDB 1K4C chain C TVGYG, C4-symmetric, CN=8 at all four sites
@@ -133,4 +133,4 @@ kcsa.scfuz.pol_k15 -0.11003140228302026 eV computed-scf-uz
 kcsa.scfuz.pol_na15 -0.20845572315954711 eV computed-scf-uz
 
 [end]
-payload-sha256: 7c87d000d94e1f953804f290a1af15fc84ffb61c539e9ef526469505ba5949ab
+payload-sha256: b30cf1091f5306103efaaddd18f5956a4cadef60edc0ff75c6e4782e27c0a3a2
