@@ -1,13 +1,13 @@
 [header]
 schema: 1
 demo: kcsa
-build-compiler: gcc 13.3.0
-build-flags: -O3 -g -Wall -Wextra -std=c11 -Iinclude
-wallclock: 2026-10-07T02:59:19Z
+build-compiler: unknown
+build-flags: unknown
+wallclock: 2026-10-08T20:05:14Z
 rng-seed: 7
 version-internal: v9R4
 version-external: V0.9RC4
-source-hash: git-tracked-tree; see CURRENT_BASELINE_SHA.txt
+source-hash: record-tree-14f189326db3967a7aa9cfa752ee2a0664964948
 build-flags-note: record build must not carry -march=native
 cage-geometry: LEGACY demo-12 constructed cage: 3d-2.70-2.83-xy-derived-zsep-3.084
 real-filter-geometry: demo 12b: PDB 1K4C chain C TVGYG, C4-symmetric, CN=8 at all four sites
@@ -61,13 +61,13 @@ kcsa.hyd.e_na -4.6805201936244734 eV computed-explicit-6water
 kcsa.hyd.e_k_polar -3.7819430051703726 eV computed-explicit-6water-polar
 kcsa.hyd.e_na_polar -4.6887205395915119 eV computed-explicit-6water-polar
 kcsa.hyd.ddu 0.912385732164259 eV computed-explicit-6water
-kcsa.fe.barrier_k 0.38122067771664753 eV computed-polar-wham-300k
-kcsa.fe.barrier_na 0.42346641642724858 eV computed-polar-wham-300k
-kcsa.fe.barrier_gap -0.042245738710601055 eV computed-polar-wham-300k
-kcsa.fe.barrier_gap_err 0.23318250521835487 eV computed-polar-wham-300k
-kcsa.fe.fixed_k 0.5538949176419492 eV computed-wham-300k
-kcsa.fe.fixed_na 0.3967282864824942 eV computed-wham-300k
-kcsa.fe.fixed_gap 0.15716663115945501 eV computed-wham-300k
+kcsa.fe.barrier_k 0.55320397446995218 eV computed-polar-wham-300k
+kcsa.fe.barrier_na 0.4377506021380782 eV computed-polar-wham-300k
+kcsa.fe.barrier_gap 0.11545337233187397 eV computed-polar-wham-300k
+kcsa.fe.barrier_gap_err 0.088580356483073663 eV computed-polar-wham-300k
+kcsa.fe.fixed_k 0.55091091676238957 eV computed-wham-300k
+kcsa.fe.fixed_na 0.39513936422541945 eV computed-wham-300k
+kcsa.fe.fixed_gap 0.15577155253697011 eV computed-wham-300k
 kcsa.scf.e_k 7.6831773446542977 eV computed-scf-qm
 kcsa.scf.e_na 7.4732663539735755 eV computed-scf-qm
 kcsa.scf.ddu_vacuum 0.20991099068072216 eV computed-scf-qm
@@ -94,8 +94,8 @@ kcsa.relax.cn_na 3 dimensionless computed-relaxed-scf
 kcsa.relax.hyst_k 0.53921036647372222 eV computed-relaxed-scf
 kcsa.relax.hyst_na 0.7256739147486142 eV computed-relaxed-scf
 kcsa.strain.e_k 7.0562225942236267 eV computed-stiff-scaffold
-kcsa.strain.e_na 6.7991573066124786 eV computed-stiff-scaffold
-kcsa.strain.ddu 0.25706528761114811 eV computed-stiff-scaffold
+kcsa.strain.e_na 6.7991671773318076 eV computed-stiff-scaffold
+kcsa.strain.ddu 0.2570554168918191 eV computed-stiff-scaffold
 kcsa.cn.e6_k -1.5388199265259885 eV computed-6fold
 kcsa.cn.e6_na -1.6597242925902052 eV computed-6fold
 kcsa.cn.pref_k 9.2219972711802853 eV computed-6fold
@@ -133,4 +133,4 @@ kcsa.scfuz.pol_k15 -0.11003140228302026 eV computed-scf-uz
 kcsa.scfuz.pol_na15 -0.20845572315954711 eV computed-scf-uz
 
 [end]
-payload-sha256: 35956f3fb935f75a2dff329701795d98d5b28a7886bd33f82bc987083afb1ef5
+payload-sha256: 7c87d000d94e1f953804f290a1af15fc84ffb61c539e9ef526469505ba5949ab
