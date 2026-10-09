@@ -362,3 +362,43 @@ Verification at promotion: `make test` 6/6 green, `./verify_scripts.sh`
 VERIFY PASSED (incl. TUI smoke + seal), record digest `see
 CURRENT_BASELINE_SHA.txt`, stderr empty, `s01` ASan/UBSan byte-identity per
 `s01_verify_record.sh`.
+
+---
+
+## 9. EHT semiempirical SCF (post-full-audit operation)
+
+The quantum layer outgrows its heuristic overlap (`qm_overlap`,
+abstraction #7) with a real electronic-structure method: Hoffmann-1963
+Extended Hückel + self-consistent charge (`qm_eht.h`, Demo 18, `test_eht`
+31/31 green as the seventh gate).
+
+* **Exact overlaps.** Prolate-spheroidal STO machinery (Rosen/Roothaan):
+  closed A-sums + GL quadrature, heteronuclear-exact, p-pi by documented
+  2D quadrature. Every channel validated against brute-force 3D Cartesian
+  grid integration of independently-coded STOs; the grid caught two real
+  bugs pre-record (an `a^{2k-n-1}` exponent slip at 2.5x overshoot, a
+  double-counted radial power on p-channels).
+* **Honest SCF.** VSIP Hamiltonian, WH K=1.75, Löwdin orthogonalization
+  (Jacobi eigensolver, closed-2x2 oracle), Aufbau+Fermi fill, Mulliken
+  charges, Mayer bond orders, gaps. H2: 2x2-exact MOs, BO ~1, neutrality
+  to 1e-9, band dissociates to 2xH. H2O: O −0.54/H +0.27, gap 14.8 eV,
+  rotation-invariant to 1e-6.
+* **Three measured failures kept as findings, not tuned away.** E10: the
+  SCC sum initially excluded on-site Hubbard terms and ran away to full
+  ±2.0 e transfer at ANY separation (fixed: U on-site restores hardness;
+  eq water went −1.86 → −0.54, SCC 31 → 6 iters). Fermi annealing for
+  stretched-heteronuclear flips was implemented and REVERTED same-day
+  (smoothed roots drift with kT; lowering re-triggers flips, once AT
+  resid 1.4e-07). E11: stretched heteronuclear level-crossing is rc=-3
+  fail-loud, gated as such. E5/E7: band-only energies (bare 1/R sums
+  unclaimed — water reads +50 eV otherwise), EHT-large gaps, no interior
+  H2 minimum on the grid (argmin at R=4.0 is the asymptote, not a well).
+* **Reactive milestone.** Overlap-gated Mayer switch (E8/E12): H-H factor
+  1.0 → 0.007 from equilibrium to 4 A; at 2.0 A the BO-scaled bond
+  carries 7.6 eV against the harmonic 28.5 eV wall. `use_eht_bo` is
+  opt-in, default off; caps fail loud (C9 pattern).
+* **Build hygiene (E9).** Test `.d` files were written but never
+  `-include`d, so a `types.h` field left `test_regression.o` stale and
+  silently skewed struct layouts (PCG64 reads degraded to LCG, one red
+  gate, zero source errors — caught only because a test compares two
+  streams). Test deps are included now; clean-first remains the rule.
