@@ -1052,6 +1052,30 @@ MD STABILITY (8000-step ensemble): G-C BREATHING (range 2.91-4.10), A-T HELD (ra
   Phase 2 verdict: G-C BREATHING* (max 3.69), A-T HELD (max 3.52)
   (*3-sample ensemble; same thresholds as Phase 1)
 
+╔══════════════════════════════════════════════════════╗
+║  DEMO 18: EHT semiempirical SCF — bonds that can break║
+╚══════════════════════════════════════════════════════╝
+  EHT: Hoffmann 1963 minimal-basis SCF (H 1s; C/N/O 2s+2p),
+  exact prolate/STO overlaps, SCC via Ohno Hubbard gammas.
+  Single-zeta, non-variational, WH K=1.75 (see qm_eht.h E1-E8).
+  --- H2 EHT curve (band energy; qualitative) ---
+  R(A)     E_band(eV)  gap(eV)   MayerBO  switch
+  0.50     -36.7009     74.06    1.0000    1.0000
+  0.74     -35.9654     35.54    1.0000    0.9248
+  1.00     -34.9806     20.29    1.0000    0.7568
+  1.50     -32.8450      9.14    1.0000    0.4696
+  2.00     -30.8494      4.67    1.0000    0.2674
+  3.00     -28.3544      1.23    0.9914    0.0730
+  4.00     -27.4895      0.29    0.3915    0.0069
+  NO interior EHT minimum on this grid (band still falling at R=4 A toward -27.2; total unclaimed).
+  Band dissociates toward 2xH atoms; switch dissolves 1->0.
+  --- H2O SCC-EHT (SCC 25 iters, resid 6.5e-07) ---
+  Mulliken: O -0.5406 e, H +0.2703 e, H +0.2703 e (sum -3.9e-15)
+  gap 14.80 eV (EHT-large, E7); band-only energy (E5)
+  --- H-H at 2.0 A: harmonic wall vs BO switch ---
+  harmonic: E_bond=28.5133 eV |F|=45.3096 eV/A
+  BO-scaled: E_bond=7.6252 eV |F|=12.1169 eV/A (wall dissolving)
+
   ══════════════════════════════════════════════════
   RESULT RECAP
   1 quantum      : H/C/N/O orbitals + expectations + dimer curves
@@ -1068,6 +1092,7 @@ MD STABILITY (8000-step ensemble): G-C BREATHING (range 2.91-4.10), A-T HELD (ra
   12 KcsA        : KcsA exch rigid -0.58 det
   12b real KcsA filter : filter 164 atoms, net +0.000e
   17 duplex      : duplex P1 BREATHING/HELD P2 BREATHING*/HELD
+  18 EHT SCF     : EHT H2 dissoc + H2O qO<0, wall off at 2A
   ══════════════════════════════════════════════════
 
   All demos complete.
