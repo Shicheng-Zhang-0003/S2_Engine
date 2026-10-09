@@ -3,6 +3,11 @@
 # per repo custom (record artifacts, committed with the record).
 # s2tui is a live tool, not a record artifact: always untracked.
 s2tui
+# 472-MGB is versioned independently: github.com/Shicheng-Zhang-0003/MPE-Magi-Bridge
+# It was developed in this tree and is copied into 475-MPE as
+# v15S/src/ecosystem/mgb/. Ignored wholesale rather than partially, so this
+# repo neither tracks it nor reports it as an unversioned stray directory.
+472-MGB/
 build/test_*
 build/verify_cvmds
 build/selftest*
