@@ -35,6 +35,7 @@
 #include "../include/aminoacids.h"
 #include "../include/amber_lj.h"
 #include "../include/kcsa_filter.h"
+#include "../include/qm_eht.h"
 #include "../include/tui.h"
 #include "../include/tui_view.h"
 #include "../include/tui_screen.h"
@@ -390,6 +391,24 @@ static int test_d12b(void) {
     return ok ? t_pass("12b", d) : t_fail("12b", d);
 }
 
+static int test_d18(void) {
+    Simulation *s = sim_create(8, 8);
+    if (!s) return t_fail("18", "alloc");
+    sim_add_atom(s, 1, vec3(-0.37, 0, 0), 0.0);
+    sim_add_atom(s, 1, vec3(0.37, 0, 0), 0.0);
+    s->dt = 0.5; s->cutoff = 12.0;
+    static qm_eht_t E;
+    int rc = qm_eht_solve(s, &E);
+    double bo = rc == 0 ? qm_eht_bond_order(&E, 0, 1) : -1.0;
+    double sw = rc == 0 ? qm_eht_bond_factor(&E, s, 0, 1) : -1.0;
+    char d[128];
+    snprintf(d, sizeof d, "EHT rc=%d BO=%.3f switch=%.3f gap=%.2f", rc, bo,
+             sw, rc == 0 ? E.gap : -1.0);
+    int ok = rc == 0 && bo > 0.8 && sw > 0.9;
+    sim_destroy(s);
+    return ok ? t_pass("18", d) : t_fail("18", d);
+}
+
 static int test_d17(void) {
     Simulation *s = sim_create(256, 256);
     if (!s) return t_fail("17", "alloc");
@@ -417,7 +436,8 @@ static int run_demo_test(const char *id) {
     else if (!strcmp(id, "12")) return !test_d12();
     else if (!strcmp(id, "12b")) return !test_d12b();
     else if (!strcmp(id, "17")) return !test_d17();
-    sh_err("  unknown demo `%s` (try: 1 2 3 4 5 6 7 8 9 10 11 12 12b 17)\n", id);
+    else if (!strcmp(id, "18")) return !test_d18();
+    sh_err("  unknown demo `%s` (try: 1 2 3 4 5 6 7 8 9 10 11 12 12b 17 18)\n", id);
     return 2;
 }
 
@@ -447,7 +467,7 @@ static void print_help(void) {
   printf("      8 dinucleotide 9 neuron 10 dipeptide 11 helix 12 cage 12b filter 17 duplex\n");
   printf("    spawn quantum|water|trimer|methane | base <U|C|T|A|G> | pair [gc|au]\n");
     printf("    spawn dinucleotide|neuron|dipeptide|helix|cage|filter|duplex [x y z]\n");
-    printf("    spawn demo <1|2|3|4|5|6|7|8|9|10|11|12|12b|17> [variant] [x y z]\n");
+    printf("    spawn demo <1|2|3|4|5|6|7|8|9|10|11|12|12b|17|18> [variant] [x y z]\n");
     printf("      (variants: demo 6 [U|C|T|A|G], demo 7 [gc|au]; pair/duplex set dielectric 4;\n");
     printf("       helix/duplex clash-relieved; pass origins — default 0,0,0 overlaps!)\n");
     printf("  --- live controls ---\n");
@@ -459,7 +479,7 @@ static void print_help(void) {
     printf("    mol new|add|bond|list|clear|center|save|load|place (MOL1 templates)\n");
     printf("    rxn new|pair|break|make|delete|charge|list|save|load|fire|arm|auto\n");
     printf("  --- tests: each demo is a system test ---\n");
-    printf("    list demos | test demo <id> | test all   (id: 1 2 3 4 5 6 7 8 9 10 11 12 12b 17)\n");
+    printf("    list demos | test demo <id> | test all   (id: 1 2 3 4 5 6 7 8 9 10 11 12 12b 17 18)\n");
     printf("  --- grid display ---\n");
     printf("    render | view xy|xz|yz|auto | cam yaw|pitch|zoom|center|reset | slice | watch\n");
     printf("  --- files & shell (real POSIX) ---\n");
@@ -4427,7 +4447,7 @@ static int cmd_spawn_demo(Tui *t, const char *id, const char *extra, Vec3 o) {
         return 0;
     }
     if (!strcmp(id, "17")) return sp_duplex(t, o);
-    sh_err("  demo 1 2 3 4 5 6 7 8 9 10 11 12 12b 17\n");
+    sh_err("  demo 1 2 3 4 5 6 7 8 9 10 11 12 12b 17 18\n");
     return 2;
 }
 
@@ -5757,7 +5777,7 @@ static int man_page(const char *topic) {
     }
     /* FULL-AUDIT O33: previously unmanned topics now have stubs. */
     if (!strcmp(topic, "test")) {
-        printf("TEST(1)\ntest demo <id>   run one demo as a live system test (ids 1 2 3 4 5 6 7\n  8 9 10 11 12 12b 17). test all runs all 14 (want 14/14).\n");
+        printf("TEST(1)\ntest demo <id>   run one demo as a live system test (ids 1 2 3 4 5 6 7\n  8 9 10 11 12 12b 17 18). test all runs all 15 (want 15/15).\n");
         return 0;
     }
     if (!strcmp(topic, "help")) {
@@ -5821,10 +5841,10 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
         return 0;
     }
     else if (!strcmp(tok[0], "list") && nt >= 2 && !strcmp(tok[1], "demos"))
-            printf("  demos: 1 quantum 2 bond 3 water 4 trimer 5 methane 6 bases 7 pairing 8 dinucleotide 9 neuron 10 dipeptide 11 helix 12 kcsa 12b real-filter 17 duplex\n");
+            printf("  demos: 1 quantum 2 bond 3 water 4 trimer 5 methane 6 bases 7 pairing 8 dinucleotide 9 neuron 10 dipeptide 11 helix 12 kcsa 12b real-filter 17 duplex 18 EHT\n");
         else if (!strcmp(tok[0], "test") && nt >= 3 && !strcmp(tok[1], "demo")) return run_demo_test(tok[2]);
         else if (!strcmp(tok[0], "test") && nt >= 2 && !strcmp(tok[1], "all")) {
-            const char *ids[] = {"1","2","3","4","5","6","7","8","9","10","11","12","12b","17"};
+            const char *ids[] = {"1","2","3","4","5","6","7","8","9","10","11","12","12b","17","18"};
             int fails = 0;
             for (unsigned i = 0; i < sizeof ids / sizeof ids[0]; i++) fails += run_demo_test(ids[i]);
             return fails ? 1 : 0;
@@ -6775,7 +6795,7 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
             if (!strcmp(tok[1], "atoms")) { sim_print_atoms(t->sim); return 0; }
             if (!strcmp(tok[1], "bonds")) { sim_print_bonds(t->sim); return 0; }
             if (!strcmp(tok[1], "demos")) {
-                printf("  demos: 1 quantum 2 bond 3 water 4 trimer 5 methane 6 bases 7 pairing 8 dinucleotide 9 neuron 10 dipeptide 11 helix 12 kcsa 12b real-filter 17 duplex\n");
+                printf("  demos: 1 quantum 2 bond 3 water 4 trimer 5 methane 6 bases 7 pairing 8 dinucleotide 9 neuron 10 dipeptide 11 helix 12 kcsa 12b real-filter 17 duplex 18 EHT\n");
                 return 0;
             }
             if (nt == 2) return cmd_ls_files(tok[1]);
