@@ -28,7 +28,7 @@ every line command works, only the alternate-screen reports unavailable).
 | Command | Effect |
 |---|---|
 | `make` / `make -j$(nproc)` | build everything: `carbonsim`, `s2tui`, and all six test binaries |
-| `./carbonsim` | run the 14-demo record sequence (~2 minutes); stdout is the byte-deterministic record |
+| `./carbonsim` | run the 15-demo record sequence (~2 minutes); stdout is the byte-deterministic record |
 | `./run` | clean build behind a warning gate, run to `runs/<timestamp>.txt`, print old/new digests side by side |
 | `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt` + `kcsa.cvmds` (staged atomically as `runs/<stamp>.{txt,cvmds}`); refuses to promote unless stderr is empty AND `make test` is green |
 | `make test` | build and run the six unit gates only (17/22/7/165/51/60) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
@@ -55,6 +55,7 @@ commit time so `kcsa.cvmds` seals identically across repeated runs).
 | `test_regression` | 165 | independent in-repo oracles: quadrature, finite differences, hand-derived values |
 | `test_external` | 51 | values from outside this repository (NIST CODATA, parm99.dat, FIPS, PDB 1K4C) + HO-eps unit pin |
 | `test_loop` | 60 | bio/QC/QM loop closure + best-layer: Nernst, kT, Marcus/Shannon/LJ/Coulomb, BJ/penetration, Langevin, flat-bottom, tethers, H-complete ions-hold |
+| `test_eht` | 31 | exact overlaps vs 3D-grid STO oracles, Jacobi vs 2x2 forms, H2/H2O SCF laws, fail-loud gates |
 
 plus a warning-free clean build, empty stderr, byte-identical stdout across
 repeated runs, and an intact `kcsa.cvmds` seal.
@@ -68,7 +69,7 @@ this document describes — not the other way around.
 
 | Artifact | What it is |
 |---|---|
-| `output.txt` | the verbatim 14-demo record (~1080 lines) |
+| `output.txt` | the verbatim 15-demo record (~1110 lines) |
 | `CURRENT_BASELINE_SHA.txt` | its SHA-256 (single source of truth — do not duplicate digests in prose) |
 | `kcsa.cvmds` | a schema-1 datastream written by Demo 12: worked-example claims with provenance tags and a SHA-256 payload seal (`DATASTREAM_SPEC.md`) |
 | `runs/` | candidate runs; untracked. Promotion is explicit (`./run --accept`) precisely so an accidental overwrite cannot masquerade as a record update |
@@ -89,15 +90,15 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **26 075 lines** (src 20 565 · include 2 880 · tests 2 630).
+Current tree: **27 739 lines** (src 21 784 · include 2 994 · tests 2 961).
 
 | File | Lines | Role |
 |---|---:|---|
-| `src/tui.c` | 7155 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
-| `src/main.c` | 4220 | the 14-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
+| `src/tui.c` | 7245 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
+| `src/main.c` | 4356 | the 15-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
 | `src/qm.c` | 1896 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
-| `src/forces.c` | 1003 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud |
+| `src/forces.c` | 1032 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud |
 | `src/sim.c` | 866 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints) |
 | `src/integrator.c` | 847 | Velocity Verlet, S2-PCG64-like/LCG (O'Neill-inspired, NOT reference pcg64), Maxwell–Boltzmann, Berendsen/Andersen/exact-OU-Langevin, steepest descent, FIRE |
 | `src/quantum.c` | 547 | Slater screening and orbital energies, hydrogenic radial profiles, Clementi–Raimondi exponents, real spherical harmonics |
@@ -112,6 +113,10 @@ Current tree: **26 075 lines** (src 20 565 · include 2 880 · tests 2 630).
 | `tests/test_regression.c` | 1466 | the 165-check in-repo oracle suite |
 | `tests/test_external.c` | 543 | the 51-check outside-reference suite |
 | `tests/test_loop.c` | 273 | the 60-check loop-closure + best-layer suite |
+| `src/qm_eht_overlap.c` | 342 | exact STO overlaps: prolate A/B machinery, GL quadrature for p-pi |
+| `src/qm_eht_scf.c` | 620 | Hoffmann EHT + SCC (Jacobi, Lowdin, Mulliken, Mayer, trust mixing) |
+| `tests/test_eht.c` | 331 | the 31-check EHT oracle suite |
+| `include/qm_eht.h` | 107 | EHT API + E1-E11 abstraction inventory |
 | `include/loop.h` | 55 | loop bridge contract + abstraction inventory |
 | `include/` | 2825 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
 | `tests/` (other) | 335 | datastream, forces, fire suites |
@@ -155,6 +160,17 @@ overlap Pauli repulsion, Slater–Kirkwood dispersion with Tang–Toennies
 damping, and a QEq + dipole SCF charge-equilibration loop (1-pin and 2-pin).
 Hard bounds are documented and fail closed: coupled dipole solve ≤ 64 atoms,
 QEq ≤ 128, first-order polar ≤ 256.
+
+### Semiempirical SCF layer (EHT)
+Hoffmann-1963 Extended Hückel with self-consistent charge (Demo 18,
+`qm_eht.h`): exact prolate-spheroidal STO overlaps (grid-validated, not
+the `qm_overlap` heuristic), VSIP Hamiltonian with Wolfsberg-Helmholtz
+coupling, Löwdin-orthogonalized SCF, Ohno-interpolated Hubbard gammas
+(U from in-tree Mulliken J), Mulliken charges, Mayer bond orders,
+HOMO–LUMO gaps. Single-zeta minimal basis (H/C/N/O), ≤ 64 AOs, fail
+closed. An opt-in BO switch scales harmonic bonds by an overlap-gated
+Mayer interpolant, so bonds weaken and let go instead of pulling to
+infinity (E6–E12 inventory in `qm_eht.h`).
 
 ### Biopolymer condensation chemistry
 Real chemistry, not decoration: leaving groups are genuinely removed following
@@ -253,7 +269,7 @@ The POSIX mapping for the rest of the world: `touch` creates matter,
 freezes / stimulates / heats, `nice` minimises, `df`/`du` report state,
 `cp <species> x.mol` exports a template and `dd if=x.mol` instantiates it,
 `make x.rxn` fires a reaction rule, `sync` saves, `man` documents (30 topics incl. test/help/tput/fc/ps-keys/vi-keys; `ps`/`vi` live keybinds also in this section). Demos
-remain live system tests (`test all` = 14/14). TRUST: `!`/`sh -c`/`source` run with YOUR
+remain live system tests (`test all` = 15/15). TRUST: `!`/`sh -c`/`source` run with YOUR
 privileges (host exec + filesystem write) — never source untrusted files;
 set `S2_NO_HOST=1` to disable the host escape. `save`/`load` (`S2SAVE1`) is LOSSY:
 dihedrals, explicit angle overrides, box/PBC, step/time, QM flags and RNG state are NOT
@@ -269,7 +285,7 @@ contract: stdout is DATA, stderr is diagnostics.
 Run `./carbonsim` for the record, or `test demo <n>` inside `s2tui` for the
 fast live smoke check.
 
-Demo numbers skip 13–16 (never assigned; reserved). 12b is the real-filter twin of 12, 17 is the duplex.
+Demo numbers skip 13–16 (never assigned; reserved). 12b is the real-filter twin of 12, 17 is the duplex, 18 is EHT.
 
 | # | Demo | Current headline |
 |---|---|---|
@@ -287,6 +303,7 @@ Demo numbers skip 13–16 (never assigned; reserved). 12b is the real-filter twi
 | 12 | KcsA legacy cage | full selectivity leg program; vacuum sites favor Na⁺, exchange favors K⁺ |
 | 12b | Real KcsA filter | deposited TVGYG, 164 atoms, C4 symmetry, CN = 8 at every site |
 | 17 | DNA duplex | G–C / A–T stack with B-DNA rise and twist; G–C BREATHING / A–T HELD |
+| 18 | EHT semiempirical SCF | H2 band dissociation, H2O Mulliken + gap, BO switch dissolves the wall |
 
 ---
 
@@ -341,13 +358,18 @@ Stated plainly, because the numbers above cannot be read correctly without them.
   references (~3.5x GC, ~2.4x AT; ratio 1.5 vs 2.2 real), and no single
   dielectric fixes both pairs at once. Prior 4x-overshoot read compared
   dimer totals to interaction refs; Demo 7 now prints both.
-* **Harmonic bonds cannot break.** Full separation costs infinite energy.
+* **Harmonic bonds cannot break — unless the EHT switch is on.** Plain
+  bonds cost infinite energy at separation. With `use_eht_bo`, each bond
+  scales by its overlap-gated Mayer index (1 at equilibrium, →0
+  dissolved), so stretched bonds let go. Default off; Demo 18 prints both.
 * **Non-nucleobase charges are approximations.** Sugar, phosphate and
   amino-acid partial charges are charge-balanced but not verified RESP fits;
   the glycine table is now exactly neutral.
 * **`qm_overlap` is a heuristic, not an overlap integral.** It drops the
   Slater polynomial prefactor and maximizes `m` per atom; `qm_bond_order` and
-  `qm_pauli` inherit that.
+  `qm_pauli` inherit that. The EHT layer does NOT use it: `qm_eht_overlap.c`
+  integrates exact STO overlaps (prolate machinery + documented p-pi
+  quadrature), validated against brute-force 3D grids by `test_eht`.
 * **1-4 non-bonded scaling is deliberately absent** — AMBER's scaling
   presupposes its co-fitted torsions, which this force field does not use; the
   choice is documented in `forces.c` and was tested against the helix.

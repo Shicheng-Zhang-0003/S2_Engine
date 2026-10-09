@@ -133,6 +133,17 @@ chk "selftest-loop green" "0" "$LT"
 chk "loop gate count == 60" "60" "$LT_PASS"
 printf '  ---- loop-closure: %s checks passed, %s failed ----\n' "$LT_PASS" "$LT_FAIL"
 [ "$LT_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_LOOP_LOG" | head -20
+# EHT oracle suite: exact overlaps vs grids, Jacobi vs closed forms, H2/H2O
+# SCF laws, fail-loud gates. Seventh gate; count pinned like the rest.
+VERIFY_EHT_LOG="$AUDIT_TMP/verify_eht.log"
+if ! make selftest-eht >"$AUDIT_TMP/eht_build.log" 2>&1; then echo "  FAIL  make selftest-eht builds"; fail=1; fi
+./build/test_eht > "$VERIFY_EHT_LOG" 2>&1 && EHT=0 || EHT=1
+EHT_PASS=$(grep -c '^  PASS' "$VERIFY_EHT_LOG" 2>/dev/null || true)
+EHT_FAIL=$(grep -c '^  FAIL' "$VERIFY_EHT_LOG" 2>/dev/null || true)
+chk "selftest-eht green" "0" "$EHT"
+chk "eht gate count == 31" "31" "$EHT_PASS"
+printf '  ---- EHT oracles: %s checks passed, %s failed ----\n' "$EHT_PASS" "$EHT_FAIL"
+[ "$EHT_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_EHT_LOG" | head -20
 if [ -f kcsa.cvmds ]; then
   # FULL-AUDIT O16: primary seal check calls ds_verify_file (no fork risk).
   if [ -x ./build/verify_cvmds ]; then
