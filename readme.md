@@ -447,4 +447,31 @@ DATASTREAM_SPEC.md      the .cvmds format, schema 1
 src/, include/, tests/  the engine and its suites
 audit/                  independent oracles, C harnesses, external references,
                         pre-fix engine copies (make audit / make audit-revert)
+472-MGB/                S2->MPE display bridge. NOT part of this repo's history:
+                        it is versioned independently at
+                        github.com/Shicheng-Zhang-0003/MPE-Magi-Bridge
+                        and is gitignored here (clone it alongside). Developed
+                        in this tree, copied into the 475-MPE tree as
+                        v15S/src/ecosystem/mgb/, which is the live integration.
+                        Display-only: it spawns s2tui, configures it through the
+                        shell S2 already has, and reads S2SAVE1 frames from `sync`.
+                        Positions flow S2 -> MPE only; never back.
 ```
+
+### Consuming the record from another engine (472-MGB)
+
+`472-MGB` drives the interactive `s2tui` shell over pipes — `stdout` is data,
+`stderr` carries the prompt — and reads a strict `S2SAVE1` frame via `sync`
+(see `DATASTREAM_SPEC.md` for the on-disk record format, which is a different,
+sealed artifact). It never touches `output.txt` or the batch `./carbonsim`
+path: one record path, one writer.
+
+```bash
+make -C 472-MGB test     # 33/33 parser + mapper + spawn-naming gates
+make -C 472-MGB probe    # live petri dish through ../s2tui
+```
+
+The petri dish currently stages as a **single static snapshot**: bodies are
+static and bonds carry `k = 0`, so it renders but does not move or vibrate.
+That is Phase 0 by design; follow mode is open work tracked in
+`475-MPE/v15S/REMAINING_WORK.md`.
