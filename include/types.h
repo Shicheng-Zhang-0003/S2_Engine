@@ -361,6 +361,13 @@ typedef struct {
                                    * reaction-field feedback included). QEq
                                    * supports n<=128; larger/single-atom systems
                                    * keep prior charges (solver returns -1). */
+    int            use_eht_bo;    /* EHT reactive bonds (qm_eht.h E6). When 1,
+                                   * forces_calculate solves EHT once per step and
+                                   * scales each harmonic bond by its Mayer bond
+                                   * order (dissociated pairs stop pulling).
+                                   * 0 default: plain harmonic walls. Requires
+                                   * H/C/N/O atoms within EHT caps; otherwise
+                                   * warns once and leaves bonds unscaled. */
     double         scf_total_q;   /* total charge constraint for SCF */
     int            scf_pinned_idx;/* pinned atom (e.g. ion) or -1 = none */
     double         scf_pinned_q;  /* pinned charge value */

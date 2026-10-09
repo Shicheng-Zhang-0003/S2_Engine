@@ -5,6 +5,7 @@
 #include "../include/constants.h"
 #include "../include/periodic_table.h"
 #include "../include/qm.h"
+#include "../include/qm_eht.h"
 
 /*
 * forces.c
@@ -880,10 +881,38 @@ void forces_calculate(Simulation *sim) {
         }
     }
 
-    /* 3. Bonded stretches */
+    /* 3. Bonded stretches (EHT reactive hook, qm_eht.h E6). */
+    static _Thread_local qm_eht_t eht_step;
+    static _Thread_local int eht_ok = 0;
+    if (sim->use_eht_bo) {
+        /* One EHT solve per step; BO is the slow variable. Static TLS
+         * scratch mirrors qm.c solver workspaces (recomputed every call,
+         * never read stale: eht_ok gates the lookup below). */
+        eht_ok = (qm_eht_solve (sim, &eht_step) == 0);
+        if (!eht_ok) {
+            static _Thread_local int warned = 0;
+            if (!warned) {
+                fprintf (stderr,
+                         "forces_calculate: WARNING use_eht_bo requested "
+                         "but EHT solve failed; bonds unscaled\n");
+                warned = 1;
+            }
+        }
+    } else {
+        eht_ok = 0;
+    }
     if (sim->use_bonds) {
-        for (int b = 0; b < sim->num_bonds; b++)
-            E_bond += forces_bond(sim->atoms, N, &sim->bonds[b]);
+        for (int b = 0; b < sim->num_bonds; b++) {
+            if (sim->use_eht_bo && eht_ok) {
+                Bond tmp = sim->bonds[b];
+                double f = qm_eht_bond_factor (
+                    &eht_step, sim, tmp.atom_a, tmp.atom_b);
+                if (f < 1.0) tmp.k *= f;
+                E_bond += forces_bond (sim->atoms, N, &tmp);
+            } else {
+                E_bond += forces_bond (sim->atoms, N, &sim->bonds[b]);
+            }
+        }
     }
 
     /* 4. Angle bends */

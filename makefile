@@ -45,7 +45,7 @@ TUI_OBJS = $(ENG_OBJS) $(OBJ_DIR)/tui.o $(OBJ_DIR)/tui_view.o $(OBJ_DIR)/tui_scr
 DEPS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.d, $(SRCS))
 
 .PHONY: all clean run selftest selftest-forces selftest-fire selftest-regression \
-        selftest-external selftest-loop test deps audit audit-revert tui
+        selftest-external selftest-loop selftest-eht test deps audit audit-revert tui
 
 # One command builds every executable: the batch record binary, the live
 # TUI, and all six test binaries — `make` / `make -j$(nproc)` is enough,
@@ -53,14 +53,14 @@ DEPS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.d, $(SRCS))
 # targets below remain as aliases (verify_scripts.sh calls them).
 TEST_BINS = $(OBJ_DIR)/test_datastream $(OBJ_DIR)/test_forces \
             $(OBJ_DIR)/test_fire $(OBJ_DIR)/test_regression \
-            $(OBJ_DIR)/test_external $(OBJ_DIR)/test_loop
+            $(OBJ_DIR)/test_external $(OBJ_DIR)/test_loop $(OBJ_DIR)/test_eht
 # FULL-AUDIT O16: seal checker (calls ds_verify_file; not a gate itself).
 VERIFY_BINS = $(OBJ_DIR)/verify_cvmds
 
 all: $(OBJ_DIR) $(BIN) $(TUI_BIN) $(TEST_BINS) $(VERIFY_BINS)
 
 $(OBJ_DIR)/verify_cvmds: tests/verify_cvmds.c $(OBJ_DIR)/datastream.o
-	$(CC) $(CFLAGS) -o $@ tests/verify_cvmds.c $(OBJ_DIR)/datastream.o
+	$(CC) $(CFLAGS) -MMD -MP -MF $(OBJ_DIR)/verify_cvmds.d -o $@ tests/verify_cvmds.c $(OBJ_DIR)/datastream.o
 
 # Live terminal (see readme `s2tui` section): separate binary with its own
 # main, linked against engine objects minus main. Untracked tool, not record.
@@ -88,8 +88,19 @@ $(OBJ_DIR):
 $(BIN): $(BIN_OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ -lm
 
-# Include auto-generated dependencies
+# Include auto-generated dependencies.
+# FULL-AUDIT E9 (stale test objects): TEST_DEPFLAGS *writes* tests/*.d but
+# nothing ever -include'd them, so editing a widely-included header (e.g. a
+# Simulation field in types.h) rebuilt every engine object while leaving the
+# test object files stale — silently skewing struct layouts between test and
+# engine TUs. Observed 2026-10-08: test_regression.o predated a types.h
+# change by 2h, PCG64 reads degraded to LCG, one gate went red for a
+# build-system reason with zero source errors. Test .d files are included
+# below, so header edits rebuild tests too. `make clean` first remains the
+# rule for record work; this closes the incremental-build hole.
+TEST_DEPS = $(patsubst $(TEST_DIR)/%.c, $(OBJ_DIR)/%.d, $(wildcard $(TEST_DIR)/*.c))
 -include $(DEPS)
+-include $(TEST_DEPS)
 
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) $(DEPFLAGS) -c -o $@ $<
@@ -171,6 +182,17 @@ $(OBJ_DIR)/test_loop: $(OBJ_DIR) $(OBJ_DIR)/test_loop.o $(OBJ_DIR)/tui_view.o $(
 $(OBJ_DIR)/test_loop.o: $(TEST_DIR)/test_loop.c
 	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
 
+# EHT oracle suite: exact prolate overlaps vs 3D-grid STO integration,
+# Jacobi vs 2x2 closed forms, H2/H2O SCF laws (signs, neutrality, BO
+# dissolution, SCC convergence, rotation invariance). Seventh gate.
+selftest-eht: $(OBJ_DIR)/test_eht
+
+$(OBJ_DIR)/test_eht: $(OBJ_DIR) $(OBJ_DIR)/test_eht.o $(ENG_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_eht.o $(ENG_OBJS) -lm
+
+$(OBJ_DIR)/test_eht.o: $(TEST_DIR)/test_eht.c
+	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
+
 # Run every gate. `make test` is what CI should invoke.
 # AUDIT FIX M5: the regression line used to be
 #     @./build/test_regression | tail -3
@@ -180,7 +202,7 @@ $(OBJ_DIR)/test_loop.o: $(TEST_DIR)/test_loop.c
 # The log is now written to a file so the binary's own exit status reaches
 # make unmasked, and the FAIL lines are grepped as well so the gate fails even
 # if a future change to the suite decouples its exit code from its verdicts.
-test: selftest selftest-forces selftest-fire selftest-regression selftest-external selftest-loop
+test: selftest selftest-forces selftest-fire selftest-regression selftest-external selftest-loop selftest-eht
 	@./$(OBJ_DIR)/test_datastream   > $(OBJ_DIR)/datastream.log 2>&1; \
 	  dc=$$?; if [ $$dc -ne 0 ]; then echo "  datastream   FAILED (rc=$$dc)"; cat $(OBJ_DIR)/datastream.log; exit 1; else echo "  datastream   OK"; fi
 	@./$(OBJ_DIR)/test_forces      > $(OBJ_DIR)/forces.log 2>&1; \
@@ -194,6 +216,14 @@ test: selftest selftest-forces selftest-fire selftest-regression selftest-extern
 	    exit 1; \
 	  else \
 	    echo "  loop         OK ($$(grep -c '^  PASS' $(OBJ_DIR)/loop.log) consistency checks)"; \
+	  fi
+	@./$(OBJ_DIR)/test_eht          > $(OBJ_DIR)/eht.log 2>&1; \
+	  ec=$$?; tail -2 $(OBJ_DIR)/eht.log; \
+	  if [ $$ec -ne 0 ] || grep -q '^  FAIL' $(OBJ_DIR)/eht.log; then \
+	    echo "  eht          FAILED (rc=$$ec)"; grep '^  FAIL' $(OBJ_DIR)/eht.log | head -20; \
+	    exit 1; \
+	  else \
+	    echo "  eht          OK ($$(grep -c '^  PASS' $(OBJ_DIR)/eht.log) EHT oracle checks)"; \
 	  fi
 	@./$(OBJ_DIR)/test_external    > $(OBJ_DIR)/external.log 2>&1; \
 	  ex=$$?; tail -3 $(OBJ_DIR)/external.log; \
