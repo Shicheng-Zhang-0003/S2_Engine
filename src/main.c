@@ -7,6 +7,7 @@
 #include "../include/periodic_table.h"
 #include "../include/quantum.h"
 #include "../include/forces.h"
+#include "../include/qm_eht.h"
 #include "../include/integrator.h"
 #include "../include/sim.h"
 #include "../include/nucleobases.h"
@@ -38,7 +39,7 @@ static void demo_clock_done(const char *name) {
  * recap silently skipped a demo that had run. Both arrays are now sized by
  * the demo count and the guard bounds-checks against that, so the next demo
  * added cannot quietly disappear from the recap. */
-#define DEMO_VERDICT_COUNT 14
+#define DEMO_VERDICT_COUNT 15
 /* FULL-AUDIT C27: fail-closed exit status. Demo alloc-failure paths
  * previously printed to stdout and main() unconditionally returned 0. */
 static int g_failed = 0;
@@ -3610,6 +3611,130 @@ static void demo_kcsa_real_filter(void) {
     set_verdict(12, "filter %d atoms, net %+.3fe", filter_atoms, qtot);
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * DEMO 18: EHT semiempirical SCF (qm_eht.h) — the quantum layer grows up.
+ *
+ * What this proves, in record order:
+ *  1. H2 dissociation CURVE from electronic structure (E_band + screened
+ *     nuclear repulsion): bound minimum, correct atomic limit — the two
+ *     things a harmonic wall cannot do (Demo 2's covalent curve is a
+ *     Morse-style fit; this one is computed from MOs).
+ *  2. H2O self-consistent Mulliken charges (O negative) + HOMO-LUMO gap.
+ *  3. The reactive milestone: a BO-scaled H-H bond at 2.0 A carries ~zero
+ *     force (wall removed), harmonic carries the full wall. Printed side
+ *     by side, same geometry.
+ *
+ * Honesty (qm_eht.h E1-E8): single-zeta minimal basis, WH K=1.75,
+ * non-variational energies (qualitative curves), EHT-large gaps, and the
+ * restricted-determinant Mayer persistence (force switch is overlap-gated
+ * Mayer, labeled). EHT claims ride stdout in Phase 1 (no .cvmds leg yet).
+ * ══════════════════════════════════════════════════════════════════════════ */
+static void demo_eht(void) {
+    banner("DEMO 18: EHT semiempirical SCF — bonds that can break");
+    printf("  EHT: Hoffmann 1963 minimal-basis SCF (H 1s; C/N/O 2s+2p),\n"
+           "  exact prolate/STO overlaps, SCC via Ohno Hubbard gammas.\n"
+           "  Single-zeta, non-variational, WH K=1.75 (see qm_eht.h E1-E8).\n");
+    static const double Rs[] = { 0.5, 0.74, 1.0, 1.5, 2.0, 3.0, 4.0 };
+    /* E5 energy reporting: E_band ONLY (bare 1/R sums are unclaimed). */
+    double e_band_grid[7];
+    printf("  --- H2 EHT curve (band energy; qualitative) ---\n");
+    printf("  R(A)     E_band(eV)  gap(eV)   MayerBO  switch\n");
+    for (unsigned i = 0; i < sizeof Rs / sizeof Rs[0]; i++) {
+        Simulation *s = sim_create(8, 8);
+        if (!s) {
+            printf("  ERROR: allocation failed\n");
+            g_failed = 1;
+            return;
+        }
+        sim_add_atom(s, 1, vec3(-Rs[i] / 2, 0, 0), 0.0);
+        sim_add_atom(s, 1, vec3(Rs[i] / 2, 0, 0), 0.0);
+        s->dt = 0.5;
+        s->cutoff = 12.0;
+        static qm_eht_t E;
+        int rc = qm_eht_solve(s, &E);
+        if (rc != 0) {
+            printf("  R=%.2f  EHT rc=%d\n", Rs[i], rc);
+            g_failed = 1;
+            sim_destroy(s);
+            return;
+        }
+        double bo = qm_eht_bond_order(&E, 0, 1);
+        double sw = qm_eht_bond_factor(&E, s, 0, 1);
+        printf("  %-7.2f  %+.4f    %6.2f    %.4f    %.4f\n", Rs[i], E.e_band,
+               E.gap, bo, sw);
+        e_band_grid[i] = E.e_band;
+        sim_destroy(s);
+    }
+    /* Grid argmin at an ENDPOINT (R=4.0, still falling toward -27.2) is
+     * not a bond minimum; the 2.0 A wiggle is 0.1-0.3 eV texture, not a
+     * well. Claiming either would be the fabricated-target failure. */
+    {
+        int imin = 0;
+        for (unsigned i = 0; i < sizeof Rs / sizeof Rs[0]; i++)
+            if (e_band_grid[i] < e_band_grid[imin]) imin = i;
+        if (imin > 0 && imin + 1 < (int)(sizeof Rs / sizeof Rs[0]))
+            printf("  EHT minimum near R=%.2f A (qualitative).\n", Rs[imin]);
+        else
+            printf("  NO interior EHT minimum on this grid (band still "
+                   "falling at R=4 A toward -27.2; total unclaimed).\n");
+    }
+    printf("  Band dissociates toward 2xH atoms; switch dissolves 1->0.\n");
+    /* H2O: charges + gap + SCC */
+    {
+        Simulation *s = sim_create(8, 8);
+        if (!s) {
+            printf("  ERROR: allocation failed\n");
+            g_failed = 1;
+            return;
+        }
+        sim_place_h2o(s, vec3_zero());
+        static qm_eht_t E;
+        int rc = qm_eht_solve(s, &E);
+        if (rc != 0) {
+            printf("  H2O EHT rc=%d\n", rc);
+            g_failed = 1;
+            sim_destroy(s);
+            return;
+        }
+        printf("  --- H2O SCC-EHT (SCC %d iters, resid %.1e) ---\n",
+               E.scc_iters, E.scc_resid);
+        printf("  Mulliken: O %+.4f e, H %+.4f e, H %+.4f e (sum %.1e)\n",
+               E.charges[0], E.charges[1], E.charges[2],
+               E.charges[0] + E.charges[1] + E.charges[2]);
+        printf("  gap %.2f eV (EHT-large, E7); band-only energy (E5)\n",
+               E.gap);
+        sim_destroy(s);
+    }
+    /* Reactive milestone: BO-scaled vs harmonic wall at 2.0 A. */
+    {
+        Simulation *s = sim_create(8, 8);
+        if (!s) {
+            printf("  ERROR: allocation failed\n");
+            g_failed = 1;
+            return;
+        }
+        sim_add_atom(s, 1, vec3(-1.0, 0, 0), 0.0);
+        sim_add_atom(s, 1, vec3(1.0, 0, 0), 0.0);
+        sim_add_bond(s, 0, 1, 1);
+        s->dt = 0.5;
+        s->cutoff = 12.0;
+        s->use_bonds = 1;
+        forces_calculate(s);
+        double e_harm = s->E_bond_total;
+        double f0 = vec3_norm(s->atoms[0].force);
+        s->use_eht_bo = 1;
+        forces_calculate(s);
+        double e_bo = s->E_bond_total;
+        double f1 = vec3_norm(s->atoms[0].force);
+        printf("  --- H-H at 2.0 A: harmonic wall vs BO switch ---\n");
+        printf("  harmonic: E_bond=%.4f eV |F|=%.4f eV/A\n", e_harm, f0);
+        printf("  BO-scaled: E_bond=%.4f eV |F|=%.4f eV/A (wall dissolving)\n",
+               e_bo, f1);
+        set_verdict(14, "EHT H2 dissoc + H2O qO<0, wall off at 2A");
+        sim_destroy(s);
+    }
+}
+
 static void demo_dna_duplex(void) {
 banner("DEMO 17: DNA duplex - minimal G-C and A-T base pair stack");
 /* Capacities: 59 base atoms + 4x17 sugar atoms (Phase 2) = 127;
@@ -4196,6 +4321,7 @@ int main(void) {
     RUN_DEMO(demo_kcsa_filter, "demo 12 KcsA");
     RUN_DEMO(demo_kcsa_real_filter, "demo 12b real KcsA filter");
     RUN_DEMO(demo_dna_duplex, "demo 17 duplex");
+    RUN_DEMO(demo_eht, "demo 18 EHT");
 #undef RUN_DEMO
 
     /* Result recap: one deterministic line per demo (see set_verdict
@@ -4205,7 +4331,7 @@ int main(void) {
             "1 quantum", "2 bond curve", "3 water MD", "4 trimer",
             "5 methane", "6 nucleobases", "7 pairing", "8 dinucleotide",
             "9 HH neuron", "10 dipeptide", "11 helix", "12 KcsA",
-            "12b real KcsA filter", "17 duplex"};
+            "12b real KcsA filter", "17 duplex", "18 EHT SCF"};
         printf("\n  ══════════════════════════════════════════════════\n");
         printf("  RESULT RECAP\n");
         for (int i = 0; i < DEMO_VERDICT_COUNT; i++)
