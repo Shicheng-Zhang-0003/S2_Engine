@@ -2,7 +2,16 @@ import math,subprocess,os
 # The engine tree is two levels up: audit/external -> audit -> v9R4.
 import pathlib
 V=str(pathlib.Path(__file__).resolve().parents[2])
-open('/tmp/opencode/h.c','w').write(r'''
+# FULL-AUDIT Q4: the scratch paths used to be hard-coded to /tmp/opencode,
+# a directory belonging to one tool that this script never created. On any
+# machine without it the very first open() raised FileNotFoundError and the
+# check died with a traceback instead of reporting anything. Use a directory
+# this script owns and removes.
+import tempfile, shutil
+_T=tempfile.mkdtemp(prefix="s2audit-hydro-")
+try:
+    SRC=os.path.join(_T,'h.c'); EXE=os.path.join(_T,'h')
+    open(SRC,'w').write(r'''
 #include <stdio.h>
 #include "quantum.h"
 int main(void){
@@ -16,9 +25,11 @@ int main(void){
     }}
   return 0;}
 ''')
-subprocess.run(['gcc','-O2','-std=c11','-I'+V+'/include','-o','/tmp/opencode/h','/tmp/opencode/h.c',
-                V+'/build/quantum.o',V+'/build/periodic_table.o','-lm'],check=True)
-out=subprocess.run(['/tmp/opencode/h'],capture_output=True,text=True).stdout
+    subprocess.run(['gcc','-O2','-std=c11','-I'+V+'/include','-o',EXE,SRC,
+                    V+'/build/quantum.o',V+'/build/periodic_table.o','-lm'],check=True)
+    out=subprocess.run([EXE],capture_output=True,text=True).stdout
+finally:
+    shutil.rmtree(_T,ignore_errors=True)
 a0=0.529177210903
 print("  n  l   <r>            <r^2>           <1/r>           <T>(eV)         vs Griffiths closed form")
 worst=0

@@ -52,9 +52,16 @@ printf 'run: building\n' >&2
 # against tracked objects and cannot fail (B1 class). Fail closed on warnings.
 make clean >/dev/null 2>&1
 # FULL-AUDIT O23: hermetic log path (missing dir previously failed closed-open).
-mkdir -p "${TMPDIR:-/tmp/opencode}/s2audit"
-if ! make > "${TMPDIR:-/tmp/opencode}/s2audit/run_build.log" 2>&1; then echo "run: clean build failed" >&2; exit 1; fi
-if grep -q 'warning:' "${TMPDIR:-/tmp/opencode}/s2audit/run_build.log"; then echo "run: build produced warnings" >&2; exit 1; fi
+# FULL-AUDIT Q4: the default was /tmp/opencode, which is a scratch directory
+# belonging to one tool rather than a general temporary location: on any
+# machine that has not set TMPDIR this silently created a stray "opencode"
+# tree under /tmp and wrote the build log inside it. The default is now the
+# conventional /tmp, still overridable with TMPDIR, and the directory is
+# created explicitly so a missing TMPDIR can never fail the run open.
+AUDIT_TMP="${TMPDIR:-/tmp}/s2audit"
+mkdir -p "$AUDIT_TMP" || { echo "run: cannot create scratch dir $AUDIT_TMP" >&2; exit 1; }
+if ! make > "$AUDIT_TMP/run_build.log" 2>&1; then echo "run: clean build failed" >&2; exit 1; fi
+if grep -q 'warning:' "$AUDIT_TMP/run_build.log"; then echo "run: build produced warnings" >&2; exit 1; fi
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$RUNS_DIR"
