@@ -370,9 +370,36 @@ int ds_verify_file(const char *path) {
                 }
             }
             if (hexok && (hexstart[64] == '\n' || hexstart[64] == '\0')) {
-                ds_sha256_hex(buf, payload_len, hex);
-                if (strncmp(hexstart, hex, 64) == 0)
-                    rc = 0;
+                /* FULL-AUDIT Q3: the seal must be the LAST content in the file.
+                 *
+                 * The comment above this block claimed the hash line is
+                 * required to be final ("no trailing claims"), but the code
+                 * only checked that the 64 hex digits are followed by a
+                 * newline or EOF. Anything appended after that newline was
+                 * outside the sealed payload AND outside any structural
+                 * check, so it verified clean. Measured before the fix:
+                 *
+                 *     clean file                       -> ds_verify_file() = 0
+                 *     "injected.claim 999 eV ..."      -> ds_verify_file() = 0
+                 *
+                 * A claim that no digest covers is not a claim this format
+                 * can make, and a reader that trusts the seal would believe
+                 * it. That is precisely the "mathematical lie" the seal
+                 * exists to prevent, so the seal is now required to be the
+                 * final non-empty content: exactly one optional trailing
+                 * newline, then EOF. */
+                int sealed_ok = 1;
+                {
+                    const char *tail = hexstart + 64;
+                    if (*tail == '\n') tail++;
+                    while (*tail == '\r' || *tail == '\n') tail++;
+                    if (*tail != '\0') sealed_ok = 0;
+                }
+                if (sealed_ok) {
+                    ds_sha256_hex(buf, payload_len, hex);
+                    if (strncmp(hexstart, hex, 64) == 0)
+                        rc = 0;
+                }
             }
         }
     }

@@ -51,7 +51,9 @@ double loop_lj_minimum(double sigma) {
 }
 
 /* Irreducible choices — mirrors readme §7. Adding a new reduced-model
- * assumption without adding it here breaks test_loop, by design. */
+ * assumption without adding it here breaks test_loop, by design.
+ * FULL-AUDIT Q1/Q2 (third pass): two assumptions the earlier inventory did
+ * not name, both surfaced by the independent-oracle sweep. */
 static const char *const LOOP_ABSTRACTIONS[] = {
     "no-bulk-solvent: vacuum + dielectric divisor, 6-water clusters only",
     "rigid-filter: deposited 1K4C TVGYG, no flexible-filter free energy",
@@ -63,7 +65,13 @@ static const char *const LOOP_ABSTRACTIONS[] = {
     "no-1-4-scaling-by-design: AMBER scaling needs co-fitted torsions",
     "cutoff-switch-off-by-default: gas-phase correct, opt-in for condensed",
     "o-n2-no-neighbour-list: fine at current sizes, exclusion O(degree)",
-    "no-membrane-potential-in-dynamics: Nernst supplied here from same kT"
+    "no-membrane-potential-in-dynamics: Nernst supplied here from same kT",
+    "qeq-unscreened-coulomb: bare 1/r, no Rappe screening; refused when the"
+    " ordering inverts (Q1) — screened variant is future work",
+    "minimum-image-one-convention: every pair term, periodic or not, uses the"
+    " same separation (Q2); no long-range QEq correction",
+    "diagnostic-velocity-cap-on-by-default: 2000 K rescales velocities, so a"
+    " hand-seeded NVE run above it is NOT NVE (Q6); disable with maxtemp 0"
 };
 
 int loop_abstraction_count(void) {
