@@ -13,8 +13,11 @@
 # first is the only honest form.
 set -uo pipefail
 # Full-audit P19: scratch logs live in the temp workspace, not predictable
-# /tmp paths (symlink race). Override with TMPDIR or default to /tmp/opencode.
-AUDIT_TMP="${TMPDIR:-/tmp/opencode}/s2audit"
+# /tmp paths (symlink race). Override with TMPDIR or default to /tmp.
+# FULL-AUDIT Q4: the default was /tmp/opencode — a scratch directory named
+# after one tool rather than a general temporary location — so a machine with
+# TMPDIR unset grew a stray "opencode" tree under /tmp on every verifier run.
+AUDIT_TMP="${TMPDIR:-/tmp}/s2audit"
 mkdir -p "$AUDIT_TMP" 2>/dev/null || AUDIT_TMP="/tmp"
 VERIFY_BUILD_LOG="$AUDIT_TMP/verify_build.log"
 VERIFY_REG_LOG="$AUDIT_TMP/verify_regression.log"
@@ -88,7 +91,7 @@ if ! make selftest >"$AUDIT_TMP/selftest_build.log" 2>&1; then echo "  FAIL  mak
 ./build/test_datastream >/dev/null 2>&1 && ST=0 || ST=1
 chk "selftest green" "0" "$ST"
 DS_PASS=$(./build/test_datastream 2>&1 | grep -c '^  PASS' || true)
-chk "datastream gate count == 17" "17" "$DS_PASS"
+chk "datastream gate count == 19" "19" "$DS_PASS"
 if ! make selftest-forces >"$AUDIT_TMP/forces_build.log" 2>&1; then echo "  FAIL  make selftest-forces builds"; fail=1; fi
 ./build/test_forces >/dev/null 2>&1 && FT=0 || FT=1
 if ! make selftest-regression >"$AUDIT_TMP/regression_build.log" 2>&1; then echo "  FAIL  make selftest-regression builds"; fail=1; fi
@@ -116,7 +119,7 @@ chk "fire selftest green" "0" "$FR"
 FR_PASS=$(./build/test_fire 2>&1 | grep -c '^  PASS' || true)
 chk "fire gate count == 7" "7" "$FR_PASS"
 chk "selftest-regression green" "0" "$RT"
-chk "regression gate count == 165" "165" "$RT_PASS"
+chk "regression gate count == 170" "170" "$RT_PASS"
 printf '  ---- audit regression suite: %s checks passed, %s failed ----\n' "$RT_PASS" "$RT_FAIL"
 [ "$RT_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_REG_LOG" | head -20
 chk "selftest-external green" "0" "$ET"

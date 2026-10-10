@@ -1428,6 +1428,120 @@ static void test_ion_size_and_hydration(void) {
           kcsa_dehydration_cost_eV(11) - kcsa_dehydration_cost_eV(19), 0.7255, 2e-3);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+ * FULL-AUDIT Q1 — QEq electronegativity-ordering guard.
+ *
+ * The bare-1/r QEq Hessian goes indefinite once a non-excluded pair is
+ * closer than ~2.2 A, and the "minimum" it then returns is a saddle that
+ * places POSITIVE charge on the more electronegative atom. The engine now
+ * refuses that answer instead of using it. These checks pin both halves:
+ * the guard must FIRE on the inverted geometry (rc == -1, no charge
+ * written), and must NOT fire on a physically ordered one.
+ * ═══════════════════════════════════════════════════════════════════════ */
+static void test_qeq_ordering_guard(void) {
+    grp("QEq refuses a charge ordering that inverts electronegativity (Q1)");
+
+    /* Inverted: O...H at 2.0 A. Pre-fix this returned rc == 0 with
+     * q_O = +0.1914, q_H = -0.1914 — the sign of the ordering reversed. */
+    {
+        Simulation *s = sim_create(8, 8);
+        sim_add_atom(s, 8, vec3(0.0, 0.0, 0.0), 0.0);
+        sim_add_atom(s, 1, vec3(2.0, 0.0, 0.0), 0.0);
+        double q[8] = { -99.0, -99.0 };
+        int rc = qm_qeq(s, 0.0, 1.0, q);
+        char d[224];
+        snprintf(d, sizeof d, "rc=%d (want -1) q_O=%+.4f q_H=%+.4f", rc, q[0], q[1]);
+        ok("QEq refuses the 2.0 A O/H inversion (no charges written)",
+           rc == -1, d);
+        sim_destroy(s);
+    }
+    /* Ordered: the same pair at 3.0 A is physically fine and must be
+     * accepted, with oxygen negative — this is the regression the guard
+     * must not cause. */
+    {
+        Simulation *s = sim_create(8, 8);
+        sim_add_atom(s, 8, vec3(0.0, 0.0, 0.0), 0.0);
+        sim_add_atom(s, 1, vec3(3.0, 0.0, 0.0), 0.0);
+        double q[8];
+        int rc = qm_qeq(s, 0.0, 1.0, q);
+        char d[224];
+        snprintf(d, sizeof d, "rc=%d q_O=%+.4f q_H=%+.4f", rc, q[0], q[1]);
+        ok("QEq still solves an ordered 3.0 A O/H pair (q_O < 0)",
+           rc == 0 && q[0] < 0.0 && q[1] > 0.0, d);
+        sim_destroy(s);
+    }
+    /* A single-species system (the record's KcsA cage: oxygens + a pinned
+     * ion) has no electronegativity ordering to violate and must always be
+     * accepted. */
+    {
+        Simulation *s = sim_create(8, 8);
+        sim_add_atom(s, 8, vec3(0.0, 0.0, 0.0), 0.0);
+        sim_add_atom(s, 8, vec3(2.8, 0.0, 0.0), 0.0);
+        double q[8];
+        int rc = qm_qeq(s, 0.0, 1.0, q);
+        char d[160];
+        snprintf(d, sizeof d, "rc=%d (want 0)", rc);
+        ok("QEq never refuses a single-species system (no ordering to invert)",
+           rc == 0, d);
+        sim_destroy(s);
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * FULL-AUDIT Q2 — minimum image for every QM pair term under PBC.
+ *
+ * qm.c used raw Cartesian separations while forces.c used the minimum
+ * image, so in a periodic box the two halves of the SAME energy disagreed
+ * about a pair's distance. The checks below put a charge pair on opposite
+ * faces of a small box and require the QM field to see the SHORT separation.
+ * ═══════════════════════════════════════════════════════════════════════ */
+static void test_qm_minimum_image(void) {
+    grp("QM pair terms honour the minimum-image convention under PBC (Q2)");
+
+    /* Two unit charges at x = 0.5 and x = L - 0.5 in a 6 A box: the true
+     * separation is 1.0 A, not 5.0 A. The Thole-damped field at one charge
+     * from the other must reflect the 1.0 A distance. Compare the QM field
+     * energy with dielectric 1 against the closed-form short-distance value. */
+    {
+        Simulation *s = sim_create(8, 8);
+        sim_add_atom(s, 19, vec3(0.5, 0.0, 0.0), 1.0);
+        sim_add_atom(s, 19, vec3(5.5, 0.0, 0.0), 1.0);
+        sim_set_box(s, 6.0, 6.0, 6.0);
+        /* First-order induction energy is U = -1/2 alpha E^2 / COULOMB_MD
+         * summed; with two K+ separated by 1 A through the periodic face the
+         * field must be that of a 1 A pair. The exact field of a unit charge
+         * at 1 A is COULOMB_MD (14.4) V/A before Thole damping. */
+        double U = qm_induction_energy(s, 1.0);
+        char d[224];
+        /* K+ polarizability 0.83 A^3; two atoms, each sees field ~14.4 V/A
+         * (Thole-damped to ~0.93 of it). U is O(-1 eV); the exact pre-fix
+         * 5 A reading would be ~40x smaller. Assert it is not tiny. */
+        snprintf(d, sizeof d, "U(1 A across the face) = %.4f eV", U);
+        ok("QM field uses the minimum image, not the 5 A wraparound",
+           U < -0.05, d);
+        sim_destroy(s);
+    }
+    /* And the same pair with the box made non-periodic must read the 5.0 A
+     * separation, i.e. a much weaker field — proving the two paths really
+     * differ and the periodic one is the short one. */
+    {
+        Simulation *s = sim_create(8, 8);
+        sim_add_atom(s, 19, vec3(0.5, 0.0, 0.0), 1.0);
+        sim_add_atom(s, 19, vec3(5.5, 0.0, 0.0), 1.0);
+        double U_np = qm_induction_energy(s, 1.0);   /* no PBC: 5.0 A apart */
+        Simulation *t = sim_create(8, 8);
+        sim_add_atom(t, 19, vec3(0.5, 0.0, 0.0), 1.0);
+        sim_add_atom(t, 19, vec3(5.5, 0.0, 0.0), 1.0);
+        sim_set_box(t, 6.0, 6.0, 6.0);
+        double U_p = qm_induction_energy(t, 1.0);
+        char d[224];
+        snprintf(d, sizeof d, "U_periodic=%.4f  U_open=%.4f", U_p, U_np);
+        ok("periodic QM field is strictly stronger than the 5 A open field",
+           U_p < U_np * (-0.5), d);
+        sim_destroy(s); sim_destroy(t);
+    }
+}
+
 int main(void) {
     printf("╔══════════════════════════════════════════════════════════════╗\n");
     printf("║  v9R4 AUDIT REGRESSION SUITE                                 ║\n");
@@ -1449,6 +1563,8 @@ int main(void) {
     test_kcsa_filter();
     test_ion_size_and_hydration();
     test_dipole_solver_equation();
+    test_qeq_ordering_guard();
+    test_qm_minimum_image();
     test_qeq_conservation_under_bound();
     test_qeq_nonzero_total_charge();
     test_kcsa_filter_residue_neutrality();

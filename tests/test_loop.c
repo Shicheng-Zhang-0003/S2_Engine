@@ -115,7 +115,7 @@ int main(void) {
     ok("lj bad-sigma NaN", isnan(loop_lj_minimum(0.0)), "");
 
     printf("\n[loop-closure: abstraction inventory is explicit]\n");
-    ok("11 irreducible listed", loop_abstraction_count() == 11, "");
+    ok("14 irreducible listed", loop_abstraction_count() == 14, "");
     {
         int has_solvent = 0, has_rigid = 0, has_tracks = 0;
         for (int i = 0; i < loop_abstraction_count(); i++) {

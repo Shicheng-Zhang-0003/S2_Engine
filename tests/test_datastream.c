@@ -154,6 +154,36 @@ int main(void) {
                 }
             }
         }
+
+        /* 6. FULL-AUDIT Q3: the seal must be the LAST content in the file.
+         * A claim appended AFTER the sealed hash is covered by no digest,
+         * so a verifier that trusted the seal would believe it. Before the
+         * fix this verified clean; the payload hash is unchanged because the
+         * payload stops at [end]. Measured before: ds_verify_file() = 0
+         * (accepted). Now it must reject. */
+        {
+            /* rebuild a clean sealed file, then append an unsealed claim */
+            const char *ap = "/tmp/s2test_append.cvmds";
+            DSWriter *w = ds_open(ap, "selftest");
+            if (w) {
+                ds_add_claim(w, "sealed.value", 1.5, "eV", "computed");
+                ds_close(w);
+                check(ds_verify_file(ap) == 0,
+                      "Q3: clean sealed file verifies");
+                FILE *af = fopen(ap, "a");
+                if (af) {
+                    fputs("injected.claim 999 eV computed\n", af);
+                    fclose(af);
+                    check(ds_verify_file(ap) != 0,
+                          "Q3: unsealed content appended after the seal is rejected");
+                    remove(ap);
+                } else {
+                    check(0, "Q3: unsealed content appended after the seal is rejected");
+                }
+            } else {
+                check(0, "Q3: unsealed content appended after the seal is rejected");
+            }
+        }
         free(content);
     }
 
@@ -161,6 +191,6 @@ int main(void) {
         printf("selftest: %d FAILURE(S)\n", failures);
         return 1;
     }
-    printf("selftest: 17 checks, all passed\n");
+    printf("selftest: 19 checks, all passed\n");
     return 0;
 }
