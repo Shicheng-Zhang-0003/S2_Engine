@@ -20,10 +20,32 @@ anything here.
 | `math/` | independent mathematical oracles in Python (symbolic gradient checks, constants, pair and dihedral derivatives) |
 | `harness/` | C harnesses linked against the engine objects — the dipole solver, QEq conservation, minimizer guards, KcsA geometry |
 | `external/` | checks against sources outside the repository, plus the fetched reference files |
+| `probe_thirdpass.c` | the 2026-10-10 third-pass verification harness (78 independent checks: FD forces for every term, NVE conservation, thermostat ensembles, HH closed forms, QEq ordering, KcsA, SHA-256) |
+| `thirdpass_uff_amber.py` | third-pass table verification: all 36 UFF σ/ε and 13 AMBER ff99 types against primary transcriptions |
+| `external/uff_reference.prm` | machine-readable transcription of UFF Table II (Rappé 1992), vendored so the table check runs offline |
 | `orig/` | verbatim copies of the **pre-fix** `qm.c`, `integrator.c` and `constants.h`, used to prove a regression test actually goes red on the defect it claims to catch |
 | `history/` | one-off fix and verify scripts from the pre-v9R4 pass, kept for provenance |
 | `stale_artifacts/` | artifacts found misplaced, kept rather than deleted |
 | `scratch/` | derived data: build logs and captured runs. **Not tracked** |
+
+## Building and running the third-pass harness
+
+The third-pass evidence is reproducible like the rest of the audit. It links
+the *shipped* engine objects, so build first, then:
+
+```bash
+make                                  # build the engine
+gcc -O2 -std=c11 -Iinclude -o /tmp/probe_thirdpass \
+    audit/probe_thirdpass.c \
+    build/{aminoacids,datastream,forces,integrator,kcsa_filter,loop,neuron,nucleobases,periodic_table,qm,qm_eht_overlap,qm_eht_scf,quantum,sim}.o -lm
+/tmp/probe_thirdpass                  # prints per-check PASS/FAIL, exits non-zero on any
+python3 audit/thirdpass_uff_amber.py  # UFF + AMBER table verification (offline)
+```
+
+The harness deliberately uses **independent** oracles — central finite
+differences, closed-form hydrogenic results, statistical-ensemble
+identities — rather than the project's own, so a shared mistaken assumption
+cannot pass twice.
 
 ## `external/` reference files
 
