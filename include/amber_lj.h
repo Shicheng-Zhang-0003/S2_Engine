@@ -48,10 +48,16 @@
  * macro computes the full expression and reproduces AMBER's published
  * sigmas exactly:
  *
- *     N  amide   Rstar 1.8240 -> 3.24979  (AMBER 3.2500)
+ *     N  amide   Rstar 1.8240 -> 3.25000  (AMBER 3.2500)
  *     C  sp2     Rstar 1.9080 -> 3.39967  (AMBER 3.3997)
- *     O  carbonyl Rstar 1.6612 -> 2.96000 (AMBER 2.9600)
+ *     O  carbonyl Rstar 1.6612 -> 2.95992  (AMBER 2.9600)
  *     CT sp3     Rstar 1.9080 -> 3.39967  (AMBER 3.3997)
+ *
+ * FULL-AUDIT Q5: the worked examples above used to read 3.24979 and
+ * 2.96000. Both were wrong in the fifth decimal: 2*1.8240/2^(1/6) =
+ * 3.2499985 and 2*1.6612/2^(1/6) = 2.9599219. The macro was always
+ * right — the arithmetic printed beside it was not, which is exactly the
+ * kind of number a reader copies into their own notes.
  *
  * The periodic table converts with a DIFFERENT expression because UFF
  * tabulates a different quantity: UFF's x1 is the FULL distance of the

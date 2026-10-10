@@ -12,6 +12,41 @@
 /* Forward: SCF-consistent spatial Zeff (defined with screening block). */
 static int qm_pair_excluded(const Simulation *sim, int i, int j);
 
+/*
+ * FULL-AUDIT Q2 — MINIMUM IMAGE FOR EVERY QM PAIR TERM.
+ *
+ * The classical LJ/Coulomb pair loop in forces.c applies the minimum-image
+ * convention whenever any box axis is periodic (pair_nonbonded_core calls
+ * vec3_pbc_box). The quantum-enhancement layer did NOT: qm.c contained zero
+ * calls to vec3_pbc_box, so QEq, the Thole-damped field, the coupled-dipole
+ * tensor, Pauli and dispersion all used raw Cartesian separations.
+ *
+ * In a vacuum demo both give the same answer and the defect is invisible —
+ * which is exactly why it survived. In a periodic system it is a silent
+ * physics error with two faces:
+ *
+ *   - CORRECTNESS. Two atoms 1 A apart across a face see no field at all,
+ *     and two atoms 60 A apart in a 48 A box see a weaker field than they
+ *     should, because the real interaction is 12 A and the code measures
+ *     60. Every QM term is then wrong by a geometry-dependent factor.
+ *   - CONSISTENCY. LJ/Coulomb use the minimum image and QM does not, so the
+ *     two halves of the SAME potential energy take different distances for
+ *     the same pair. The energy is not a well-defined function of position
+ *     and the reported PE cannot be differentiated into the reported forces.
+ *
+ * This helper is the single place that decides, so all pair terms cannot
+ * drift apart again.
+ */
+static Vec3 qm_sep(const Simulation *sim, int i, int j) {
+    Vec3 d = vec3_sub(sim->atoms[j].position, sim->atoms[i].position);
+    if (sim->box.periodic[0] || sim->box.periodic[1] || sim->box.periodic[2])
+        d = vec3_pbc_box(d, sim->box.dimensions, sim->box.periodic);
+    return d;
+}
+static double qm_sep_r(const Simulation *sim, int i, int j) {
+    return vec3_norm(qm_sep(sim, i, j));
+}
+
 /* QEq hard-core exclusion (FULL-AUDIT M27: QEq-lite, NOT literal Rappe-Goddard).
  * Rappe-Goddard (JPCB 95,3358,1991) uses a SHIELDED Coulomb taper for bonded
  * neighbours; this engine zeroes A_ij for topological 1-2/1-3 pairs instead.
@@ -506,6 +541,139 @@ double qm_pauli(double S, double J_a, double J_b) {
 
 /* ── QEq solver ────────────────────────────────────────────────────── */
 
+/*
+ * FULL-AUDIT Q1 — ELECTRONEGATIVITY-ORDERING GUARD ON THE QEq SOLUTION.
+ *
+ * The QEq equations minimise E(q) = 1/2 q^T A q - chi^T q subject to
+ * 1^T q = total_q, and the ONLY physically meaningful outcome is a charge
+ * ordering that follows electronegativity: the atom with the larger chi
+ * (ionisation + affinity) carries the more negative charge.
+ *
+ * Measured with this engine's own parameters (audit probe A03): for an H/O
+ * pair the 2x2 block A = [[J_H, C],[C, J_O]] with J_H = 6.4220,
+ * J_O = 6.0785 eV and the bare Coulomb coupling C = 14.3996/r eV has
+ * smallest eigenvalue
+ *
+ *     lambda_min = (J_H+J_O)/2 - sqrt(((J_H-J_O)/2)^2 + C^2)
+ *
+ *     r = 1.0 A -> -8.15 eV    r = 1.5 A -> -3.35 eV
+ *     r = 2.0 A -> -0.95 eV    r = 2.5 A -> +0.49 eV (definite)
+ *
+ * so a NON-EXCLUDED pair closer than ~2.2 A drives A indefinite. Because
+ * the topological hard core (QM_QEQ_EXCLUDE) removes bonded 1-2 and 1-3
+ * pairs but NOT close non-bonded contacts, a metal ion pushed onto an
+ * oxygen, a restrained hydrogen bond, or a ligand clash all reach the
+ * indefinite branch. The Gaussian elimination there finds a well-conditioned
+ * SYSTEM (indefinite != singular), returns charges that satisfy
+ * sum(q) = total_q and every bound check, and puts POSITIVE charge on the
+ * more electronegative atom:
+ *
+ *     O...H at 2.0 A: q_O = +0.191402   q_H = -0.191402
+ *
+ * measured (audit probe A03). The sign of the ordering was INVERTED,
+ * silently, at exit 0, and that number flowed into every Coulomb term.
+ *
+ * WHY THIS IS AN ORDERING CHECK AND NOT A POSITIVE-DEFINITENESS CHECK:
+ * A full PD requirement was measured against the record's own cage and is
+ * TOO STRICT. The KcsA ion cage (Demo 12) has r_inner = 2.216 A, putting
+ * the four inner oxygens 3.13 A apart with C = 4.6 eV; the free-atom A
+ * block over the 8 coordinating oxygens has a Cholesky pivot of -4.39 eV
+ * (INDEFINITE) — yet it produces the physically correct q_O = -0.5462 e.
+ * A many-oxygen cage can be indefinite while the *solution* is still
+ * physically ordered, because the diagonal hardness dominates the aggregate.
+ * Demanding PD would reject that real, shipped result. What must never ship
+ * is the INVERTED ordering, so the guard tests the ordering itself.
+ *
+ * The test: for every pair of DISTINCT-ELEMENT atoms i, j with a real
+ * electronegativity gap, the solved charges must not place the more
+ * electronegative atom positive relative to the less electronegative one,
+ * beyond a small tolerance. Same-element pairs have no chi gap and are
+ * exempt (their relative charge is set by geometry, not electronegativity).
+ * A violation means the geometry has driven the QEq solution into a
+ * non-physical branch, and the honest response is the same fail-closed
+ * contract the rest of this file already uses: return -1 and leave the
+ * caller's previous (finite) charges untouched.
+ *
+ * ROOT CAUSE, for the record: Rappe & Goddard (J. Phys. Chem. 95, 3358,
+ * 1991) do NOT use a bare 1/r. Their off-diagonal J_AB is the Coulomb
+ * integral between two normalised Slater valence densities,
+ *
+ *     J_AB(R) = INT phi_A^2(r) phi_B^2(r') / |r - r'|  d3r d3r'
+ *
+ * which is finite and heavily damped at contact; that screening is what
+ * keeps A positive definite and the ordering correct by construction.
+ * Implementing it needs a screening radius per element from the QEq
+ * parameter table, which is NOT in this tree. Inventing one would be an
+ * unsourced parameter — exactly the "mathematical lie" this file exists to
+ * avoid — so the honest fix is this guard, and the screened-Coulomb variant
+ * stays declared future work exactly as the QEq-lite note above says.
+ *
+ * Returns 1 when the ordering is physical, 0 when it is inverted. `tolerated`
+ * receives the largest ordering violation seen (for diagnostics/tests).
+ */
+static int qm_qeq_ordering_ok(const double *chi, const double *q,
+                              const int *Z, int n, double *worst_viol) {
+    (void)Z;
+    /*
+     * GLOBAL electronegativity monotonicity.
+     *
+     * Group the atoms by IDENTICAL chi (which is what "same element" means
+     * here), average q within each group, and require the group means to
+     * decrease as chi increases: the mean charge of a more electronegative
+     * element must be no more positive than the mean charge of a less
+     * electronegative one.
+     *
+     * Why group means and not a pairwise test: a pairwise rule is wrong for
+     * real molecules. A linear O-C-O-C-O chain (the shape the regression
+     * suite's clamp test builds) is symmetric, so its middle oxygen — held
+     * between two carbons — is driven to the +2 e bound while the two
+     * terminal oxygens sit at -1.38 e. A pairwise rule reads the centre
+     * (chi_O > chi_C but q_O > q_C) as an inversion and refuses a solution
+     * whose element means are correctly ordered:
+     *
+     *     mean q(O) = (-1.38 + 2.00 - 1.38)/3 = -0.25 e
+     *     mean q(C) = (+0.38 + 0.38)/2       = +0.38 e
+     *
+     * Coordination count dominates individual charges; the group mean is the
+     * quantity electronegativity equalization actually constrains. The
+     * 2-atom O...H case the guard exists for has one atom per group, so its
+     * group means ARE its charges and the flip is still caught exactly.
+     */
+    double gc[64], gq[64], gn[64];
+    int ng = 0;
+    for (int i = 0; i < n; i++) {
+        int g = -1;
+        for (int k = 0; k < ng; k++) if (gc[k] == chi[i]) { g = k; break; }
+        if (g < 0) {
+            if (ng >= 64) { if (worst_viol) *worst_viol = 0.0; return 1; }
+            g = ng++;
+            gc[g] = chi[i];
+            gq[g] = 0.0;
+            gn[g] = 0.0;
+        }
+        gq[g] += q[i];
+        gn[g] += 1.0;
+    }
+    for (int k = 0; k < ng; k++) gq[k] /= gn[k];
+    double worst = 0.0;
+    for (int a = 0; a < ng; a++) {
+        for (int b = 0; b < ng; b++) {
+            if (a == b) continue;
+            double gap = gc[a] - gc[b];           /* >0: group a more EN */
+            if (gap == 0.0) continue;
+            double dq = gq[a] - gq[b];
+            double viol = (gap > 0.0) ? dq : -dq;
+            if (viol > worst) worst = viol;
+        }
+    }
+    if (worst_viol) *worst_viol = worst;
+    /* Tolerance 0.02 e: the solver converges to 1e-9, so this absorbs only
+     * numerical noise. The measured 2-atom flip is +0.38 e — an order of
+     * magnitude clear of the gate — while the symmetric chain above sits at
+     * exactly 0. */
+    return worst <= 0.02;
+}
+
 int qm_qeq(const Simulation *sim, double total_q, double dielectric,
            double *out_q) {
     if (!sim) return -1;
@@ -536,7 +704,7 @@ int qm_qeq(const Simulation *sim, double total_q, double dielectric,
              * the solve runs away into the charge-transfer mode - which
              * is exactly where the +4.8 e carbon came from. */
             if (qm_pair_excluded(sim, i, j)) continue;
-            double r = vec3_dist(sim->atoms[i].position, sim->atoms[j].position);
+            double r = qm_sep_r(sim, i, j);
             if (r < 0.2) r = 0.2; /* regularize coincidence */
             M[i * N + j] = COULOMB_MD / (r * dielectric);
         }
@@ -637,6 +805,28 @@ int qm_qeq(const Simulation *sim, double total_q, double dielectric,
             if (!isfinite(sol[i])) return -1;
             out_q[i] = sol[i];   /* audit F9 bound, conservation-preserving */
         }
+        /* FULL-AUDIT Q1: reject a non-physical charge ORDERING. A close
+         * non-bonded pair can drive the bare-1/r QEq system to a branch that
+         * puts positive charge on the more electronegative atom (measured:
+         * q_O = +0.19 e for an O...H pair at 2.0 A). See the note above the
+         * helper. Same-element atoms carry no chi gap and are exempt. */
+        {
+            int Z[128];
+            for (int i = 0; i < n; i++) Z[i] = sim->atoms[i].Z;
+            double viol = 0.0;
+            if (!qm_qeq_ordering_ok(chi, sol, Z, n, &viol)) {
+                static int warned = 0;
+                if (!warned) {
+                    fprintf(stderr,
+                            "qm_qeq: WARNING charge ordering inverted "
+                            "(worst %.3f e); geometry has driven the unscreened "
+                            "QEq system non-physical; charges left unchanged\n",
+                            viol);
+                    warned = 1;
+                }
+                return -1;
+            }
+        }
     }
     return 0;
 }
@@ -669,13 +859,13 @@ int qm_qeq_pinned(const Simulation *sim, double total_q, double dielectric,
             int j = idx[b];
             if (i == j) continue;
             if (qm_pair_excluded(sim, i, j)) continue;  /* audit F9 */
-            double r = vec3_dist(sim->atoms[i].position, sim->atoms[j].position);
+            double r = qm_sep_r(sim, i, j);
             if (r < 0.2) r = 0.2;
             M[a * N + b] = COULOMB_MD / (r * dielectric);
         }
         M[a * N + m] = 1.0;
         M[m * N + a] = 1.0;
-        double rp = vec3_dist(sim->atoms[i].position, sim->atoms[pinned_idx].position);
+        double rp = qm_sep_r(sim, i, pinned_idx);
         if (rp < 0.2) rp = 0.2;
         rhs[a] = -chi[i] - COULOMB_MD / (rp * dielectric) * pinned_q;
     }
@@ -739,6 +929,31 @@ int qm_qeq_pinned(const Simulation *sim, double total_q, double dielectric,
         out_q[idx[a]] = sol[a];
     }
     out_q[pinned_idx] = pinned_q;
+    /* FULL-AUDIT Q1: ordering guard over the FREE atoms only (the pinned
+     * charge is a fixed input, not a solved degree of freedom, and a cation
+     * pinned at +1 correctly has no chi ordering to satisfy against the
+     * neutral shell). */
+    {
+        int Z[128];
+        double chif[128], qf[128];
+        for (int a = 0; a < m; a++) {
+            int i = idx[a];
+            Z[a] = sim->atoms[i].Z;
+            qm_chi_J(sim->atoms[i].element, &chif[a], &J[0]);
+            qf[a] = sol[a];
+        }
+        double viol = 0.0;
+        if (!qm_qeq_ordering_ok(chif, qf, Z, m, &viol)) {
+            static int warned = 0;
+            if (!warned) {
+                fprintf(stderr,
+                        "qm_qeq_pinned: WARNING charge ordering inverted "
+                        "(worst %.3f e); charges left unchanged\n", viol);
+                warned = 1;
+            }
+            return -1;
+        }
+    }
     return 0;
 }
 
@@ -967,7 +1182,7 @@ static void qm_fields(const Simulation *sim, double dielectric, Vec3 *Eout) {
             if (i == j) continue;
             double qj = sim->atoms[j].partial_charge;
             if (!isfinite(qj) || fabs(qj) < 1e-12) continue;
-            Vec3 d = vec3_sub(sim->atoms[i].position, sim->atoms[j].position);
+            Vec3 d = qm_sep(sim, j, i);
             double r2 = vec3_norm2(d);
             if (r2 < 1e-8 || !isfinite(r2)) continue;
             if (r2 > sim->cutoff * sim->cutoff) continue;
@@ -1013,7 +1228,7 @@ static void qm_induction_apply(const Simulation *sim, double dielectric,
                     if (j == i) continue;
                     double qj = sim->atoms[j].partial_charge;
                     if (!isfinite(qj) || fabs(qj) < 1e-12) continue;
-                    Vec3 d = vec3_sub(sim->atoms[i].position, sim->atoms[j].position);
+                    Vec3 d = qm_sep(sim, j, i);
                     double r2 = vec3_norm2(d);
                     if (r2 < 1e-8 || !isfinite(r2)) continue;
                     double r = sqrt(r2);
@@ -1030,7 +1245,7 @@ static void qm_induction_apply(const Simulation *sim, double dielectric,
             } else {
                 double qk = sim->atoms[k].partial_charge;
                 if (!isfinite(qk) || fabs(qk) < 1e-12) continue;
-                Vec3 d = vec3_sub(sim->atoms[i].position, sim->atoms[k].position);
+                Vec3 d = qm_sep(sim, i, k);
                 double r2 = vec3_norm2(d);
                 if (r2 < 1e-8 || !isfinite(r2)) continue;
                 double r = sqrt(r2);
@@ -1204,7 +1419,7 @@ int qm_solve_dipoles(const Simulation *sim, double dielectric, Vec3 *mu_out) {
              * QEq solve uses, so the two charge models now agree on
              * which pairs are "close". */
             if (qm_pair_excluded(sim, i, j)) continue;
-            Vec3 d = vec3_sub(sim->atoms[i].position, sim->atoms[j].position);
+            Vec3 d = qm_sep(sim, j, i);
             double r2 = vec3_norm2(d);
             if (r2 < 1e-8 || !isfinite(r2)) continue;
             if (r2 > sim->cutoff * sim->cutoff) continue;
@@ -1411,7 +1626,7 @@ static int qm_pair_excluded(const Simulation *sim, int i, int j) {
 }
 
 static double qm_pair_pauli(const Simulation *sim, int i, int j) {
-    Vec3 d = vec3_sub(sim->atoms[j].position, sim->atoms[i].position);
+    Vec3 d = qm_sep(sim, i, j);
     double r2 = vec3_norm2(d);
     if (!(r2 > 1e-18) || !isfinite(r2)) return 0.0;
     if (r2 > sim->cutoff * sim->cutoff) return 0.0;
@@ -1597,7 +1812,7 @@ double qm_coulomb_pen(double b, double r) {
 }
 
 static double qm_pair_disp(const Simulation *sim, int i, int j) {
-    Vec3 d = vec3_sub(sim->atoms[j].position, sim->atoms[i].position);
+    Vec3 d = qm_sep(sim, i, j);
     double r2 = vec3_norm2(d);
     if (!(r2 > 1e-18) || !isfinite(r2) || r2 > sim->cutoff * sim->cutoff) return 0.0;
     double r = sqrt(r2);
@@ -1625,7 +1840,7 @@ double qm_dispersion_forces(Simulation *sim) {
     for (int i = 0; i < N - 1; i++) {
         for (int j = i + 1; j < N; j++) {
             if (qm_pair_excluded(sim, i, j)) continue;
-            Vec3 d = vec3_sub(sim->atoms[j].position, sim->atoms[i].position);
+            Vec3 d = qm_sep(sim, i, j);
             double r2 = vec3_norm2(d);
             if (!(r2 > 1e-18) || !isfinite(r2)) continue;
             double r = sqrt(r2);
@@ -1682,6 +1897,14 @@ static int qm_scf_run(Simulation *sim, double total_q, double dielectric,
     const double C = QM_FIELD_C;
     double qprev[128];
     for (int i = 0; i < n; i++) qprev[i] = sim->atoms[i].partial_charge;
+    /* FULL-AUDIT Q1: the free-atom index set is loop-invariant, so hoist it
+     * where the converged-state ordering check below can also reach it. */
+    int idx[128], m = 0;
+    for (int i = 0; i < n; i++) {
+        int ispin = 0;
+        for (int pp = 0; pp < npin; pp++) if (i == pidx[pp]) { ispin = 1; break; }
+        if (!ispin) idx[m++] = i;
+    }
     int it;
     for (it = 0; it < 5; it++) {
         /* Dipole field from current charges (Thole-damped). */
@@ -1694,7 +1917,7 @@ static int qm_scf_run(Simulation *sim, double total_q, double dielectric,
                 for (int pp = 0; pp < npin; pp++)
                     if (j == pidx[pp]) { qj = pinq[pp]; break; }
                 if (!isfinite(qj) || fabs(qj) < 1e-12) continue;
-                Vec3 d = vec3_sub(sim->atoms[i].position, sim->atoms[j].position);
+                Vec3 d = qm_sep(sim, j, i);
                 double r2 = vec3_norm2(d);
                 if (r2 < 1e-8 || !isfinite(r2)) continue;
                 double r = sqrt(r2);
@@ -1716,7 +1939,7 @@ static int qm_scf_run(Simulation *sim, double total_q, double dielectric,
                 double aj = qm_polarizability(&sim->atoms[j]);
                 if (!(aj > 0)) continue;
                 Vec3 mu = vec3_scale(E[j], aj); /* e·A (alpha*E with E in V/A, e implicit) */
-                Vec3 dji = vec3_sub(sim->atoms[i].position, sim->atoms[j].position);
+                Vec3 dji = qm_sep(sim, j, i);
                 double r2 = vec3_norm2(dji);
                 if (r2 < 1e-8 || !isfinite(r2)) continue;
                 double r = sqrt(r2);
@@ -1734,12 +1957,6 @@ static int qm_scf_run(Simulation *sim, double total_q, double dielectric,
          * to the charge clamps inside dynamics (observed -51 eV Na+
          * collapse); g=0.5 keeps sign/order, converges stably. */
         /* Build (m+1) system like qm_qeq_pinned with shifted chi. */
-        int idx[128], m = 0;
-        for (int i = 0; i < n; i++) {
-            int ispin = 0;
-            for (int pp = 0; pp < npin; pp++) if (i == pidx[pp]) { ispin = 1; break; }
-            if (!ispin) idx[m++] = i;
-        }
         double target = total_q;
         for (int pp = 0; pp < npin; pp++) target -= pinq[pp];
         int Nsys = m + 1;
@@ -1753,7 +1970,7 @@ static int qm_scf_run(Simulation *sim, double total_q, double dielectric,
             for (int bb = 0; bb < m; bb++) {
                 int j = idx[bb];
                 if (i == j) continue;
-                double r = vec3_dist(sim->atoms[i].position, sim->atoms[j].position);
+                double r = qm_sep_r(sim, i, j);
                 if (r < 0.2) r = 0.2;
                 M[a * Nsys + bb] = COULOMB_MD / (r * dielectric);
             }
@@ -1761,7 +1978,7 @@ static int qm_scf_run(Simulation *sim, double total_q, double dielectric,
             M[m * Nsys + a] = 1.0;
             double bg = 0.0;
             for (int pp = 0; pp < npin; pp++) {
-                double rp = vec3_dist(sim->atoms[i].position, sim->atoms[pidx[pp]].position);
+                double rp = qm_sep_r(sim, i, pidx[pp]);
                 if (rp < 0.2) rp = 0.2;
                 bg += COULOMB_MD / (rp * dielectric) * pinq[pp];
             }
