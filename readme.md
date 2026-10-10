@@ -27,11 +27,11 @@ every line command works, only the alternate-screen reports unavailable).
 
 | Command | Effect |
 |---|---|
-| `make` / `make -j$(nproc)` | build everything: `carbonsim`, `s2tui`, and all six test binaries |
-| `./carbonsim` | run the 15-demo record sequence (~2 minutes); stdout is the byte-deterministic record |
+| `make` / `make -j$(nproc)` | build everything: `carbonsim`, `s2tui`, and all seven test binaries |
+| `./carbonsim` | run the 15-demo record sequence (**~6 minutes**; the polar-WHAM leg dominates); stdout is the byte-deterministic record |
 | `./run` | clean build behind a warning gate, run to `runs/<timestamp>.txt`, print old/new digests side by side |
 | `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt` + `kcsa.cvmds` (staged atomically as `runs/<stamp>.{txt,cvmds}`); refuses to promote unless stderr is empty AND `make test` is green |
-| `make test` | build and run the six unit gates only (17/22/7/165/51/60) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
+| `make test` | build and run the seven unit gates only (19/22/7/170/51/60/31) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
 | `make tui` | build just the interactive terminal (`./s2tui`) |
 | `./verify_scripts.sh` | read-only record + spec verifier: baseline digest, `kcsa.cvmds` seal, key/unit compliance, every suite |
 | `./s01_verify_record.sh` | builds normally and under ASan/UBSan, asserts both reproduce the recorded digest with empty stderr |
@@ -49,10 +49,10 @@ commit time so `kcsa.cvmds` seals identically across repeated runs).
 
 | Gate | Checks | What it pins |
 |---|---:|---|
-| `test_datastream` | 17 | FIPS 180-4 SHA-256 known-answer vectors, round-trip, tamper rejection |
+| `test_datastream` | 19 | FIPS 180-4 SHA-256 known-answer vectors, round-trip, tamper rejection, seal-is-final |
 | `test_forces` | 22 | analytic dihedrals vs finite-difference oracle, net-zero forces, collinear guard |
 | `test_fire` | 7 | FIRE and steepest descent reach the same minima |
-| `test_regression` | 165 | independent in-repo oracles: quadrature, finite differences, hand-derived values |
+| `test_regression` | 170 | independent in-repo oracles: quadrature, finite differences, hand-derived values, QEq ordering guard, QM minimum image |
 | `test_external` | 51 | values from outside this repository (NIST CODATA, parm99.dat, FIPS, PDB 1K4C) + HO-eps unit pin |
 | `test_loop` | 60 | bio/QC/QM loop closure + best-layer: Nernst, kT, Marcus/Shannon/LJ/Coulomb, BJ/penetration, Langevin, flat-bottom, tethers, H-complete ions-hold |
 | `test_eht` | 31 | exact overlaps vs 3D-grid STO oracles, Jacobi vs 2x2 forms, H2/H2O SCF laws, fail-loud gates |
@@ -90,13 +90,13 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **27 739 lines** (src 21 784 · include 2 994 · tests 2 961).
+Current tree: **28 129 lines** (src 22 028 · include 2 994 · tests 3 107).
 
 | File | Lines | Role |
 |---|---:|---|
 | `src/tui.c` | 7245 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
 | `src/main.c` | 4356 | the 15-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
-| `src/qm.c` | 1896 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver |
+| `src/qm.c` | 2113 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
 | `src/forces.c` | 1032 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud |
 | `src/sim.c` | 866 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints) |
@@ -110,7 +110,7 @@ Current tree: **27 739 lines** (src 21 784 · include 2 994 · tests 2 961).
 | `src/tui_screen.c` | 169 | ncursesw alternate-screen monitor (optional dep, TTY-gated, piped-safe) |
 | `src/neuron.c` | 164 | Hodgkin–Huxley 1952 (squid giant axon) |
 | `src/loop.c` | 76 | bio/QC/QM loop closure: Nernst, kT scale, LJ/Coulomb from same primaries |
-| `tests/test_regression.c` | 1466 | the 165-check in-repo oracle suite |
+| `tests/test_regression.c` | 1582 | the 170-check in-repo oracle suite |
 | `tests/test_external.c` | 543 | the 51-check outside-reference suite |
 | `tests/test_loop.c` | 273 | the 60-check loop-closure + best-layer suite |
 | `src/qm_eht_overlap.c` | 342 | exact STO overlaps: prolate A/B machinery, GL quadrature for p-pi |
@@ -338,6 +338,59 @@ constants had duplicated spellings free to drift. Each correction is pinned
 by a regression check that fails on the old code. The row-by-row history
 lives in `release_note_v9R4.md` and the commit log, not here.
 
+### 6.1 Third audit pass (2026-10-10) — independent oracle sweep
+
+A full mathematical, programming and operational re-audit ran an
+**independent verification harness** built outside the tree (`/tmp`, linked
+against the shipped engine objects, 78 checks) rather than reusing the
+project's own oracles, so a shared mistaken assumption could not pass twice.
+Its findings:
+
+* **Constants — clean.** Every SI literal in `include/constants.h` matches
+  CODATA 2019 exactly (h, c, e, k, N_A by redefinition; mₑ, m_p, m_n, ε₀,
+  a₀, E_h, amu to the published uncertainty), and every derived conversion
+  (`COULOMB_MD` = 14.3996454784 eV·Å, `MD_FORCE_CONV` = 9.648533212e-3,
+  `KCAL_MOL_TO_EV` = 0.04336410414, `AMU_AFS2_TO_EV` = 103.642696) was
+  re-derived in Python from its primaries and agrees.
+* **Periodic table — clean, 36/36.** All UFF σ and ε were re-verified
+  cell-by-cell against an independent machine-readable transcription of
+  Rappé Table II (openbabel `UFF.prm`, cross-checked against cp2k and
+  PorousMaterials.jl). Two values are commonly mis-transcribed and the tree
+  has both **correct**: Si σ = 3.82641 Å (x₁ = 4.295, not the widely
+  circulated 4.195) and Ar σ = 3.44600 Å (x₁ = 3.868, not 3.912). Every σ is
+  UFF x₁ / 2^(1/6), never the x₁ itself.
+* **AMBER ff99 — clean, 13/13.** All LJ types in `include/amber_lj.h` match
+  `audit/external/parm99.dat`'s `MOD4 RE` section exactly (H 0.6000/0.0157 …
+  P 2.1000/0.2000), and `sigma = 2·R*/2^(1/6)` reproduces AMBER's published
+  sigmas. (One documentation typo fixed: the N amide σ is 3.25000 Å, not
+  the "3.24979" the header comment claimed.)
+* **Analytic forces — clean, to machine precision.** Every force term was
+  checked against a central finite difference of its own energy at
+  h = 10⁻⁶ Å on systems the shipped suites do not cover: CHARMM cutoff
+  switching, flat-bottom restraints, PBC minimum-image pairs, the coupled
+  3N×3N dipole solve, Pauli and dispersion. Worst deviation
+  **5.2 × 10⁻¹⁰ eV/Å**.
+* **Integrator — symplectic.** A harmonic oscillator conserves energy to
+  0 eV over 20 000 steps; the water-dimer energy error is bounded, not
+  secular (late-window max |ΔE| / early-window = 0.98); Maxwell–Boltzmann,
+  Andersen and Langevin all reproduce the correct stationary ⟨v²⟩ = 3kT/m
+  and Berendsen relaxes 1000 K → 300 K.
+* **Hodgkin–Huxley — clean.** Resting gating values reproduce the published
+  1952 worked example to four decimals (m 0.052932, h 0.596121, n 0.317677);
+  both removable singularities take their L'Hôpital limits exactly; the
+  action potential peaks at +40.3 mV.
+* **KcsA — clean.** Marcus 1991 TATB hydration free energies, Shannon 1976
+  VIII radii, the kJ/mol-per-eV conversion, and CN = 8 at all four
+  deposited 1K4C K⁺ sites all verify.
+* **SHA-256 / datastream — one real gap, fixed.** The FIPS 180-4 vectors pass,
+  and a tampered payload byte is rejected — but content appended *after* the
+  seal verified clean (Q3, now rejected and pinned).
+* **QEq — one real physics defect, now refused.** See §7.
+
+The four defects fixed in this pass are listed in `release_note_v9R4.md`
+under the third-audit section, and each is pinned by a regression check that
+fails on the pre-fix code.
+
 ---
 
 ## 7. Known limitations
@@ -370,9 +423,45 @@ Stated plainly, because the numbers above cannot be read correctly without them.
   `qm_pauli` inherit that. The EHT layer does NOT use it: `qm_eht_overlap.c`
   integrates exact STO overlaps (prolate machinery + documented p-pi
   quadrature), validated against brute-force 3D grids by `test_eht`.
+* **QEq-lite is unscreened, and that has a hard edge.** The charge
+  equilibration here zeroes the Coulomb coupling for bonded 1-2/1-3 pairs
+  instead of using the Rappé–Goddard screened Coulomb integral
+  `J_AB(R) = ∫ φ_A² φ_B² / |r−r′|`. The bare `1/r` that remains on every
+  other pair dominates the atomic hardness `J ≈ 6 eV` once a pair is closer
+  than ≈ 2.2 Å, the A-matrix goes indefinite, and the "minimum" the solver
+  then returns is a saddle that puts **positive** charge on the more
+  electronegative atom. Measured: an O···H pair at 2.0 Å returned
+  `q_O = +0.1914 e`. The engine now **refuses** such a solution
+  (`qm_qeq`/`qm_qeq_pinned` return −1, charges left untouched, one warning)
+  rather than using it — see §8 and the `qm.c` Q1 note. The record is
+  unaffected because every shipped QEq leg solves over a single element
+  (the eight coordinating oxygens) with a pinned cation, which has no
+  electronegativity ordering to violate. The guard is a *detector*, not a
+  cure: the honest fix is the screened Coulomb, which needs per-element
+  screening radii from the QEq parameter table that this tree does not
+  carry. Inventing them would be an unsourced parameter.
+* **`qm_scf_run` is deliberately not ordering-guarded.** The SCF charge
+  driver uses bare `1/r` with no topological exclusion at all and a 30/70
+  under-relaxation, and is a documented semi-empirical heuristic rather
+  than a strict minimisation. Per-iterate and at-convergence ordering
+  checks were both measured and both refuse the record's own KcsA cage
+  (a Cholesky pivot of −4.39 eV on the free-oxygen block, yet
+  `q_O = −0.5462 e`, which is correct). Refusing there would delete real,
+  shipped physics; the ordering guard therefore applies only to the strict
+  `qm_qeq`/`qm_qeq_pinned` entry points.
 * **1-4 non-bonded scaling is deliberately absent** — AMBER's scaling
   presupposes its co-fitted torsions, which this force field does not use; the
   choice is documented in `forces.c` and was tested against the helix.
+* **A diagnostic velocity cap is ON by default and is not NVE.**
+  `max_temperature` defaults to 2000 K and rescales all velocities whenever
+  the instantaneous temperature exceeds it — correct for its purpose
+  (telling a heat artefact from real dynamics) but easy to trip over when
+  building a test: a hand-seeded kick of 0.05 Å/fs on Mg is ≈ 24 000 K, so
+  the cap fires and removes ~90 % of the kinetic energy in one step, and the
+  run silently stops being NVE. Verified in the third-pass harness: two free
+  particles at 0.1 Å/fs (a 8083 K state) lost 75 % of their KE in one step
+  until the cap was disabled with `maxtemp 0`. Set `max_temperature <= 0` to
+  turn it off; any conservation test must.
 * **Cutoff switching is implemented but off by default.** Every current demo
   is gas-phase and wants the plain hard cutoff; enable the switch before any
   condensed-phase system.
@@ -421,6 +510,19 @@ Stated plainly, because the numbers above cannot be read correctly without them.
   pass/fail.
 * **The record is stdout and only stdout.** stderr is display; if you need to
   quote a number, quote it from `output.txt` and check the digest.
+* **One distance convention everywhere (Q2).** Every pair term — classical
+  LJ/Coulomb, QEq, induced-dipole field and tensor, Pauli, dispersion —
+  now measures a pair through the same `qm_sep`/minimum-image helper, so
+  the two halves of a single potential energy can never disagree about a
+  pair's distance. `qm.c` previously contained zero calls to
+  `vec3_pbc_box` while `forces.c` contained three, which made every
+  quantum-enhancement term silently non-periodic in a periodic box. Every
+  demo is vacuum, so no recorded number changed.
+* **A sealed datastream is sealed to the end of the file (Q3).** `ds_verify_file`
+  now requires the `payload-sha256:` line to be the last content: exactly
+  one optional trailing newline, then EOF. Content appended after the seal
+  is covered by no digest, and previously verified clean. A claim no digest
+  covers is not a claim this format can make.
 
 ---
 

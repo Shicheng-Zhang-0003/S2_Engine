@@ -402,3 +402,120 @@ Extended Hückel + self-consistent charge (`qm_eht.h`, Demo 18, `test_eht`
   silently skewed struct layouts (PCG64 reads degraded to LCG, one red
   gate, zero source errors — caught only because a test compares two
   streams). Test deps are included now; clean-first remains the rule.
+
+---
+
+## 10. Third audit pass (2026-10-10) — independent oracles, four defects fixed
+
+A full mathematical / programming / operational re-audit of the whole tree.
+The method that matters: it did **not** reuse the project's own oracles. A
+separate verification harness was built outside the repository (in `/tmp`,
+linked against the shipped engine objects, 78 checks) using independent
+derivations — central finite differences, closed-form hydrogenic results,
+statistical-ensemble identities, and machine-readable transcriptions of the
+primary parameter tables. A shared mistaken assumption could therefore not
+pass twice. Where the harness and the tree disagreed, the harness was
+checked against the primary source before the tree was judged.
+
+**Confirmed clean (the majority of the tree).**
+
+* Every SI literal in `include/constants.h` matches CODATA 2019 exactly,
+  and every derived conversion re-derives in Python from its primaries.
+* UFF Lennard-Jones: **36/36** σ and ε verified cell-by-cell against an
+  independent transcription of Rappé Table II. Two values that secondary
+  sources commonly mis-report are **correct here**: Si σ = 3.82641 Å
+  (x₁ = 4.295, not 4.195) and Ar σ = 3.44600 Å (x₁ = 3.868, not 3.912).
+* AMBER ff99: **13/13** atom types match `parm99.dat` `MOD4 RE` exactly.
+* Analytic forces vs central differences on every term — including CHARMM
+  cutoff switching, flat-bottom restraints, PBC minimum-image pairs, the
+  coupled 3N×3N dipole solve, Pauli and dispersion, none of which the
+  shipped suites covered. Worst deviation **5.2e-10 eV/Å**.
+* Integrator is symplectic: harmonic oscillator conserves E exactly over
+  20 000 steps; dimer energy error is bounded (late/early ratio 0.98), not
+  secular; Maxwell–Boltzmann, Andersen and Langevin all reproduce
+  ⟨v²⟩ = 3kT/m; Berendsen relaxes 1000 K → 300 K.
+* Hodgkin–Huxley: resting gating matches the published 1952 worked example
+  to four decimals, both removable singularities take their L'Hôpital limits
+  exactly, the action potential peaks at +40.3 mV.
+* KcsA: Marcus 1991 TATB free energies, Shannon 1976 VIII radii, and
+  CN = 8 at all four deposited 1K4C sites verify.
+* SHA-256: FIPS 180-4 known-answer vectors pass; a tampered payload byte is
+  rejected.
+
+**Four real defects found and fixed.**
+
+### Q1 — QEq could invert electronegativity silently *(physics)*
+
+`qm_qeq` / `qm_qeq_pinned` build the augmented system with a **bare 1/r**
+off-diagonal (the Rappé–Goddard screened Coulomb integral is not
+implemented). With this engine's own parameters the A-matrix goes indefinite
+once a non-excluded pair is closer than ≈ 2.2 Å — for an H/O pair the
+smallest eigenvalue is −8.15 eV at 1.0 Å, −3.35 eV at 1.5 Å, −0.95 eV at
+2.0 Å, +0.49 eV at 2.5 Å. Indefinite is not singular, so the Gaussian
+elimination returned a perfectly well-conditioned "solution" that satisfied
+`sum(q) = total_q`, respected the ±2 e bound, and placed **positive charge
+on oxygen**:
+
+```
+O...H at 2.0 A:  q_O = +0.191402 e   q_H = -0.191402 e
+```
+
+at exit status 0, flowing straight into every downstream Coulomb term.
+
+A positive-definiteness requirement was implemented and measured against the
+record's own ion cage, where the free-oxygen block has a Cholesky pivot of
+**−4.39 eV** — genuinely indefinite, and yet it produces the correct
+`q_O = −0.5462 e`, because a many-oxygen shell is dominated by the diagonal
+hardness even when the block is indefinite. Demanding PD would have deleted
+real, shipped physics. The gate that ships instead tests the quantity that
+actually broke: **electronegativity ordering**, as a group-mean
+monotonicity check. A linear O–C–O–C–O chain drove its central oxygen to
+the +2 e bound while the terminal oxygens sat at −1.38 e, which a *pairwise*
+rule misreads as an inversion; the group means (O −0.25 e, C +0.38 e) are
+correctly ordered, and the group-mean form passes it. Both the refusal and
+the non-refusal are pinned. `qm_scf_run` is deliberately **not** guarded: it
+is a documented semi-empirical under-relaxed heuristic, and gating it
+refuses the record's own cage.
+
+### Q2 — the quantum layer ignored periodic boundaries *(physics)*
+
+`forces.c` applied the minimum-image convention in its pair loop; `qm.c`
+contained **zero** calls to `vec3_pbc_box`. QEq, the Thole-damped field,
+the coupled-dipole tensor, Pauli and dispersion therefore all used raw
+Cartesian separations. In vacuum the two are identical, which is why it
+survived; in a periodic box (the TUI petri dish is a 48 Å periodic world)
+every quantum-enhancement term was wrong by a geometry-dependent factor, and
+— worse — the two halves of one potential energy disagreed about a pair's
+distance, so the reported PE could not be differentiated into the reported
+forces. All pair terms now go through one `qm_sep()` helper. Two pinned
+checks place unit charges on opposite faces of a 6 Å box and require the
+QM field to see the 1 Å separation. **No recorded number changed.**
+
+### Q3 — the datastream seal did not reach the end of the file *(integrity)*
+
+`ds_verify_file`'s comment claimed the hash line was required to be final
+"no trailing claims", but the code only checked that 64 hex digits were
+followed by a newline or EOF. Content appended after that newline is
+outside the sealed payload *and* outside every structural check, so it
+verified clean — a claim that no digest covers. Measured before the fix:
+append `"injected.claim 999 eV computed"` to a sealed file →
+`ds_verify_file() = 0` (accepted). The seal is now required to be the last
+content, with the rejection pinned by a new datastream check.
+
+### Q4 — scratch paths leaked a tool-specific directory *(operational)*
+
+`run`, `verify_scripts.sh` and `audit/external/hydro.py` hard-coded
+`/tmp/opencode` — a scratch directory belonging to one tool, not a general
+temporary location. On any machine without it, `./run` and the verifier
+silently created a stray `opencode` tree under `/tmp`, and `hydro.py` died
+with `FileNotFoundError` on its very first `open()` because it never created
+the directory. Now `${TMPDIR:-/tmp}` with an explicit `mkdir -p`, and a
+`tempfile.mkdtemp` the script owns and removes.
+
+**Gates.** `test_datastream` 17 → 19, `test_regression` 165 → 170, for a
+total of **360** pinned checks across seven suites, all green. The record
+reproduces **byte-identically** (`a20cb3a7…`) with empty stderr, because
+none of the four fixes changes a number the record contains: the QEq guard
+only refuses geometries the record never visits, minimum image is a no-op in
+vacuum, the seal change only rejects files that were never valid, and the
+path change is invisible to the build.

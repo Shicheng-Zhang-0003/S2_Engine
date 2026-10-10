@@ -96,6 +96,15 @@ Columns: `key  value  unit  provenance`
 ### 3.5 `[end]` — required
 - `payload-sha256:` SHA-256 over the payload (defined in §2).
 
+**FULL-AUDIT Q3 (2026-10-10) — the seal must terminate the file.** The
+`payload-sha256:` line is the last content in the file: exactly one optional
+trailing newline, then EOF. Nothing may follow it. Content after the seal is
+outside the hashed payload *and* outside every structural check, so it would
+otherwise verify clean while being covered by no digest — a claim this
+format cannot honestly make. `ds_verify_file` rejects such a file, and
+`test_datastream` pins the rejection. (Measured before the fix: appending a
+claim line to a sealed file left `ds_verify_file() == 0`, i.e. accepted.)
+
 ## 4. Naming & sign conventions
 - Claim keys are lower-case hierarchical (`<demo>.<subsystem>.<quantity>`)
   with the §3.4 element/energy exceptions; new keys must be lower-case.
