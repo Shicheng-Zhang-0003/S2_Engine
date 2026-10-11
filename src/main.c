@@ -40,8 +40,23 @@ static void demo_clock_done(const char *name) {
  * set_verdict would have written out of bounds had anything tried, and the
  * recap silently skipped a demo that had run. Both arrays are now sized by
  * the demo count and the guard bounds-checks against that, so the next demo
- * added cannot quietly disappear from the recap. */
-#define DEMO_VERDICT_COUNT 15
+ * added cannot quietly disappear from the recap.
+ *
+ * That last clause was aspirational rather than enforced, and demo 12c
+ * proved it within the same commit series. The bounds check stops an
+ * out-of-range SLOT; it cannot stop two demos writing the same IN-RANGE
+ * slot, and 12c was given slot 13 because 12 was the last slot anyone had
+ * looked at. Demo 17 already owns 13, and 17 runs after 12c, so 12c's
+ * verdict was overwritten before the recap ever read it and the row
+ * silently showed 17's text. The demo existed and its work was in the
+ * record; only its one-line summary vanished, which is exactly the failure
+ * the fix above was written to prevent.
+ *
+ * Sizing the arrays is therefore necessary and not sufficient. Every demo
+ * now owns a distinct slot, and names[] is the map that says which.
+ * add a demo: give it a slot, put its name in the SAME position, and
+ * check the recap actually shows its text. */
+#define DEMO_VERDICT_COUNT 16
 /* FULL-AUDIT C27: fail-closed exit status. Demo alloc-failure paths
  * previously printed to stdout and main() unconditionally returned 0. */
 static int g_failed = 0;
@@ -2304,6 +2319,12 @@ static void kcsa_wham_one(unsigned long seed_base, long min_count,
     }
 }
 
+/* Demo 12's datastream block seals demo 12c's measured quantities, and
+ * demo 12c is DEFINED later in this file than demo 12. Both are pure
+ * functions of the deposited coordinates and both are deterministic, so
+ * the call is safe in either order — see kcsa_ionic_measure's header. */
+static void kcsa_ionic_claims(DSWriter *w);
+
 static void demo_kcsa_filter(void) {
     banner("DEMO 12: KcsA selectivity filter - K+ vs Na+, second pass");
 
@@ -3442,6 +3463,16 @@ static void demo_kcsa_filter(void) {
             ds_add_claim(w, "kcsa.scfuz.pol_na0", sp_pol_na0, "eV", "computed-scf-uz");
             ds_add_claim(w, "kcsa.scfuz.pol_k15", sp_pol_k1, "eV", "computed-scf-uz");
             ds_add_claim(w, "kcsa.scfuz.pol_na15", sp_pol_na1, "eV", "computed-scf-uz");
+
+            /* Demo 12c's measured quantities, sealed into the same file.
+             * Demo 12c prints them later and prints the same numbers: the
+             * measurement is a pure deterministic function of the
+             * deposited coordinates, so calling it here rather than
+             * hoisting demo 12's locals to file scope costs 40 ms and a
+             * three-line change instead of a refactor. See
+             * kcsa_ionic_measure's header. */
+            kcsa_ionic_claims(w);
+
             {
                 int rc = ds_close(w);
                 printf("\n  Datastream s42: kcsa.cvmds %s (verify: %s).\n",
@@ -3634,47 +3665,193 @@ static void demo_kcsa_real_filter(void) {
  *    geometric question with a geometric answer, and it turns out to be
  *    the sharpest thing this engine knows about KcsA.
  * ══════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+ * The demo 12c measurement, factored out of the printer.
+ *
+ * WHY THIS IS A SEPARATE FUNCTION. The sealed kcsa.cvmds is written by demo
+ * 12, which runs BEFORE demo 12b and 12c, and ds_open buffers the entire
+ * payload and truncates the file at ds_close — there is no append path and
+ * no reopen. So the writer cannot reach a value that 12c has not computed
+ * yet, and hoisting demo 12's hundred-odd locals to file scope to move the
+ * whole block later would be a large refactor of working code for no
+ * reason.
+ *
+ * The cheap and correct answer: 12c's measurement is a pure function of
+ * the deposited coordinates, and it is deterministic. Compute it twice —
+ * once here for the claims, once in the printer — and both calls return the
+ * same bits. The elastic strain costs about 20 ms per ion, so the second
+ * call is noise against a record run measured in minutes, and it buys a
+ * structural change of three lines instead of a refactor.
+ *
+ * If this ever stops being deterministic the two copies would disagree and
+ * the printed numbers would stop matching the sealed claims. tests/
+ * test_external.c therefore asserts the values this returns against the
+ * same external references the claims carry, so a drift between the two
+ * call sites shows up as a gate failure rather than as a quiet
+ * inconsistency nobody compares.
+ * ══════════════════════════════════════════════════════════════════════════ */
+#define KCSA_IONIC_EPS_W    78.5   /* water, Gong/Hocky/Freed PNAS 105 (2008) */
+#define KCSA_IONIC_EPS_P     4.0   /* protein interior, same reference         */
+#define KCSA_IONIC_CAGE_EA   5.18  /* unit-charge field at 2.78 A, e/A         */
+#define KCSA_IONIC_STIFF    10.0   /* eV/A^2, the stiffness the leg reports    */
+
+typedef struct {
+    int    ok;
+    /* Born, kJ/mol */
+    double born_na, born_k, born_diff, tab_diff, born_deficit, born_spread;
+    double bury_na, bury_k;
+    /* free-ion polarizability, A^3 */
+    double alpha_k, alpha_na, alpha_ratio;
+    /* screened induction, eV */
+    double ind_k, ind_na;
+    /* shell strain at KCSA_IONIC_STIFF */
+    int    cn_k, cn_na;
+    double contact_k, achieved_k, mismatch_k, fmax_k, strain_k;
+    double contact_na, achieved_na, mismatch_na, fmax_na, strain_na;
+    double strain_ratio;       /* Na/K, the stiffness-independent result */
+} KcsaIonic;
+
+static int kcsa_ionic_measure(KcsaIonic *o) {
+    if (!o) return -1;
+    memset(o, 0, sizeof *o);
+
+    o->born_na  = qm_born_self_energy_kJmol(11, KCSA_IONIC_EPS_W);
+    o->born_k   = qm_born_self_energy_kJmol(19, KCSA_IONIC_EPS_W);
+    o->born_diff = qm_born_hydration_differential_kJmol(11, 19, KCSA_IONIC_EPS_W);
+    o->tab_diff = kcsa_hydration_free_energy_kJmol(11) -
+                  kcsa_hydration_free_energy_kJmol(19);
+    o->born_deficit = o->born_diff - o->tab_diff;
+    o->born_spread = qm_born_hydration_differential_spread_kJmol(11, 19,
+                                                                  KCSA_IONIC_EPS_W);
+    o->bury_na = qm_born_transfer_kJmol(11, KCSA_IONIC_EPS_W, KCSA_IONIC_EPS_P);
+    o->bury_k  = qm_born_transfer_kJmol(19, KCSA_IONIC_EPS_W, KCSA_IONIC_EPS_P);
+    o->alpha_k   = qm_ion_alpha_free(19);
+    o->alpha_na  = qm_ion_alpha_free(11);
+    o->alpha_ratio = o->alpha_k / o->alpha_na;
+    o->ind_k  = qm_born_induction_eV(o->alpha_k, KCSA_IONIC_CAGE_EA,
+                                     KCSA_IONIC_EPS_P);
+    o->ind_na = qm_born_induction_eV(o->alpha_na, KCSA_IONIC_CAGE_EA,
+                                     KCSA_IONIC_EPS_P);
+
+    Vec3 sites[4];
+    if (kcsa_ion_sites(4, sites) < 2) return -1;
+    QmKcsaElastic ek, en;
+    if (qm_kcsa_elastic_strain(19, sites[1], KCSA_IONIC_STIFF, &ek) != 0) return -1;
+    if (qm_kcsa_elastic_strain(11, sites[1], KCSA_IONIC_STIFF, &en) != 0) return -1;
+
+    o->cn_k = (int)ek.cn;   o->cn_na = (int)en.cn;
+    o->contact_k  = ek.target_contact_A;
+    o->achieved_k = ek.shell_mean_iono_A;
+    o->mismatch_k = ek.contact_mismatch_A;
+    o->fmax_k     = ek.f_max_eV_A;
+    o->strain_k   = ek.strain_eV;
+    o->contact_na  = en.target_contact_A;
+    o->achieved_na = en.shell_mean_iono_A;
+    o->mismatch_na = en.contact_mismatch_A;
+    o->fmax_na     = en.f_max_eV_A;
+    o->strain_na   = en.strain_eV;
+    o->strain_ratio = (o->strain_k > 0.0) ? en.strain_eV / ek.strain_eV : 0.0;
+    o->ok = 1;
+    return 0;
+}
+
+/*
+ * Seal demo 12c's quantities into kcsa.cvmds. Called from demo 12's
+ * datastream block, i.e. before the file is closed and sealed.
+ *
+ * Provenance tags follow the convention already in the file: a bare
+ * "computed" where the number is this engine's own arithmetic, and the
+ * source where the constants behind it are transcriptions. The Born radii
+ * and the polarizabilities are published tables, so they are tagged as
+ * such rather than as computed — a reader checking this file against
+ * outside references needs to know which numbers to check where.
+ */
+static void kcsa_ionic_claims(DSWriter *w) {
+    KcsaIonic o;
+    if (!w || kcsa_ionic_measure(&o) != 0) return;
+
+    ds_add_claim(w, "kcsa.born.r_na", qm_born_radius(11), "A", "Latimer-Pitzer-Slansky1936");
+    ds_add_claim(w, "kcsa.born.r_k", qm_born_radius(19), "A", "Latimer-Pitzer-Slansky1936");
+    ds_add_claim(w, "kcsa.alpha.na", o.alpha_na, "A^3", "Pauling-free-ion");
+    ds_add_claim(w, "kcsa.alpha.k", o.alpha_k, "A^3", "Pauling-free-ion");
+    ds_add_claim(w, "kcsa.alpha.ratio", o.alpha_ratio, "1", "computed");
+    ds_add_claim(w, "kcsa.born.selfenergy_na", o.born_na, "kJ/mol", "computed");
+    ds_add_claim(w, "kcsa.born.selfenergy_k", o.born_k, "kJ/mol", "computed");
+    ds_add_claim(w, "kcsa.born.dg_diff", o.born_diff, "kJ/mol", "computed");
+    ds_add_claim(w, "kcsa.born.radius_spread", o.born_spread, "kJ/mol", "computed");
+    ds_add_claim(w, "kcsa.born.deficit", o.born_deficit, "kJ/mol", "computed");
+    ds_add_claim(w, "kcsa.born.transfer_na", o.bury_na, "kJ/mol", "computed");
+    ds_add_claim(w, "kcsa.born.transfer_k", o.bury_k, "kJ/mol", "computed");
+    ds_add_claim(w, "kcsa.induction.k", o.ind_k, "eV", "computed-screened-eps4");
+    ds_add_claim(w, "kcsa.induction.na", o.ind_na, "eV", "computed-screened-eps4");
+    ds_add_claim(w, "kcsa.shell.cn_k", (double)o.cn_k, "1", "computed-1K4C");
+    ds_add_claim(w, "kcsa.shell.cn_na", (double)o.cn_na, "1", "computed-1K4C");
+    ds_add_claim(w, "kcsa.shell.contact_k", o.contact_k, "A", "Shannon1976-VIII+1.40A");
+    ds_add_claim(w, "kcsa.shell.contact_na", o.contact_na, "A", "Shannon1976-VIII+1.40A");
+    ds_add_claim(w, "kcsa.shell.achieved_k", o.achieved_k, "A", "computed-1K4C");
+    ds_add_claim(w, "kcsa.shell.achieved_na", o.achieved_na, "A", "computed-1K4C");
+    ds_add_claim(w, "kcsa.shell.mismatch_k", o.mismatch_k, "A", "computed-1K4C");
+    ds_add_claim(w, "kcsa.shell.mismatch_na", o.mismatch_na, "A", "computed-1K4C");
+    ds_add_claim(w, "kcsa.shell.fmax_k", o.fmax_k, "eV/A", "computed");
+    ds_add_claim(w, "kcsa.shell.fmax_na", o.fmax_na, "eV/A", "computed");
+    ds_add_claim(w, "kcsa.shell.strain_k", o.strain_k, "eV", "computed-linear-elastic-k10");
+    ds_add_claim(w, "kcsa.shell.strain_na", o.strain_na, "eV", "computed-linear-elastic-k10");
+    ds_add_claim(w, "kcsa.shell.strain_ratio", o.strain_ratio, "1", "computed-linear-elastic-k10");
+    /* The entropic term's literature target, recorded as the thing the
+     * engine cannot yet compute, so the gap is in the sealed file and not
+     * only in the prose. */
+    ds_add_claim(w, "kcsa.entropic.target", 5.5, "kcal/mol",
+                 "Dixit-Asthagiri2009-dbeta-sigma2-over-2");
+    ds_add_claim(w, "kcsa.entropic.coco_target", 7.3, "kcal/mol",
+                 "Dixit-Asthagiri2009-dU-COCO");
+    ds_add_claim(w, "kcsa.entropic.computed", 0.0, "kcal/mol",
+                 "UNRESOLVED-no-sidechain-torsions");
+}
+
 static void demo_kcsa_ionic(void) {
     banner("DEMO 12c: ionic self-energy, and the filter's contact mismatch");
+
+    /* One measurement, two consumers. The claims sealed in kcsa.cvmds were
+     * written by demo 12 from this same function, so the numbers printed
+     * here and the numbers in the sealed file cannot drift apart even in
+     * principle. */
+    KcsaIonic io;
+    int io_ok = (kcsa_ionic_measure(&io) == 0);
+    if (!io_ok) printf("  ionic measurement unavailable (see below)\n");
 
     /* ── the Born layer against the tabulated scale ───────────────────── */
     printf("\n  Born self-energy, continuum model, against the measured table.\n");
     printf("  Na+ r_Born 1.80 A (Latimer-Pitzer-Slansky) -> %.1f kJ/mol\n",
-           qm_born_self_energy_kJmol(11, 78.5));
+           io.born_na);
     printf("  K+  r_Born 2.08 A                          -> %.1f kJ/mol\n",
-           qm_born_self_energy_kJmol(19, 78.5));
+           io.born_k);
     printf("  differential dG(Na-K), Born                = %+.1f kJ/mol\n",
-           qm_born_hydration_differential_kJmol(11, 19, 78.5));
+           io.born_diff);
     printf("  differential dG(Na-K), measured TATB       = %+.1f kJ/mol\n",
-           kcsa_hydration_free_energy_kJmol(11) -
-           kcsa_hydration_free_energy_kJmol(19));
+           io.tab_diff);
     printf("  shortfall (Born has no cavity or dispersion room) = %+.1f kJ/mol\n",
-           qm_born_hydration_differential_kJmol(11, 19, 78.5) -
-           (kcsa_hydration_free_energy_kJmol(11) -
-            kcsa_hydration_free_energy_kJmol(19)));
+           io.born_deficit);
     printf("  Born radius is not unique: refitting it to the measured\n");
     printf("  hydration shifts the differential by %+.1f kJ/mol, which is the\n",
-           qm_born_hydration_differential_spread_kJmol(11, 19, 78.5));
+           io.born_spread);
     printf("  honest sensitivity of this leg to a single unsolvable choice.\n");
     printf("  Cost of taking Na+ from water into the protein interior\n");
     printf("  (eps 78.5 -> 4): %+.1f kJ/mol. K+: %+.1f kJ/mol. A cation is\n",
-           qm_born_transfer_kJmol(11, 78.5, 4.0),
-           qm_born_transfer_kJmol(19, 78.5, 4.0));
+           io.bury_na, io.bury_k);
     printf("  cheaper in the pore than in the matrix, and cheaper still if\n");
     printf("  it is K+ than if it is Na+ - the usual Born argument for a\n");
     printf("  potassium channel, now derived here rather than quoted.\n");
 
     printf("\n  Free-ion polarizability is the induction handle: K+ %.2f A^3\n",
-           qm_ion_alpha_free(19));
+           io.alpha_k);
     printf("  against Na+ %.2f A^3, a ratio of %.1f. The same field polarizes\n",
-           qm_ion_alpha_free(11), qm_ion_alpha_free(19) / qm_ion_alpha_free(11));
+           io.alpha_na, io.alpha_ratio);
     printf("  K+ that much harder. In the eight-carbonyl cage the bare field\n");
     printf("  at 2.78 A is about 5.2 e/A per unit charge; screened to the\n");
     printf("  protein interior (eps 4) that is %.3f e/A, giving induction\n",
            5.18 / 4.0);
     printf("  energies of %.4f eV for K+ and %.4f eV for Na+.\n",
-           qm_born_induction_eV(qm_ion_alpha_free(19), 5.18, 4.0),
-           qm_born_induction_eV(qm_ion_alpha_free(11), 5.18, 4.0));
+           io.ind_k, io.ind_na);
     printf("  Screening is not optional: unscreened these are -42 and -9 eV,\n");
     printf("  i.e. four orders of magnitude too large to be an ion-ligand\n");
     printf("  binding energy. Real, correctly signed, and still too small to\n");
@@ -3691,40 +3868,39 @@ static void demo_kcsa_ionic(void) {
     printf("  of its site (radius and azimuth free, axial coordinate held).\n");
     printf("\n  %-5s %10s %10s %10s %9s %10s %10s\n",
            "ion", "preferred", "achieved", "mismatch", "CN", "Fmax eV/A", "Ustrain");
-    QmKcsaElastic ek, ena;
-    int okk = qm_kcsa_elastic_strain(19, ion_sites[1], 10.0, &ek);
-    int okn = qm_kcsa_elastic_strain(11, ion_sites[1], 10.0, &ena);
-    if (okk == 0 && okn == 0) {
+    if (io_ok) {
         printf("  %-5s %9.3f A %9.3f A %+9.3f A %9d %10.3f %9.3f eV\n",
-               "K+", ek.target_contact_A, ek.shell_mean_iono_A,
-               ek.contact_mismatch_A, (int)ek.cn, ek.f_max_eV_A, ek.strain_eV);
+               "K+", io.contact_k, io.achieved_k,
+               io.mismatch_k, io.cn_k, io.fmax_k, io.strain_k);
         printf("  %-5s %9.3f A %9.3f A %+9.3f A %9d %10.3f %9.3f eV\n",
-               "Na+", ena.target_contact_A, ena.shell_mean_iono_A,
-               ena.contact_mismatch_A, (int)ena.cn, ena.f_max_eV_A, ena.strain_eV);
+               "Na+", io.contact_na, io.achieved_na,
+               io.mismatch_na, io.cn_na, io.fmax_na, io.strain_na);
         printf("  (linear-elastic strain at k = 10 eV/A^2; stiffness is scanned\n");
         printf("   below because the protein's effective one is not knowable here)\n");
         printf("\n  Both ions relax ON AXIS at the same %.3f A mean distance.\n",
-               ek.shell_mean_iono_A);
+               io.achieved_k);
         printf("  On the axis %.3f A is the SHORTEST the geometry permits, so:\n",
-               ek.shell_mean_iono_A);
+               io.achieved_k);
         printf("    K+  sits %.3f A CLOSER than its own %.3f A contact wants;\n",
-               -ek.contact_mismatch_A, ek.target_contact_A);
+               -io.mismatch_k, io.contact_k);
         printf("    Na+ sits %.3f A FURTHER out than its own %.3f A contact wants.\n",
-               ena.contact_mismatch_A, ena.target_contact_A);
-        printf("  The cage is built for K+, so the larger ion is squeezed 0.13 A\n");
+               io.mismatch_na, io.contact_na);
+        printf("  The cage is built for K+, so the larger ion is squeezed %.2f A\n",
+               -io.mismatch_k);
         printf("  inside its preference while the smaller one is held %.2f A\n",
-               ena.contact_mismatch_A);
+               io.mismatch_na);
         printf("  outside it, and cannot get closer anywhere on the axis. That\n");
         printf("  asymmetry is the exclusion mechanism, and it is a property of\n");
         printf("  the deposited coordinates alone - no force field involved.\n");
         printf("  Strains differ by %.1f%%, so in THIS engine that geometric\n",
-               100.0 * fabs(ena.strain_eV - ek.strain_eV) / ek.strain_eV);
+               100.0 * fabs(io.strain_na - io.strain_k) / io.strain_k);
         printf("  mismatch does not convert into a binding-energy difference.\n");
         printf("  Reason: the ion-O wall is %.2f kcal/mol, about four orders\n", 0.05);
         printf("  of magnitude below the Coulomb pull at 2.8 A, so nothing here\n");
         printf("  rewards a cation for having the right radius.\n");
     } else {
-        printf("  elastic strain evaluation failed (rc %d/%d)\n", okk, okn);
+        printf("  elastic strain evaluation unavailable; the claims for these\n");
+        printf("  quantities are absent from kcsa.cvmds for the same reason.\n");
     }
 
     /* ── stiffness sensitivity ────────────────────────────────────────── */
@@ -3769,8 +3945,7 @@ static void demo_kcsa_ionic(void) {
     printf("  Closing it needs a real protein force field and explicit\n");
     printf("  solvent, not a smaller timestep.\n");
     set_verdict(13, "Born dG(Na-K) %.0f kJ/mol, mismatch Na %.2f A",
-                qm_born_hydration_differential_kJmol(11, 19, 78.5),
-                ena.cn ? -ena.contact_mismatch_A : 0.0);
+                io.born_diff, io_ok ? io.mismatch_na : 0.0);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -3892,7 +4067,7 @@ static void demo_eht(void) {
         printf("  harmonic: E_bond=%.4f eV |F|=%.4f eV/A\n", e_harm, f0);
         printf("  BO-scaled: E_bond=%.4f eV |F|=%.4f eV/A (wall dissolving)\n",
                e_bo, f1);
-        set_verdict(14, "EHT H2 dissoc + H2O qO<0, wall off at 2A");
+        set_verdict(15, "EHT H2 dissoc + H2O qO<0, wall off at 2A");
         sim_destroy(s);
     }
 }
@@ -4286,7 +4461,7 @@ double fin_gc = traj_gc1[DUP_NSAMP-1]; if (traj_gc2[DUP_NSAMP-1] > fin_gc) { fin
 double fin_at = traj_at1[DUP_NSAMP-1] > traj_at2[DUP_NSAMP-1] ? traj_at1[DUP_NSAMP-1] : traj_at2[DUP_NSAMP-1];
 const char *v_gc = (mx_gc < 3.6) ? "HELD" : (mx_gc < 4.2 && fin_gc < 3.6) ? "BREATHING" : "drifted";
 const char *v_at = (mx_at < 3.6) ? "HELD" : (mx_at < 4.2 && fin_at < 3.6) ? "BREATHING" : "drifted";
-set_verdict(13, "duplex G-C %s, A-T %s", v_gc, v_at);
+set_verdict(14, "duplex G-C %s, A-T %s", v_gc, v_at);
 
 printf("\nPLACEMENT VERDICT:  G-C %s, A-T %s\n",
        pm_gc_ok?"PAIRED":"NOT PAIRED", pm_at_ok?"PAIRED":"NOT PAIRED");
@@ -4448,7 +4623,7 @@ if (pm_gc_ok && pm_at_ok && v_gc[0] != 'd' && v_at[0] != 'd') {
         printf("  Phase 2 verdict: G-C %s (max %.2f), A-T %s (max %.2f)\n",
                w2gc, m2gc, w2at, m2at);
         printf("  (*3-sample ensemble; same thresholds as Phase 1)\n");
-        set_verdict(13, "duplex P1 %s/%s P2 %s/%s", v_gc, v_at, w2gc, w2at);
+        set_verdict(14, "duplex P1 %s/%s P2 %s/%s", v_gc, v_at, w2gc, w2at);
     }
 }
 
@@ -4493,7 +4668,8 @@ int main(void) {
             "1 quantum", "2 bond curve", "3 water MD", "4 trimer",
             "5 methane", "6 nucleobases", "7 pairing", "8 dinucleotide",
             "9 HH neuron", "10 dipeptide", "11 helix", "12 KcsA",
-            "12b real KcsA filter", "17 duplex", "18 EHT SCF"};
+            "12b real KcsA filter", "12c ionic layer", "17 duplex",
+            "18 EHT SCF"};
         printf("\n  ══════════════════════════════════════════════════\n");
         printf("  RESULT RECAP\n");
         for (int i = 0; i < DEMO_VERDICT_COUNT; i++)
