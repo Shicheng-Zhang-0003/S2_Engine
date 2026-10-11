@@ -1,13 +1,13 @@
 [header]
 schema: 1
 demo: kcsa
-build-compiler: unknown
-build-flags: unknown
-wallclock: 2026-10-11T03:19:38Z
+build-compiler: gcc 13.3.0
+build-flags: -O3 -g -Wall -Wextra -Werror -ffp-contract=off -std=c11 -Iinclude
+wallclock: 2026-10-11T04:35:45Z
 rng-seed: 7
 version-internal: v9R4
 version-external: V0.9RC4
-source-hash: record-tree-07af54021af40da99357fe97e54b5019097ced12-dirty
+source-hash: record-tree-1702c9b0485af95346d6f011d5c26cf7a0b89e69
 build-flags-note: record build must not carry -march=native
 cage-geometry: LEGACY demo-12 constructed cage: 3d-2.70-2.83-xy-derived-zsep-3.084
 real-filter-geometry: demo 12b: PDB 1K4C chain C TVGYG, C4-symmetric, CN=8 at all four sites
@@ -131,6 +131,36 @@ kcsa.scfuz.pol_k0 -0.04172431131670435 eV computed-scf-uz
 kcsa.scfuz.pol_na0 -0.043955837887086124 eV computed-scf-uz
 kcsa.scfuz.pol_k15 -0.11003140228302026 eV computed-scf-uz
 kcsa.scfuz.pol_na15 -0.20845572315954711 eV computed-scf-uz
+kcsa.born.r_na 1.8 A Latimer-Pitzer-Slansky1936
+kcsa.born.r_k 2.0800000000000001 A Latimer-Pitzer-Slansky1936
+kcsa.alpha.na 0.17999999999999999 A^3 Pauling-free-ion
+kcsa.alpha.k 0.82999999999999996 A^3 Pauling-free-ion
+kcsa.alpha.ratio 4.6111111111111107 1 computed
+kcsa.born.selfenergy_na -381.0154977879024 kJ/mol computed
+kcsa.born.selfenergy_k -329.72495000876171 kJ/mol computed
+kcsa.born.dg_diff -51.290547779140695 kJ/mol computed
+kcsa.born.radius_spread -20.35339197584937 kJ/mol computed
+kcsa.born.deficit 18.709452220859305 kJ/mol computed
+kcsa.born.transfer_na 91.566627694189492 kJ/mol computed
+kcsa.born.transfer_k 79.240350889202432 kJ/mol computed
+kcsa.induction.k -0.69596537499999989 eV computed-screened-eps4
+kcsa.induction.na -0.15093224999999996 eV computed-screened-eps4
+kcsa.shell.cn_k 8 1 computed-1K4C
+kcsa.shell.cn_na 8 1 computed-1K4C
+kcsa.shell.contact_k 2.9100000000000001 A Shannon1976-VIII+1.40A
+kcsa.shell.contact_na 2.5800000000000001 A Shannon1976-VIII+1.40A
+kcsa.shell.achieved_k 2.7766066519289936 A computed-1K4C
+kcsa.shell.achieved_na 2.7766066519289936 A computed-1K4C
+kcsa.shell.mismatch_k -0.13339334807100656 A computed-1K4C
+kcsa.shell.mismatch_na 0.19660665192899351 A computed-1K4C
+kcsa.shell.fmax_k 1.0972149141538783 eV/A computed
+kcsa.shell.fmax_na 1.1058855376589205 eV/A computed
+kcsa.shell.strain_k 0.44814060238604503 eV computed-linear-elastic-k10
+kcsa.shell.strain_na 0.45359093340517481 eV computed-linear-elastic-k10
+kcsa.shell.strain_ratio 1.0121621004437233 1 computed-linear-elastic-k10
+kcsa.entropic.target 5.5 kcal/mol Dixit-Asthagiri2009-dbeta-sigma2-over-2
+kcsa.entropic.coco_target 7.2999999999999998 kcal/mol Dixit-Asthagiri2009-dU-COCO
+kcsa.entropic.computed 0 kcal/mol UNRESOLVED-no-sidechain-torsions
 
 [end]
-payload-sha256: 45ef0baa57e695ec3383ab413a74df8ea2568a65aca93e30be07df572a7abdaa
+payload-sha256: 52f24b6f0edecc80edf92664b05dcda449f3d7a5064a0fc74fd5f7f55a64dc5f

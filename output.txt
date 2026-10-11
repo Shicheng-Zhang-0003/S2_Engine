@@ -1180,6 +1180,7 @@ MD STABILITY (8000-step ensemble): G-C BREATHING (range 2.91-4.10), A-T HELD (ra
   11 helix       : helix i,i+4 H-bond EMERGED
   12 KcsA        : KcsA exch rigid -0.58 det
   12b real KcsA filter : filter 164 atoms, net +0.000e
+  12c ionic layer : Born dG(Na-K) -51 kJ/mol, mismatch Na 0.20 A
   17 duplex      : duplex P1 BREATHING/HELD P2 BREATHING*/HELD
   18 EHT SCF     : EHT H2 dissoc + H2O qO<0, wall off at 2A
   ══════════════════════════════════════════════════
