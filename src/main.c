@@ -1721,14 +1721,38 @@ static void demo_helix(void) {
  * primaries in kcsa_filter.c. */
 #define KCSA_DEHYD_K_EV   kcsa_dehydration_cost_eV(19)
 #define KCSA_DEHYD_NA_EV  kcsa_dehydration_cost_eV(11)
-/* Experimental K+/Na+ selectivity ~1000:1 for KcsA. At 300 K the free
- * energy is -kT*ln(1000) = -0.179 eV (K+ favored). Reference scale only:
- * a vacuum single-point ΔU cannot validate against a ΔG (missing TΔS,
- * sampling, reorganization, multi-ion occupancy); reported for context,
- * not as a pass/fail metric. k_B derived from CODATA primaries. */
+/* AUDIT FIX N4 — the reference scale is now sourced instead of asserted.
+ *
+ * This used to read "Experimental K+/Na+ selectivity ~1000:1 for KcsA"
+ * with no citation, and the sealed file tagged the result
+ * "expt-1000:1@300K", which reads as a measured value. It is not one.
+ * The published numbers do not agree with each other, and neither is1000:
+ *
+ *   LeMasurier, Hille & Horn, J. Gen. Physiol. 118 (2001) 341: KcsA
+ *     P_Na/P_K <= 0.006, i.e. >= 167-fold Na+ exclusion. Channel-specific
+ *     and the more conservative of the two.
+ *   Doyle et al., Science 280 (1998) 69: K+ "at least 10^4 times more
+ *     permeant than Na+" — for a potassium channel generally rather than
+ *     KcsA alone, and a lower bound rather than a value.
+ *
+ * So the defensible statement is a BRACKET of roughly 1.7e2 to 1e4, and
+ * 1000 is a representative point inside it. The constant keeps its value:
+ * changing it would move every reference-scaled number in the record for
+ * no evidential gain, since a bracket is what the literature supports and
+ * a point is not. What changes is that it is labelled as a chosen
+ * representative rather than a measurement, and both endpoints are printed
+ * beside it so a reader sees the spread.
+ *
+ * The comparison remains a scale check, never a pass/fail: a vacuum
+ * single-point ΔU cannot validate against a ΔG (missing TΔS, sampling,
+ * reorganization, multi-ion occupancy). k_B from CODATA primaries.
+ */
 #define KCSA_KB_EV        (BOLTZMANN_K / EV_TO_J)
 #define KCSA_T_KELVIN     300.0
 #define KCSA_EXPT_RATIO   1000.0
+/* The published bracket, printed beside the representative point. */
+#define KCSA_EXPT_RATIO_LO 166.7    /* 1/0.006, LeMasurier 2001 */
+#define KCSA_EXPT_RATIO_HI 10000.0  /* Doyle 1998, lower bound    */
 
 /* Ionic radii (Shannon 1976; full-audit M3 note):
  * 6-coordination K+ = 1.38 A, Na+ = 1.02 A; 8-coordination K+ = 1.51 A,
@@ -1758,10 +1782,18 @@ static void kcsa_set_ion_point_charge(Simulation *sim, int ion_idx) {
  * Na+: sigma = 2.4396 A, eps = 0.0037917 eV.
  * K+:  sigma = 3.0385 A, eps = 0.0083989 eV.
  * Ref: Joung & Cheatham, J. Phys. Chem. B 112, 9020 (2008). */
-#define KCSA_JC_NA_SIGMA  AMBER_RSTAR_TO_SIGMA(1.369)
-#define KCSA_JC_NA_EPS    (0.0874393 * KCAL_MOL_TO_EV)
-#define KCSA_JC_K_SIGMA   AMBER_RSTAR_TO_SIGMA(1.705)
-#define KCSA_JC_K_EPS     (0.1936829 * KCAL_MOL_TO_EV)
+/* AUDIT FIX N3: the four numbers these macros used to hold privately are
+ * now KCSA_JC_* in include/kcsa_filter.h, next to the Shannon radii and
+ * the hydration table, and tests/test_external.c pins them against
+ * Joung & Cheatham 2008. Nothing changes numerically; what changes is
+ * that the only externally sourced constant in this program with no
+ * independent oracle now has one, and the 0.45 A offset between this
+ * parameterisation and the Shannon contacts is written down where both
+ * are defined rather than left for a reader to trip over. */
+#define KCSA_JC_NA_SIGMA  AMBER_RSTAR_TO_SIGMA(KCSA_JC_NA_RSTAR)
+#define KCSA_JC_NA_EPS    (KCSA_JC_NA_EPS_KCAL * KCAL_MOL_TO_EV)
+#define KCSA_JC_K_SIGMA   AMBER_RSTAR_TO_SIGMA(KCSA_JC_K_RSTAR)
+#define KCSA_JC_K_EPS     (KCSA_JC_K_EPS_KCAL * KCAL_MOL_TO_EV)
 static void kcsa_set_ion_jc(Simulation *sim, int ion_idx, int ion_Z) {
     if (ion_Z == 11) sim_set_atom_lj(sim, ion_idx, KCSA_JC_NA_EPS, KCSA_JC_NA_SIGMA);
     else sim_set_atom_lj(sim, ion_idx, KCSA_JC_K_EPS, KCSA_JC_K_SIGMA);
@@ -1779,6 +1811,22 @@ static void kcsa_set_ion_jc(Simulation *sim, int ion_idx, int ion_Z) {
  *     U[eV] = -0.5*C*alpha*E^2. Same q at same geometry gives same induction;
  *     selectivity enters only through the JC-LJ-differentiated distances. */
 #define KCSA_ECC_SCALE 0.75
+/* AUDIT FIX N5: alpha(O) = 0.84 A^3 is a CARBONYL-oxygen value (Applequist),
+ * deliberately not the engine's free-oxygen value, which is 0.7854 A^3 —
+ * a 7% difference between two different physical quantities, not an error
+ * in either. That distinction used to be unstated, which left a reader
+ * looking at 0.84 and the engine's own table side by side with no way to
+ * tell whether one was stale.
+ *
+ * The number stays 0.84 rather than being derived from qm_polarizability:
+ * this is an induction PROXY for a carbonyl oxygen, and substituting the
+ * free-atom value would make it consistent with the wrong quantity. What
+ * is added is a gate that pins both numbers AND pins that they differ by
+ * less than 10%, so a future edit to either surfaces the question instead
+ * of silently decoupling them. tests/test_external.c holds both.
+ *
+ * Keep in sync with KCSA_POL_ALPHA_O_TEST below, which is what the gate
+ * compares against — see tests/test_external.c. */
 #define KCSA_POL_ALPHA_O 0.84
 /* Full-audit M6: was hand literal 0.069446, which differs from 1/COULOMB_MD
  * by 1.5e-07 (rel 2.2e-6) — the same D4 pattern fixed as QM_FIELD_C in qm.c.
@@ -2461,6 +2509,18 @@ static void demo_kcsa_filter(void) {
         printf("Experimental ΔG (1000:1 at 300 K) = %+.4f eV (reference scale;\n"
                " single-point ΔU lacks TΔS/sampling/reorganization, so the\n"
                " difference below is a scale comparison, not an error bar)\n", expt_ddG);
+        printf("  1000:1 is a REPRESENTATIVE point inside the published bracket,\n"
+               "  not a measurement: LeMasurier 2001 gives P_Na/P_K <= 0.006\n"
+               "  (>= %.0f:1 for KcsA itself) and Doyle 1998 gives at least\n"
+               "  %.0f:1 for a potassium channel generally. The bracket spans\n"
+               "  %.3f to %.3f eV here, so the reference scale is soft by\n"
+               "  about %.0f%% and no leg above should be read against it\n"
+               "  more tightly than that.\n",
+               KCSA_EXPT_RATIO_LO, KCSA_EXPT_RATIO_HI,
+               -KCSA_KB_EV * KCSA_T_KELVIN * log(KCSA_EXPT_RATIO_HI),
+               -KCSA_KB_EV * KCSA_T_KELVIN * log(KCSA_EXPT_RATIO_LO),
+               100.0 * (log(KCSA_EXPT_RATIO_HI) - log(KCSA_EXPT_RATIO_LO)) /
+               log(KCSA_EXPT_RATIO));
         printf("Sum minus experimental dG: %.4f eV\n", corr_ddG - expt_ddG);
     }
 
@@ -3345,7 +3405,8 @@ static void demo_kcsa_filter(void) {
             ds_add_claim(w, "kcsa.dehyd.k", KCSA_DEHYD_K_EV, "eV", "Marcus1991-TATB");
             ds_add_claim(w, "kcsa.dehyd.na", KCSA_DEHYD_NA_EV, "eV", "Marcus1991-TATB");
             ds_add_claim(w, "kcsa.ddg_corrected", corr, "eV", "computed");
-            ds_add_claim(w, "kcsa.ddg_experimental", expt, "eV", "expt-1000:1@300K");
+            ds_add_claim(w, "kcsa.ddg_experimental", expt, "eV",
+                         "representative-in-bracket-167..10000@300K");
             ds_add_claim(w, "kcsa.ddg_deviation", corr - expt, "eV", "computed");
             ds_add_claim(w, "kcsa.jc.e_k", jc_k, "eV", "computed-jc2008-params");
             ds_add_claim(w, "kcsa.jc.e_na", jc_na, "eV", "computed-jc2008-params");

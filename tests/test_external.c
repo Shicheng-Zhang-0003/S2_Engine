@@ -914,6 +914,139 @@ static void test_kcsa_ionic_layer(void) {
        fabs(en.strain_eV / ek.strain_eV - 1.0) < 0.05, "within 5% of unity");
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * Joung & Cheatham 2008 ion-oxygen parameters, and the ion table's failure
+ * modes.
+ *
+ * AUDIT FIX N3. These four constants carried an external provenance tag in
+ * the sealed kcsa.cvmds and drove a full row of the KcsA forensic table
+ * with NO gate anywhere in the tree checking them against anything. Every
+ * other outside number in this program has an independent oracle; these
+ * had none. They are pinned here, transcribed from the paper in AMBER's
+ * R* = Rmin/2 convention.
+ *
+ * AUDIT FIX N2. kcsa_cation_radius used to return potassium's 1.51 A for
+ * ANY unlisted ion while the hydration table failed the other way and
+ * returned 0.0, so an unlisted cation got a full-size potassium LJ site
+ * and a zero desolvation cost: a complete, plausible, wrong answer. The
+ * pair now fails the same way and the refusals are pinned.
+ * ══════════════════════════════════════════════════════════════════════════ */
+static void test_jc_ion_params(void) {
+    grp("Joung-Cheatham 2008 ion-O params (doi:10.1021/jp8001614)");
+
+    okrel("Na+ R* = 1.369 A", KCSA_JC_NA_RSTAR, 1.369, 1e-12);
+    okrel("Na+ eps = 0.0874393 kcal/mol", KCSA_JC_NA_EPS_KCAL, 0.0874393, 1e-12);
+    okrel("K+  R* = 1.705 A", KCSA_JC_K_RSTAR, 1.705, 1e-12);
+    okrel("K+  eps = 0.1936829 kcal/mol", KCSA_JC_K_EPS_KCAL, 0.1936829, 1e-12);
+
+    /* The epsilon ordering is the physically meaningful part and is what a
+     * transcription slip would break: the bigger ion must have the deeper
+     * well against oxygen. */
+    ok("K+ well is deeper than Na+ well against O",
+       KCSA_JC_K_EPS_KCAL > KCSA_JC_NA_EPS_KCAL,
+       "0.1937 > 0.0874 kcal/mol");
+    ok("K+ R* is larger than Na+ R*",
+       KCSA_JC_K_RSTAR > KCSA_JC_NA_RSTAR, "1.705 > 1.369 A");
+
+    /* The gap between the two ions is the quantity the program measures.
+     * Pin it independently of the absolute values so a change to either
+     * one that preserves their order still has to be justified. */
+    {
+        double gap = KCSA_JC_K_RSTAR - KCSA_JC_NA_RSTAR;
+        char d[224];
+        snprintf(d, sizeof d, "K-Na R* gap = %.4f A", gap);
+        okrel("K-Na R* gap is 0.336 A", gap, 0.336, 1e-12);
+        /* ...and it agrees with the Shannon-based gap to within 2%, which
+         * is why the 0.45 A absolute offset between the two
+         * parameterisations does not corrupt the selectivity signal. */
+        double shannon = (kcsa_cation_radius(19) + 1.40) -
+                         (kcsa_cation_radius(11) + 1.40);
+        double ratio = gap / shannon;
+        snprintf(d, sizeof d, "JC gap %.4f vs Shannon gap %.4f, ratio %.3f",
+                 gap, shannon, ratio);
+        ok("JC and Shannon agree on the K/Na gap within 2%", ratio > 0.98 && ratio < 1.02, d);
+        /* ...while disagreeing on absolute distance, which is the thing a
+         * reader crossing between the JC and real-filter rows must know. */
+        double jc_min_k = 0.5 * (AMBER_RSTAR_TO_SIGMA(KCSA_JC_K_RSTAR) +
+                                 LJ_AMBER_O_SIGMA) * pow(2.0, 1.0 / 6.0);
+        double shan_k = kcsa_cation_radius(19) + 1.40;
+        snprintf(d, sizeof d, "JC min %.3f A vs Shannon %.3f A (offset %+.3f)",
+                 jc_min_k, shan_k, jc_min_k - shan_k);
+        ok("the two parameterisations differ by ~0.45 A in absolute distance",
+           fabs((jc_min_k - shan_k) - 0.456) < 0.01, d);
+    }
+
+    /* AUDIT FIX N5: the carbonyl-oxygen polarizability the induction proxy
+     * uses is deliberately NOT the engine's free-oxygen value. Both are
+     * pinned, and their difference is pinned, so neither can drift into
+     * the other unnoticed. */
+    {
+        Atom o;
+        memset(&o, 0, sizeof o);
+        o.Z = 8;
+        o.element = pt_element(8);
+        double free_o = qm_polarizability(&o);
+        char d[224];
+        snprintf(d, sizeof d, "free O %.4f vs carbonyl proxy 0.84 A^3",
+                 free_o);
+        okrel("engine free-oxygen polarizability 0.7854 A^3", free_o,
+             0.7854, 1e-4);
+        /* The two are different physical quantities; the gate exists to
+         * make sure that stays true by intent. */
+        ok("carbonyl-oxygen proxy is NOT the free-atom value",
+           fabs(0.84 - free_o) > 0.01, d);
+        ok("...and they agree to better than 10%",
+           fabs(0.84 - free_o) / 0.84 < 0.10, d);
+    }
+
+    /* AUDIT FIX N2: the failure modes. */
+    {
+        char d[224];
+        snprintf(d, sizeof d, "kcsa_cation_radius(27) = %.2f", kcsa_cation_radius(27));
+        ok("an unlisted ion returns NO radius (fails closed)",
+           kcsa_cation_radius(27) == 0.0, d);
+        snprintf(d, sizeof d, "hydration(27) = %.2f", kcsa_hydration_free_energy_kJmol(27));
+        ok("an unlisted ion returns NO hydration energy (fails closed)",
+           kcsa_hydration_free_energy_kJmol(27) == 0.0, d);
+        /* The pair must agree, or an unlisted ion still gets a potassium
+         * LJ site and a free ride through the dehydration leg. */
+        int both_refuse = (kcsa_cation_radius(27) == 0.0) &&
+                          (kcsa_hydration_free_energy_kJmol(27) == 0.0);
+        ok("radius and hydration agree on what to do with an unknown ion",
+           both_refuse, "no silent potassium fallback on one side only");
+        /* The tabulated five are untouched. */
+        okrel("K+  radius still 1.51 A", kcsa_cation_radius(19), 1.51, 1e-12);
+        okrel("Na+ radius still 1.18 A", kcsa_cation_radius(11), 1.18, 1e-12);
+        okrel("Li+ radius still 0.92 A", kcsa_cation_radius(3), 0.92, 1e-12);
+        okrel("Rb+ radius still 1.61 A", kcsa_cation_radius(37), 1.61, 1e-12);
+        okrel("Cs+ radius still 1.74 A", kcsa_cation_radius(55), 1.74, 1e-12);
+        /* H is not an alkali cation and must not borrow potassium's. */
+        ok("H does not get a cation radius", kcsa_cation_radius(1) == 0.0, "Z=1 -> 0.0");
+        ok("O does not get a cation radius", kcsa_cation_radius(8) == 0.0, "Z=8 -> 0.0");
+    }
+
+    /* kcsa_set_ion_radius must refuse rather than clamp: with a zero
+     * radius the contact would be 1.40 A, sigma_ion goes negative, and
+     * the old code silently clamped it to a 0.05 A floor that looks like
+     * a deliberate number. */
+    {
+        Simulation *s = sim_create(8, 8);
+        if (s) {
+            int ion = sim_add_ion(s, 27, 2, vec3(0, 0, 0), 2.0);
+            if (ion >= 0) {
+                double before = s->atoms[ion].lj_sigma;
+                kcsa_set_ion_radius(s, ion, 27);
+                double after = s->atoms[ion].lj_sigma;
+                char d[224];
+                snprintf(d, sizeof d, "sigma %.4f -> %.4f", before, after);
+                ok("set_ion_radius leaves an unlisted ion's site untouched",
+                   before == after, d);
+            }
+            sim_destroy(s);
+        }
+    }
+}
+
 int main(void) {
     test_codata();
     test_amber_lj_external();
@@ -926,6 +1059,7 @@ int main(void) {
     test_fluctuation_external();
     test_kcsa_contact_geometry();
     test_kcsa_ionic_layer();
+    test_jc_ion_params();
     printf("\n%s\n", "=====================================================");
     printf("  EXTERNAL: %d passed, %d failed\n", g_pass, g_fail);
     printf("%s\n", "=====================================================");

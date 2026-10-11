@@ -123,6 +123,17 @@ int kcsa_ion_sites(int n_out, Vec3 *out);
  *   n_within  = oxygens within `cutoff` of the point
  *   mean_r    = mean distance to those oxygens
  * Returns the count, or -1 on bad input.
+ *
+ * AUDIT NOTE on the cutoff: callers pass 3.4 A, and that single number is
+ * what "the filter is 8-coordinate" means throughout this program. It is a
+ * THRESHOLD, not a measurement, and it reclassifies silently as a shell
+ * deforms — which is precisely what happens in the flexible-filter legs,
+ * where CN falls from 8 to 3-5. Nothing here warns when a shell that used
+ * to count 8 stops counting 8; a caller that wants to know whether it is
+ * looking at the deposited geometry has to compare mean_r against the
+ * deposited 2.777 A itself. tests/test_external.c pins both the 8 at the
+ * deposited sites and the fact that the axis distance is a MINIMUM, which
+ * is the part the exclusion argument rests on.
  */
 int kcsa_coord_stats(const Simulation *sim, int filter_first,
                      int n_subunits, Vec3 point, double cutoff,
@@ -130,7 +141,15 @@ int kcsa_coord_stats(const Simulation *sim, int filter_first,
 
 /* Eight-coordinate Shannon effective ionic radius in Angstrom (Shannon 1976).
  * Full-audit M3: was six-coordinate (K 1.38, Na 1.02); filter is CN=8 so
- * VIII values are correct (K 1.51, Na 1.18, Li 0.92, Rb 1.61, Cs 1.74). */
+ * VIII values are correct (K 1.51, Na 1.18, Li 0.92, Rb 1.61, Cs 1.74).
+ *
+ * AUDIT FIX N2: returns 0.0 for an ion not on that list, and callers
+ * MUST refuse rather than propagate it. It previously returned 1.51 —
+ * potassium's radius — for anything unlisted, which failed open and
+ * silently: an unlisted cation got a full-size potassium LJ site AND,
+ * because kcsa_hydration_free_energy_kJmol fails the other way (0.0),
+ * a zero desolvation cost. Check for 0.0 before doing arithmetic with
+ * the result. */
 double kcsa_cation_radius(int Z);
 
 /*
@@ -174,6 +193,47 @@ double kcsa_cation_radius(int Z);
  * physical parameter; do not read it as one.
  */
 void kcsa_set_ion_radius(Simulation *sim, int ion, int Z);
+
+/*
+ * ── Joung–Cheatham 2008 ion–oxygen Lennard-Jones parameters ──
+ *
+ * AUDIT FIX N3. These four numbers were #defines buried in main.c, drove a
+ * full row of the KcsA forensic table, and carried the external provenance
+ * tag "jc2008-params" in the sealed kcsa.cvmds — while being validated by
+ * NO gate in the tree. Every other externally sourced constant in this
+ * program has an independent oracle: AMBER against the vendored
+ * parm99.dat, Marcus hydration against its primary table, Shannon radii
+ * against the deposited geometry, NIST constants against CODATA. These had
+ * none, which in a tree whose standard is "every number from outside the
+ * source is checked" is the largest single hole in the KcsA provenance
+ * chain.
+ *
+ * Source: Joung, S. & Cheatham, T. E., "Determination of Alkali and Halide
+ * Monovalent Ion Parameters for Use in Explicitly Solvated Biomolecular
+ * Simulations", J. Phys. Chem. B 112 (30), 9020-9041 (2008),
+ * doi:10.1021/jp8001614. These are the alkali ion parameters AMBER
+ * distributes for TIP3P, quoted in AMBER's R* = Rmin/2 convention.
+ *
+ * They now live here, beside the Shannon radii they are compared against
+ * and beside the hydration table, rather than as private macros in the
+ * demo file, and tests/test_external.c pins all four against the paper.
+ *
+ * A CAVEAT NOW WRITTEN DOWN RATHER THAN LEFT IMPLICIT: these put the
+ * ion-oxygen LJ minimum at 3.366 A (K+) and 3.030 A (Na+), whereas the
+ * Shannon-based contacts used by kcsa_set_ion_radius are 2.910 and
+ * 2.580 A. The two parameterisations disagree by about 0.45 A in absolute
+ * distance. They agree on the quantity that actually decides selectivity —
+ * the K/Na gap is 0.336 A here against 0.330 A there, to within 2% — so
+ * the disagreement is a constant offset rather than a disagreement about
+ * the ions. But the JC leg and the real-filter leg of the forensic table
+ * are therefore measured at DIFFERENT geometries, and reading from one
+ * row to the other without noticing that is exactly the mistake this note
+ * exists to prevent.
+ */
+#define KCSA_JC_NA_RSTAR   1.369        /* Na+ Rmin/2, Angstrom       */
+#define KCSA_JC_NA_EPS_KCAL 0.0874393   /* Na+ epsilon, kcal/mol      */
+#define KCSA_JC_K_RSTAR    1.705        /* K+  Rmin/2, Angstrom       */
+#define KCSA_JC_K_EPS_KCAL 0.1936829    /* K+  epsilon, kcal/mol      */
 
 /*
  * Measured single-ion hydration free energy in kJ/mol on the TATB-based

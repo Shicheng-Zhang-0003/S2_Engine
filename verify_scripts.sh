@@ -123,7 +123,7 @@ chk "regression gate count == 202" "202" "$RT_PASS"
 printf '  ---- audit regression suite: %s checks passed, %s failed ----\n' "$RT_PASS" "$RT_FAIL"
 [ "$RT_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_REG_LOG" | head -20
 chk "selftest-external green" "0" "$ET"
-chk "external gate count == 127" "127" "$ET_PASS"
+chk "external gate count == 150" "150" "$ET_PASS"
 printf '  ---- external sources: %s checks passed, %s failed ----\n' "$ET_PASS" "$ET_FAIL"
 [ "$ET_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_EXT_LOG" | head -20
 # Loop-closure suite: bio/QC/QM share one physics (Nernst, kT scale,
