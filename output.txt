@@ -764,6 +764,13 @@ Two-leg sum (vacuum ΔU + dehyd ΔG) = -0.7255 eV (K+ favored in sum)
 Experimental ΔG (1000:1 at 300 K) = -0.1786 eV (reference scale;
  single-point ΔU lacks TΔS/sampling/reorganization, so the
  difference below is a scale comparison, not an error bar)
+  1000:1 is a REPRESENTATIVE point inside the published bracket,
+  not a measurement: LeMasurier 2001 gives P_Na/P_K <= 0.006
+  (>= 167:1 for KcsA itself) and Doyle 1998 gives at least
+  10000:1 for a potassium channel generally. The bracket spans
+  -0.238 to -0.132 eV here, so the reference scale is soft by
+  about 59% and no leg above should be read against it
+  more tightly than that.
 Sum minus experimental dG: -0.5469 eV
   JC K+  E_LJ =   0.162757 eV   E_Coulomb =   7.812595 eV   E_restr =   0.000000 eV   E_pol =  -0.714855 eV   E_ecc =   4.557342 eV   Total =   7.975352 eV
   JC Na+ E_LJ =  -0.167849 eV   E_Coulomb =   7.812595 eV   E_restr =   0.000000 eV   E_pol =  -0.714855 eV   E_ecc =   4.226735 eV   Total =   7.644746 eV
