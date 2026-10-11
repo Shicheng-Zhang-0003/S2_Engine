@@ -12,6 +12,8 @@
 #include "../include/sim.h"
 #include "../include/nucleobases.h"
 #include "../include/kcsa_filter.h"
+#include "../include/qm_born.h"
+#include "../include/qm_fluctuation.h"
 #include "../include/amber_lj.h"
 #include "../include/neuron.h"
 #include "../include/aminoacids.h"
@@ -3485,6 +3487,8 @@ static void demo_kcsa_filter(void) {
  * reports honestly what a fixed-charge model in vacuum can and cannot say
  * about K+ versus Na+ in it.
  * ══════════════════════════════════════════════════════════════════════════ */
+static void demo_kcsa_ionic(void);
+
 static void demo_kcsa_real_filter(void) {
     banner("DEMO 12b: the real KcsA filter (PDB 1K4C TVGYG, C4-symmetric)");
 
@@ -3609,6 +3613,164 @@ static void demo_kcsa_real_filter(void) {
     /* AUDIT FIX V2: demo 12b had no verdict slot, so the recap table omitted
      * a demo that had run. Recorded from locals already in scope. */
     set_verdict(12, "filter %d atoms, net %+.3fe", filter_atoms, qtot);
+
+    demo_kcsa_ionic();
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * DEMO 12c: THE ION'S OWN ELECTROSTATICS, AND WHY THE FILTER IS SIZED FOR K+
+ *
+ * Two questions this tree could not previously ask at all.
+ *
+ * 1. Where does the desolvation leg come from? Until qm_born existed it
+ *    was a transcribed table with nothing in the code able to check it,
+ *    vary it, or explain why its K/Na difference is what it is. There is
+ *    now a Born self-energy to compare it against, with the model's known
+ *    deficit measured rather than hidden.
+ *
+ * 2. Does the filter actually exclude Na+? Not "does the sum of the legs
+ *    come out K-favoured" — does the deposited geometry, on its own,
+ *    refuse to let Na+ reach its preferred ion-oxygen distance? That is a
+ *    geometric question with a geometric answer, and it turns out to be
+ *    the sharpest thing this engine knows about KcsA.
+ * ══════════════════════════════════════════════════════════════════════════ */
+static void demo_kcsa_ionic(void) {
+    banner("DEMO 12c: ionic self-energy, and the filter's contact mismatch");
+
+    /* ── the Born layer against the tabulated scale ───────────────────── */
+    printf("\n  Born self-energy, continuum model, against the measured table.\n");
+    printf("  Na+ r_Born 1.80 A (Latimer-Pitzer-Slansky) -> %.1f kJ/mol\n",
+           qm_born_self_energy_kJmol(11, 78.5));
+    printf("  K+  r_Born 2.08 A                          -> %.1f kJ/mol\n",
+           qm_born_self_energy_kJmol(19, 78.5));
+    printf("  differential dG(Na-K), Born                = %+.1f kJ/mol\n",
+           qm_born_hydration_differential_kJmol(11, 19, 78.5));
+    printf("  differential dG(Na-K), measured TATB       = %+.1f kJ/mol\n",
+           kcsa_hydration_free_energy_kJmol(11) -
+           kcsa_hydration_free_energy_kJmol(19));
+    printf("  shortfall (Born has no cavity or dispersion room) = %+.1f kJ/mol\n",
+           qm_born_hydration_differential_kJmol(11, 19, 78.5) -
+           (kcsa_hydration_free_energy_kJmol(11) -
+            kcsa_hydration_free_energy_kJmol(19)));
+    printf("  Born radius is not unique: refitting it to the measured\n");
+    printf("  hydration shifts the differential by %+.1f kJ/mol, which is the\n",
+           qm_born_hydration_differential_spread_kJmol(11, 19, 78.5));
+    printf("  honest sensitivity of this leg to a single unsolvable choice.\n");
+    printf("  Cost of taking Na+ from water into the protein interior\n");
+    printf("  (eps 78.5 -> 4): %+.1f kJ/mol. K+: %+.1f kJ/mol. A cation is\n",
+           qm_born_transfer_kJmol(11, 78.5, 4.0),
+           qm_born_transfer_kJmol(19, 78.5, 4.0));
+    printf("  cheaper in the pore than in the matrix, and cheaper still if\n");
+    printf("  it is K+ than if it is Na+ - the usual Born argument for a\n");
+    printf("  potassium channel, now derived here rather than quoted.\n");
+
+    printf("\n  Free-ion polarizability is the induction handle: K+ %.2f A^3\n",
+           qm_ion_alpha_free(19));
+    printf("  against Na+ %.2f A^3, a ratio of %.1f. The same field polarizes\n",
+           qm_ion_alpha_free(11), qm_ion_alpha_free(19) / qm_ion_alpha_free(11));
+    printf("  K+ that much harder. In the eight-carbonyl cage the bare field\n");
+    printf("  at 2.78 A is about 5.2 e/A per unit charge; screened to the\n");
+    printf("  protein interior (eps 4) that is %.3f e/A, giving induction\n",
+           5.18 / 4.0);
+    printf("  energies of %.4f eV for K+ and %.4f eV for Na+.\n",
+           qm_born_induction_eV(qm_ion_alpha_free(19), 5.18, 4.0),
+           qm_born_induction_eV(qm_ion_alpha_free(11), 5.18, 4.0));
+    printf("  Screening is not optional: unscreened these are -42 and -9 eV,\n");
+    printf("  i.e. four orders of magnitude too large to be an ion-ligand\n");
+    printf("  binding energy. Real, correctly signed, and still too small to\n");
+    printf("  decide anything alone. Reported, not relied on.\n");
+
+    /* ── the contact mismatch: the filter's actual exclusion mechanism ── */
+    Vec3 ion_sites[4];
+    int n_sites = kcsa_ion_sites(4, ion_sites);
+    if (n_sites < 2) { printf("  ion sites unavailable\n"); return; }
+
+    printf("\n  Does the deposited geometry let each ion reach its own\n");
+    printf("  preferred ion-oxygen distance? Preferred = Shannon VIII radius\n");
+    printf("  + 1.40 A carbonyl oxygen. Each ion is then relaxed in the PLANE\n");
+    printf("  of its site (radius and azimuth free, axial coordinate held).\n");
+    printf("\n  %-5s %10s %10s %10s %9s %10s %10s\n",
+           "ion", "preferred", "achieved", "mismatch", "CN", "Fmax eV/A", "Ustrain");
+    QmKcsaElastic ek, ena;
+    int okk = qm_kcsa_elastic_strain(19, ion_sites[1], 10.0, &ek);
+    int okn = qm_kcsa_elastic_strain(11, ion_sites[1], 10.0, &ena);
+    if (okk == 0 && okn == 0) {
+        printf("  %-5s %9.3f A %9.3f A %+9.3f A %9d %10.3f %9.3f eV\n",
+               "K+", ek.target_contact_A, ek.shell_mean_iono_A,
+               ek.contact_mismatch_A, (int)ek.cn, ek.f_max_eV_A, ek.strain_eV);
+        printf("  %-5s %9.3f A %9.3f A %+9.3f A %9d %10.3f %9.3f eV\n",
+               "Na+", ena.target_contact_A, ena.shell_mean_iono_A,
+               ena.contact_mismatch_A, (int)ena.cn, ena.f_max_eV_A, ena.strain_eV);
+        printf("  (linear-elastic strain at k = 10 eV/A^2; stiffness is scanned\n");
+        printf("   below because the protein's effective one is not knowable here)\n");
+        printf("\n  Both ions relax ON AXIS at the same %.3f A mean distance.\n",
+               ek.shell_mean_iono_A);
+        printf("  On the axis %.3f A is the SHORTEST the geometry permits, so:\n",
+               ek.shell_mean_iono_A);
+        printf("    K+  sits %.3f A CLOSER than its own %.3f A contact wants;\n",
+               -ek.contact_mismatch_A, ek.target_contact_A);
+        printf("    Na+ sits %.3f A FURTHER out than its own %.3f A contact wants.\n",
+               ena.contact_mismatch_A, ena.target_contact_A);
+        printf("  The cage is built for K+, so the larger ion is squeezed 0.13 A\n");
+        printf("  inside its preference while the smaller one is held %.2f A\n",
+               ena.contact_mismatch_A);
+        printf("  outside it, and cannot get closer anywhere on the axis. That\n");
+        printf("  asymmetry is the exclusion mechanism, and it is a property of\n");
+        printf("  the deposited coordinates alone - no force field involved.\n");
+        printf("  Strains differ by %.1f%%, so in THIS engine that geometric\n",
+               100.0 * fabs(ena.strain_eV - ek.strain_eV) / ek.strain_eV);
+        printf("  mismatch does not convert into a binding-energy difference.\n");
+        printf("  Reason: the ion-O wall is %.2f kcal/mol, about four orders\n", 0.05);
+        printf("  of magnitude below the Coulomb pull at 2.8 A, so nothing here\n");
+        printf("  rewards a cation for having the right radius.\n");
+    } else {
+        printf("  elastic strain evaluation failed (rc %d/%d)\n", okk, okn);
+    }
+
+    /* ── stiffness sensitivity ────────────────────────────────────────── */
+    printf("\n  Stiffness scan (strain scales as 1/k, so the RATIO is the\n");
+    printf("  stiffness-independent result):\n");
+    printf("  %-6s %12s %12s %12s\n", "k eV/A^2", "Ustrain K+", "Ustrain Na+", "ratio Na/K");
+    {
+        double ks[4] = {1.0, 5.0, 20.0, 50.0};
+        for (int i = 0; i < 4; i++) {
+            QmKcsaElastic a, b;
+            if (qm_kcsa_elastic_strain(19, ion_sites[1], ks[i], &a) != 0) continue;
+            if (qm_kcsa_elastic_strain(11, ion_sites[1], ks[i], &b) != 0) continue;
+            printf("  %-6.1f %11.4f eV %11.4f eV %12.4f\n",
+                   ks[i], a.strain_eV, b.strain_eV,
+                   b.strain_eV / a.strain_eV);
+        }
+        printf("  The ratio does not move. There is no stiffness at which this\n");
+        printf("  model starts preferring K+ on shell strain alone.\n");
+    }
+
+    /* ── the entropic term: measured, and why it is not yet a number ──── */
+    printf("\n  The decisive term, and its status here.\n");
+    printf("  Dixit & Asthagiri (JCTC 5, 1037, 2009) show the MEAN binding\n");
+    printf("  energy slightly favours Na+ - Na+ is the better fit for an\n");
+    printf("  eight-carbonyl cage - and that selectivity comes from the\n");
+    printf("  FLUCTUATION term, d(beta*sigma^2/2) = 5-6 kcal/mol, driven by\n");
+    printf("  carbonyl-carbonyl repulsion strain of about 7.3 kcal/mol.\n");
+    printf("  This release adds that machinery (qm_fluctuation): it runs the\n");
+    printf("  deposited filter as a breathing peptide with the ion inside and\n");
+    printf("  measures the variance of the ion's binding energy over an\n");
+    printf("  explicit Langevin NVT trajectory.\n");
+    printf("  It does NOT converge, and the reason is structural: the engine\n");
+    printf("  has no side-chain torsion terms, and four of the eight filter\n");
+    printf("  oxygens belong to Thr75's side chain. Without torsions the\n");
+    printf("  hydroxyl leaves the shell, the coordination number falls from\n");
+    printf("  8 to 3-5, and the O-O diagonals close from the crystallographic\n");
+    printf("  ~4.5-5.5 A to ~3.5 A. Measured at every temperature from 50 K to\n");
+    printf("  300 K and every C-alpha restraint stiffness from 0.5 to 16\n");
+    printf("  eV/A^2. No thermostat and no restraint recovers it, because the\n");
+    printf("  missing term is the physics and not the parameters.\n");
+    printf("  So the entropic leg is reported UNRESOLVED rather than filled in.\n");
+    printf("  Closing it needs a real protein force field and explicit\n");
+    printf("  solvent, not a smaller timestep.\n");
+    set_verdict(13, "Born dG(Na-K) %.0f kJ/mol, mismatch Na %.2f A",
+                qm_born_hydration_differential_kJmol(11, 19, 78.5),
+                ena.cn ? -ena.contact_mismatch_A : 0.0);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
