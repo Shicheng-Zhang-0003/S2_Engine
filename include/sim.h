@@ -151,6 +151,44 @@ int sim_rebuild_angles(Simulation *sim);
  */
 int sim_rebuild_angles_geometric(Simulation *sim, double k_default);
 
+/*
+ * The bond-length counterpart of sim_rebuild_angles_geometric: set every
+ * bond's equilibrium length r0 to the distance its two atoms ACTUALLY
+ * have right now, leaving the force constant k untouched. Returns the
+ * number of bonds touched.
+ *
+ * WHY IT HAS TO EXIST. The engine's bond and angle tables are keyed on
+ * element and bond order and are parameterised for the small gas-phase
+ * fragments that were originally built here. They are the right parameters
+ * for a water molecule placed at its own equilibrium geometry, and the
+ * wrong parameters for a DEPOSITED crystal structure, whose bond lengths
+ * carry whatever the experimental refinement gave them. Turning on
+ * use_bonds against a deposited structure without calling this first
+ * charges the structure a bond-length strain it never had, and — worse —
+ * charges it in a direction set by gas-phase constants rather than by
+ * anything physical about the ion being measured.
+ *
+ * That failure is not subtle. Enabling the bonded terms on the deposited
+ * KcsA filter as-built collapsed its 8-fold ion site to CN 4 with the
+ * mean ion-oxygen distance falling from the crystallographic 2.72-2.83 A
+ * to 2.2 A, and the coordination shell's O-O diagonals closing from
+ * ~4.5-5.5 A to ~3.7 A. Every one of those "results" was the deposited
+ * peptide being crushed by its own bond terms; the ion had barely been
+ * involved.
+ *
+ * Calling this makes the bonded terms zero-strain at the reference
+ * geometry, after which they do what they are wanted to do: resist
+ * deformation away from the deposited structure, so a flexible-filter
+ * measurement measures the ION's strain of the filter rather than the
+ * force field's strain of the deposit.
+ *
+ * Note that keeping the existing k is the conservative choice. It means
+ * the stiffness is whatever the element table says for a single bond,
+ * which is softer than a real amide bond; stiffening it is a separate
+ * decision with its own stability limit (see the dt note in types.h).
+ */
+int sim_zero_strain_bonds(Simulation *sim);
+
 /* ── Harmonic positional restraints (reduced-model external mechanics) ─── */
 
 /*

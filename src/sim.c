@@ -565,6 +565,33 @@ int sim_rebuild_angles_geometric(Simulation *sim, double k_default) {
     return sim->num_angles;
 }
 
+/*
+ * The bond-length counterpart of sim_rebuild_angles_geometric: set every
+ * bond's equilibrium length r0 to the distance its two atoms actually have
+ * right now, leaving the force constant k untouched. Returns the number of
+ * bonds touched, or SIM_ERR_* on bad input.
+ *
+ * See the header for why a deposited crystal structure must be told to do
+ * this before use_bonds is switched on, and what happens when it is not.
+ */
+int sim_zero_strain_bonds(Simulation *sim) {
+    if (!sim || !sim->atoms || !sim->bonds) return SIM_ERR_BADATOM;
+    int n = 0;
+    for (int b = 0; b < sim->num_bonds; b++) {
+        Bond *bd = &sim->bonds[b];
+        int ia = bd->atom_a, ib = bd->atom_b;
+        if (ia < 0 || ia >= sim->num_atoms || ib < 0 || ib >= sim->num_atoms)
+            continue;
+        double r = vec3_dist(sim->atoms[ia].position, sim->atoms[ib].position);
+        /* A coincident pair would set r0 = 0 and leave the harmonic term
+         * singular at its own origin; refuse rather than write it. */
+        if (!isfinite(r) || r < 1e-6) continue;
+        bd->r0 = r;
+        n++;
+    }
+    return n;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
  * PBC helpers
  * ══════════════════════════════════════════════════════════════════════════ */
