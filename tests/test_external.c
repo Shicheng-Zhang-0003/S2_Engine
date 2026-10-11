@@ -45,6 +45,8 @@
 #include "datastream.h"
 #include "amber_lj.h"
 #include "kcsa_filter.h"
+#include "qm_born.h"
+#include "qm_fluctuation.h"
 #include "periodic_table.h"
 
 static int g_pass = 0, g_fail = 0;
@@ -529,6 +531,304 @@ static void test_kcsa_external(void) {
     sim_destroy(s);
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * Born ionic self-energy and free-ion polarizability.
+ *
+ * Sources, all outside this repository:
+ *
+ *  - Born equation: Wikipedia "Born equation"; original Born (1920).
+ *    dG/N_A = -z^2 e^2 (1 - 1/eps_r) / (8 pi eps0 r0). The coefficient
+ *    below is checked against the closed form built from CODATA, which is
+ *    the real test: it would catch a units slip, and a units slip is
+ *    exactly the failure this module had (an ANGSTROM_TO_M factor applied
+ *    where none belonged made every Born number in the tree 0.0000).
+ *
+ *  - Born radii: Latimer, Pitzer & Slansky (1936), the standard
+ *    compilation, corroborated for Na+ by Hummer, Pratt & Garcia,
+ *    arXiv:physics/9709042, who quote 0.180 nm from Latimer et al. and
+ *    0.188 nm from Marcus's later compilation, and who recover 1.8 A
+ *    independently from explicit-solvent finite-size analysis.
+ *
+ *  - Free-ion polarizabilities: Pauling's compilation, confirmed against
+ *    the independent tabulation reproduced in Thombre (2023 review) and
+ *    Chauhan (1996): Li+ 0.03, Na+ 0.18, K+ 0.83, Rb+ 1.40, Cs+ 2.40 A^3.
+ *    The K/Na ratio 4.6 is the induction handle.
+ *
+ *  - Hydration scale: Marcus (1991), J. Chem. Soc. Faraday Trans. 87,
+ *    2995, TATB-based absolute free energies, already transcribed in
+ *    kcsa_filter.c and used here only to state the Born model's deficit.
+ * ══════════════════════════════════════════════════════════════════════════ */
+static void test_born_external(void) {
+    grp("Born ionic self-energy and free-ion polarizability");
+
+    /* Closed form from CODATA primaries: N_A e^2 / (8 pi eps0).
+     * e^2/(4 pi eps0) = 14.3996454784255 eV A is the standard Coulomb
+     * constant in these units, so half of it divided by nothing else. */
+    okrel("N_A e^2/(8 pi eps0) = 694.7 kJ/mol/A",
+          qm_born_coefficient_kJmol_per_ang(),
+          AVOGADRO_N * (14.3996454784255 / 2.0) * EV_TO_J / 1000.0, 1e-10);
+
+    /* The same constant in the engine's own native units, which is what
+     * the module is derived from. Catches the two being uncoupled. */
+    okrel("Born coefficient consistent with COULOMB_MD",
+          qm_born_coefficient_kJmol_per_ang(),
+          AVOGADRO_N * (COULOMB_MD * 0.5) * EV_TO_J / 1000.0, 1e-12);
+
+    /* Latimer-Pitzer-Slansky Born radii, Angstrom. */
+    okrel("r_Born(Li+) = 1.80 A ... table", qm_born_radius(3),  1.28, 1e-12);
+    okrel("r_Born(Na+) = 1.80 A (Hummer: 0.180 nm)", qm_born_radius(11), 1.80, 1e-12);
+    okrel("r_Born(K+)  = 2.08 A",  qm_born_radius(19), 2.08, 1e-12);
+    okrel("r_Born(Rb+) = 2.35 A",  qm_born_radius(37), 2.35, 1e-12);
+    okrel("r_Born(Cs+) = 2.65 A",  qm_born_radius(55), 2.65, 1e-12);
+    ok("unlisted ion has no Born radius", qm_born_radius(27) == 0.0, "Z=27 -> 0.0");
+
+    /* Pauling free-ion electronic polarizabilities, A^3. */
+    okrel("alpha(Li+) = 0.03 A^3", qm_ion_alpha_free(3),  0.03, 1e-12);
+    okrel("alpha(Na+) = 0.18 A^3", qm_ion_alpha_free(11), 0.18, 1e-12);
+    okrel("alpha(K+)  = 0.83 A^3", qm_ion_alpha_free(19), 0.83, 1e-12);
+    okrel("alpha(Rb+) = 1.40 A^3", qm_ion_alpha_free(37), 1.40, 1e-12);
+    okrel("alpha(Cs+) = 2.40 A^3", qm_ion_alpha_free(55), 2.40, 1e-12);
+    {
+        char d[224];
+        double r = qm_ion_alpha_free(19) / qm_ion_alpha_free(11);
+        snprintf(d, sizeof d, "K+/Na+ polarizability ratio = %.2f (0.83/0.18)", r);
+        ok("K+ polarizes 4.6x harder than Na+", fabs(r - 4.611) < 1e-2, d);
+    }
+
+    /* Born self-energy: the expression, not just the tables.
+     * -381.0 kJ/mol for Na+ in water is the textbook linear-response
+     * continuum value and sits 4% above the measured -365.3, which is
+     * the known Born over-binding for monovalent cations. */
+    okrel("dG_born(Na+, eps 78.5) = -381.0 kJ/mol",
+          qm_born_self_energy_kJmol(11, 78.5), -381.02, 1e-4);
+    okrel("dG_born(K+,  eps 78.5) = -329.7 kJ/mol",
+          qm_born_self_energy_kJmol(19, 78.5), -329.72, 1e-4);
+    /* Vacuum is the degenerate case: (1 - 1/1) = 0 exactly. */
+    ok("dG_born vanishes in vacuum",
+       qm_born_self_energy_kJmol(11, 1.0) == 0.0, "eps_r = 1 -> 0.0");
+    /* Monotone in dielectric: a more polar medium stabilises the ion more,
+     * so dG grows MORE negative as eps_r rises. eps 4 -> -289.4 kJ/mol,
+     * eps 78.5 -> -381.0 kJ/mol. The sign here is the one that catches a
+     * dropped (1 - 1/eps) factor, which would make every value negative
+     * and the trend flat. */
+    ok("dG_born grows more negative as eps_r rises",
+       qm_born_self_energy_kJmol(11, 78.5) < qm_born_self_energy_kJmol(11, 4.0),
+       "eps 78.5 more negative than eps 4");
+    /* Weaker in a weakly polar medium than in water. */
+    ok("|dG_born| shrinks as eps_r -> 1",
+       qm_born_self_energy_kJmol(11, 2.0) > qm_born_self_energy_kJmol(11, 4.0),
+       "eps 2 less negative than eps 4");
+
+    /* Transfer between media is the difference of self-energies.
+     * Moving a cation FROM the protein interior (eps 4) INTO water
+     * (eps 78.5) RELEASES energy - water stabilises a charge far better
+     * than a protein does - so the transfer is negative, and it is
+     * burying the ion in the protein that costs. That asymmetry is the
+     * usual argument for a cation preferring the pore over the matrix,
+     * and getting its sign backwards would invert it. */
+    {
+        double tr = qm_born_transfer_kJmol(11, 4.0, 78.5);
+        ok("Na+ released from eps 4 into water releases 91.6 kJ/mol",
+           fabs(tr + 91.57) < 0.05, "protein -> water is downhill for a cation");
+        ok("burying Na+ in eps 4 from water therefore costs +91.6 kJ/mol",
+           fabs(qm_born_transfer_kJmol(11, 78.5, 4.0) - 91.57) < 0.05,
+           "water -> protein is uphill: the usual cation-prefers-pore argument");
+        ok("K+ is cheaper to bury than Na+ (0.79 vs 0.95 eV)",
+           qm_born_transfer_kJmol(11, 78.5, 4.0) > qm_born_transfer_kJmol(19, 78.5, 4.0),
+           "the bigger Born radius is the weaker charge");
+        okrel("transfer is the difference of self-energies",
+              qm_born_transfer_kJmol(11, 4.0, 78.5),
+              qm_born_self_energy_kJmol(11, 78.5) -
+              qm_born_self_energy_kJmol(11, 4.0), 1e-12);
+    }
+
+    /* THE COMPARISON THAT MATTERS: the Born differential against the
+     * measured TATB one. They must NOT agree - the Born expression has no
+     * cavity or dispersion term, and for monovalent cations that deficit
+     * is well known to be about 15-20 kJ/mol. Asserting the SIGN and the
+     * ORDER OF MAGNITUDE, and asserting that the model under-predicts,
+     * is the externally anchored statement. */
+    {
+        double born = qm_born_hydration_differential_kJmol(11, 19, 78.5);
+        double meas = kcsa_hydration_free_energy_kJmol(11) -
+                      kcsa_hydration_free_energy_kJmol(19);
+        char d[224];
+        snprintf(d, sizeof d,
+                 "Born %.1f vs measured %.1f kJ/mol; Born under-predicts by %.1f",
+                 born, meas, meas - born);
+        ok("Born dG(Na-K) has the measured sign", born < 0.0, d);
+        ok("Born dG(Na-K) is within a factor 2 of the measured value",
+           fabs(born / meas) > 0.5 && fabs(born / meas) < 2.0, d);
+        ok("Born under-predicts the hydration differential (known deficit)",
+           fabs(born) < fabs(meas), d);
+
+        /* Born radii are not unique; the fitted alternative must move the
+         * differential by a material amount, and the sensitivity is
+         * reported rather than hidden. */
+        double spread = qm_born_hydration_differential_spread_kJmol(11, 19, 78.5);
+        snprintf(d, sizeof d, "refitting the Born radius shifts it by %.1f kJ/mol",
+                 spread);
+        ok("Born radius choice is a material uncertainty, and is quantified",
+           fabs(spread) > 5.0, d);
+    }
+
+    /* Induction: screened, and the screening is load-bearing.
+     * Unscreened at a realistic cage field this is hundreds of eV, which
+     * would dominate any total it entered. */
+    {
+        double ek = qm_born_induction_eV(qm_ion_alpha_free(19), 5.18, 4.0);
+        double en = qm_born_induction_eV(qm_ion_alpha_free(11), 5.18, 4.0);
+        char d[224];
+        snprintf(d, sizeof d, "K+ %.4f eV vs Na+ %.4f eV at 5.18 e/A, eps 4", ek, en);
+        ok("screened induction is attractive and K-favoured", ek < 0.0 && en < 0.0 && ek < en, d);
+        ok("screening divides the energy by eps_r^2, not eps_r",
+           fabs(qm_born_induction_eV(0.83, 1.0, 1.0) / qm_born_induction_eV(0.83, 1.0, 4.0) - 16.0) < 1e-9,
+           "unscreened/screened = 16 at eps 4");
+        ok("eps_r < 1 is refused (no unphysical dielectric)",
+           qm_born_induction_eV(0.83, 5.0, 0.5) == 0.0, "eps_r 0.5 -> 0.0");
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * The fluctuation machinery.
+ *
+ * These are internal identities, but they are checked HERE as well as in
+ * test_regression.c because the failure they guard against is silent:
+ * a variance that comes out identically zero because a code path skipped
+ * the sampling, which would turn the module's entire reason for existing
+ * into a constant while every test that only looked at the mean passed.
+ * ══════════════════════════════════════════════════════════════════════════ */
+static void test_fluctuation_external(void) {
+    grp("Fluctuation / variance machinery");
+
+    /* qm_series_stats against a series with a known mean and variance. */
+    {
+        double s[5] = {2.0, 4.0, 4.0, 4.0, 6.0};
+        QmSeries st;
+        int rc = qm_series_stats(s, 5, &st);
+        ok("qm_series_stats succeeds on a 5-point series", rc == 0, "n = 5");
+        okrel("mean of {2,4,4,4,6} = 4.0", st.mean_eV, 4.0, 1e-15);
+        okrel("unbiased variance = 2.0", st.var_eV2, 2.0, 1e-15);
+        okrel("sigma = sqrt(2)", st.sigma_eV, sqrt(2.0), 1e-15);
+        okrel("sem = sqrt(var/n)", st.sem_eV, sqrt(2.0 / 5.0), 1e-15);
+        ok("min/max tracked", st.min_eV == 2.0 && st.max_eV == 6.0, "2.0 .. 6.0");
+    }
+
+    /* A CONSTANT series must give variance exactly zero, and a series
+     * that never varied must not be reported as if it had. */
+    {
+        double s[8];
+        for (int i = 0; i < 8; i++) s[i] = -5.25;
+        QmSeries st;
+        qm_series_stats(s, 8, &st);
+        ok("constant series -> variance exactly 0", st.var_eV2 == 0.0, "zero, not epsilon");
+        ok("constant series -> sem_var 0", st.sem_var_eV2 == 0.0, "zero");
+    }
+
+    /* n < 2 cannot support a variance: reported as 0 with an infinite
+     * error bar rather than as a fabricated number. */
+    {
+        double s[1] = {1.0};
+        QmSeries st;
+        qm_series_stats(s, 1, &st);
+        ok("n=1 gives variance 0 and an infinite error bar",
+           st.var_eV2 == 0.0 && !isfinite(st.sem_var_eV2), "honest refusal");
+        ok("n=1 gives an infinite sem on the mean",
+           !isfinite(st.sem_eV), "honest refusal");
+        ok("qm_series_stats rejects n = 0", qm_series_stats(s, 0, &st) == -1, "rc -1");
+    }
+
+    /* The fluctuation term is half the difference of variances, with a
+     * sign convention that must be unambiguous: the FIRST argument is the
+     * ion whose preference the number expresses. */
+    {
+        okrel("fluctuation term = (varA - varB)/2",
+              qm_fluctuation_term_eV(0.40, 0.10), 0.15, 1e-15);
+        ok("larger A variance => positive (A disfavoured)",
+           qm_fluctuation_term_eV(0.40, 0.10) > 0.0, "A swings wider");
+        ok("identical variances => exactly zero",
+           qm_fluctuation_term_eV(0.25, 0.25) == 0.0, "symmetric");
+        ok("non-finite variance refused",
+           qm_fluctuation_term_eV(INFINITY, 0.1) == 0.0, "returns 0, not NaN");
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * The deposited KcsA geometry, restated from 1K4C.
+ *
+ * The contact-mismatch result demo 12c reports rests on one geometric
+ * fact: on the pore axis the mean ion-oxygen distance over the eight
+ * coordinating oxygens is 2.777 A, and that is the shortest the deposited
+ * geometry permits. If that number ever moves, the exclusion argument
+ * moves with it, so it is checked against the deposition rather than
+ * against the engine's own bookkeeping.
+ * ══════════════════════════════════════════════════════════════════════════ */
+static void test_kcsa_contact_geometry(void) {
+    grp("KcsA contact geometry (PDB 1K4C)");
+
+    Simulation *s = sim_create(KCSA_FILTER_ATOMS * 4 + 8,
+                               KCSA_FILTER_BONDS * 4 + 16);
+    if (!s) { ok("build the real filter", 0, "allocation failed"); return; }
+    int f = kcsa_build_filter(s, vec3(0, 0, 0), 4);
+    s->use_lj = 1; s->use_coulomb = 1; s->cutoff = 30.0;
+    s->use_bonds = 0; s->use_angles = 0; s->use_dihedrals = 0;
+
+    Vec3 sites[4];
+    int ns = kcsa_ion_sites(4, sites);
+    for (int i = 0; i < ns && i < 4; i++) {
+        double mr = 0.0;
+        int cn = kcsa_coord_stats(s, f, 4, sites[i], 3.4, &mr);
+        char d[224];
+        snprintf(d, sizeof d, "site %d: CN = %d, mean ion-O = %.3f A", i + 1, cn, mr);
+        ok("every deposited site is 8-coordinate", cn == 8, d);
+    }
+
+    /* The mean over the eight coordinating oxygens, not over everything
+     * in range: the count is the deposited coordination, so the distance
+     * has to be the deposited coordination's. */
+    {
+        int n = 0;
+        double sum = 0.0;
+        for (int i = f; i < s->num_atoms && n < 16; i++) {
+            if (s->atoms[i].Z != 8) continue;
+            double r = vec3_dist(sites[1], s->atoms[i].position);
+            if (r <= 3.4) { sum += r; n++; }
+        }
+        char d[224];
+        double mean = (n > 0) ? sum / (double)n : 0.0;
+        snprintf(d, sizeof d, "n = %d, mean = %.3f A", n, mean);
+        ok("site 2 mean ion-O over its 8 oxygens is 2.777 A",
+           n == 8 && fabs(mean - 2.777) < 5e-3, d);
+        /* And it is a MINIMUM over the axis, which is the load-bearing
+         * part: the mismatch argument says no ion can do better. */
+        double m2 = kcsa_coord_stats(s, f, 4, vec3(0.30, 0.0, sites[1].z),
+                                     3.4, NULL);
+        (void)m2;
+        double sum2 = 0.0; int n2 = 0;
+        for (int i = f; i < s->num_atoms && n2 < 16; i++) {
+            if (s->atoms[i].Z != 8) continue;
+            double r = vec3_dist(vec3(0.30, 0.0, sites[1].z), s->atoms[i].position);
+            if (r <= 3.4) { sum2 += r; n2++; }
+        }
+        ok("moving 0.30 A off axis only increases the mean distance",
+           (n2 == 0) || (sum2 / (double)n2) > 2.777, "axis is the minimum");
+    }
+
+    /* The Shannon-derived contacts the mismatch is measured against:
+     * 1.51 + 1.40 = 2.91 for K, 1.18 + 1.40 = 2.58 for Na. */
+    okrel("K+ preferred ion-O contact 2.91 A",
+          kcsa_cation_radius(19) + 1.40, 2.91, 1e-12);
+    okrel("Na+ preferred ion-O contact 2.58 A",
+          kcsa_cation_radius(11) + 1.40, 2.58, 1e-12);
+    ok("Na+ is held 0.197 A further out than it wants, K+ 0.133 A closer",
+       fabs((2.777 - (kcsa_cation_radius(11) + 1.40)) - 0.197) < 5e-3 &&
+       fabs((kcsa_cation_radius(19) + 1.40) - 2.777 - 0.133) < 5e-3,
+       "mismatch signs are opposite for the two ions");
+
+    sim_destroy(s);
+}
+
 int main(void) {
     test_codata();
     test_amber_lj_external();
@@ -537,6 +837,9 @@ int main(void) {
     test_hydrogenic_quadrature();
     test_nonbonded_external();
     test_kcsa_external();
+    test_born_external();
+    test_fluctuation_external();
+    test_kcsa_contact_geometry();
     printf("\n%s\n", "=====================================================");
     printf("  EXTERNAL: %d passed, %d failed\n", g_pass, g_fail);
     printf("%s\n", "=====================================================");

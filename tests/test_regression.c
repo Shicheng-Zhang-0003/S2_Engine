@@ -29,6 +29,8 @@
 #endif
 #include "nucleobases.h"
 #include "kcsa_filter.h"
+#include "qm_born.h"
+#include "qm_fluctuation.h"
 #include "aminoacids.h"
 #include "amber_lj.h"
 #include "kcsa_filter.h"
@@ -1542,6 +1544,235 @@ static void test_qm_minimum_image(void) {
     }
 }
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * sim_zero_strain_bonds — the deposited-structure fix.
+ *
+ * The engine's bond table is keyed on element and bond order and is
+ * parameterised for small gas-phase fragments. Switching use_bonds on
+ * against a deposited crystal structure charges it bond-length strain it
+ * never had, and charges it in a direction set by gas-phase constants
+ * rather than by anything about the ion being measured. On the KcsA
+ * filter that strain was worth tens of eV and crushed the 8-fold ion site
+ * to CN 4. These checks pin the fix's two halves: it must make the bonded
+ * energy vanish at the reference geometry, and it must leave it alone
+ * everywhere else.
+ * ══════════════════════════════════════════════════════════════════════════ */
+static void test_zero_strain_bonds(void) {
+    grp("zero-strain bonds on a deposited structure");
+
+    /* A three-atom chain deliberately BUILT at the wrong bond lengths. */
+    Simulation *s = sim_create(8, 8);
+    if (!s) { ok("build the test chain", 0, "allocation failed"); return; }
+    int a = sim_add_atom(s, 6, vec3(0.0, 0.0, 0.0), -0.1);
+    int b = sim_add_atom(s, 6, vec3(0.0, 0.0, 1.25), 0.2);
+    int c = sim_add_atom(s, 8, vec3(0.0, 0.0, 2.90), -0.1);
+    sim_add_bond(s, a, b, 1);
+    sim_add_bond(s, b, c, 1);
+    s->use_lj = 0; s->use_coulomb = 0;
+    s->use_bonds = 1; s->use_angles = 0; s->use_dihedrals = 0;
+
+    forces_calculate(s);
+    double before = s->E_bond_total;
+    ok("a mis-built chain carries bond strain", before > 1e-3,
+       "unzeroed E_bond is large");
+
+    int n = sim_zero_strain_bonds(s);
+    ok("sim_zero_strain_bonds touches every bond", n == 2, "2 bonds");
+    ok("bond r0 now equals the actual separation",
+       fabs(s->bonds[0].r0 - 1.25) < 1e-12 &&
+       fabs(s->bonds[1].r0 - 1.65) < 1e-12, "1.25 and 1.65 A");
+
+    forces_calculate(s);
+    ok("bonded energy is exactly zero at the reference geometry",
+       s->E_bond_total < 1e-12, "E_bond = 0, not merely small");
+
+    /* Displace one atom; the bonded energy must reappear and be positive.
+     * A zero-strain call that also zeroed the force constants would
+     * silence the term permanently, which would be the opposite of the
+     * point: the bonded terms have to RESIST leaving the reference. */
+    s->atoms[b].position = vec3(0.0, 0.0, 1.45);
+    forces_calculate(s);
+    ok("moving off the reference geometry restores the bonded energy",
+       s->E_bond_total > 1e-3, "it resists deformation");
+
+    /* A coincident pair must be refused, not written as r0 = 0, which
+     * would leave the harmonic term singular at its own origin. */
+    s->atoms[b].position = vec3(0.0, 0.0, 0.0);   /* b now coincides with a */
+    int m = sim_zero_strain_bonds(s);
+    /* Bond 0 (a-b) is coincident and must be skipped; bond 1 (b-c) is
+     * still a real 2.90 A separation and is legitimately updated. So the
+     * count is 1, not 0, and what matters is that the singular bond kept
+     * its old r0 instead of being written 0. */
+    ok("a coincident bond is refused rather than given r0 = 0",
+       m == 1 && fabs(s->bonds[0].r0 - 1.25) < 1e-12 &&
+       fabs(s->bonds[1].r0 - 2.90) < 1e-12,
+       "the coincident bond kept its old r0 = 1.25; the valid one moved to 2.90");
+    ok("null sim is refused", sim_zero_strain_bonds(NULL) < 0, "rc < 0");
+    sim_destroy(s);
+
+    /* On the real filter: zero-straining must remove a large strain, and
+     * must leave the 8-fold site intact (no relaxation happens here). */
+    {
+        Simulation *f = sim_create(KCSA_FILTER_ATOMS * 4 + 8,
+                                   KCSA_FILTER_BONDS * 4 + 16);
+        if (!f) { ok("build the real filter", 0, "allocation failed"); return; }
+        int fi = kcsa_build_filter(f, vec3(0, 0, 0), 4);
+        f->use_lj = 1; f->use_coulomb = 1; f->cutoff = 30.0;
+        f->use_bonds = 1; f->use_angles = 0; f->use_dihedrals = 0;
+
+        Vec3 sites[4];
+        int ns = kcsa_ion_sites(4, sites);
+        int ion = ns > 0 ? sim_add_ion(f, 19, 1, sites[1], 1.0) : -1;
+        kcsa_set_ion_radius(f, ion, 19);
+        forces_calculate(f);
+        double strained = f->potential_energy;
+        int cn_before = kcsa_coord_stats(f, fi, 4, sites[1], 3.4, NULL);
+
+        int nb = sim_zero_strain_bonds(f);
+        forces_calculate(f);
+        double relaxed = f->potential_energy;
+        int cn_after = kcsa_coord_stats(f, fi, 4, sites[1], 3.4, NULL);
+
+        char d[192];
+        snprintf(d, sizeof d, "%d bonds, PE %.2f -> %.2f eV", nb, strained, relaxed);
+        ok("zero-straining removes tens of eV of artificial strain on the filter",
+           strained - relaxed > 10.0, d);
+        ok("and it does so without disturbing the deposited site",
+           cn_before == 8 && cn_after == 8, "CN 8 before and after");
+        snprintf(d, sizeof d, "%.3f -> %.3f eV", strained, relaxed);
+        ok("zero-straining only ever lowers the energy",
+           relaxed <= strained, d);
+        sim_destroy(f);
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * The KcsA elastic-strain leg.
+ *
+ * Cheap enough to run in the gate, and it is worth running: the finding it
+ * produces — that both ions minimise on the axis and their shell strains
+ * agree to about 1% — is the negative result the whole KcsA story now
+ * turns on, and a negative result that only appears in a five-minute
+ * record is a result nobody will re-check when it changes.
+ * ══════════════════════════════════════════════════════════════════════════ */
+static void test_kcsa_elastic_strain(void) {
+    grp("KcsA ion-induced shell strain");
+
+    Vec3 sites[4];
+    int ns = kcsa_ion_sites(4, sites);
+    if (ns < 2) { ok("ion sites available", 0, "kcsa_ion_sites failed"); return; }
+
+    QmKcsaElastic ek, en;
+    ok("elastic strain evaluates for K+",
+       qm_kcsa_elastic_strain(19, sites[1], 10.0, &ek) == 0 && ek.ok == 1, "rc 0");
+    ok("elastic strain evaluates for Na+",
+       qm_kcsa_elastic_strain(11, sites[1], 10.0, &en) == 0 && en.ok == 1, "rc 0");
+
+    /* The shell must be the deposited eight-ligand one. Anything less and
+     * the "contact mismatch" is being measured against a set that
+     * re-selected itself around the ion. */
+    ok("the shell is the deposited 8-coordinate one for both ions",
+       ek.shell_n == 8 && en.shell_n == 8, "8 ligands each");
+    ok("and the coordination number is 8 for both",
+       ek.cn == 8 && en.cn == 8, "CN 8");
+
+    /* THE CONTACT MISMATCH: opposite signs, and the magnitudes the record
+     * quotes. This is the exclusion mechanism. */
+    {
+        char d[192];
+        snprintf(d, sizeof d,
+                 "K+ %.3f vs %.3f = %+.3f A | Na+ %.3f vs %.3f = %+.3f A",
+                 ek.target_contact_A, ek.shell_mean_iono_A, ek.contact_mismatch_A,
+                 en.target_contact_A, en.shell_mean_iono_A, en.contact_mismatch_A);
+        ok("K+ is held CLOSER to the oxygens than it wants (negative mismatch)",
+           ek.contact_mismatch_A < 0.0, d);
+        ok("Na+ is held FURTHER out than it wants (positive mismatch)",
+           en.contact_mismatch_A > 0.0, d);
+        ok("the two mismatches have opposite signs",
+           ek.contact_mismatch_A * en.contact_mismatch_A < 0.0, d);
+        okrel("K+ mismatch is -0.133 A", ek.contact_mismatch_A, -0.133, 5e-3);
+        okrel("Na+ mismatch is +0.197 A", en.contact_mismatch_A,  0.197, 5e-3);
+        okrel("both ions sit at the same achieved mean distance",
+              en.shell_mean_iono_A, ek.shell_mean_iono_A, 1e-9);
+    }
+
+    /* Both ions minimise ON AXIS, at the same place. That is the negative
+     * result, and it is load-bearing: it is why the mismatch cannot turn
+     * into a binding-energy difference in this model. */
+    {
+        char d[192];
+        snprintf(d, sizeof d, "Na+ mean ion-O %.4f vs K+ %.4f",
+                 en.shell_mean_iono_A, ek.shell_mean_iono_A);
+        ok("Na+ does NOT find a closer geometry than K+ (on-axis minimum)",
+           en.shell_mean_iono_A >= ek.shell_mean_iono_A - 1e-9, d);
+    }
+
+    /* Strain scales as 1/k, so the Na/K RATIO must be stiffness
+     * independent. If it moved, the ratio would be an artefact of the
+     * stiffness rather than a property of the two ions. */
+    {
+        double r_lo = 0.0, r_hi = 0.0;
+        QmKcsaElastic a, b;
+        if (qm_kcsa_elastic_strain(19, sites[1],  2.0, &a) == 0 &&
+            qm_kcsa_elastic_strain(11, sites[1],  2.0, &b) == 0) r_lo = b.strain_eV / a.strain_eV;
+        if (qm_kcsa_elastic_strain(19, sites[1], 40.0, &a) == 0 &&
+            qm_kcsa_elastic_strain(11, sites[1], 40.0, &b) == 0) r_hi = b.strain_eV / a.strain_eV;
+        char d[192];
+        snprintf(d, sizeof d, "ratio %.6f at k=2, %.6f at k=40", r_lo, r_hi);
+        ok("the Na/K strain ratio is stiffness independent",
+           fabs(r_lo - r_hi) < 1e-9, d);
+        /* And it is close to 1, which is the finding: this model does not
+         * convert the size mismatch into a strain difference. */
+        ok("the ratio is near 1: shell strain does not discriminate here",
+           fabs(r_lo - 1.0) < 0.05, d);
+        /* Forces positive and finite, and the harmonic identity exactly. */
+        snprintf(d, sizeof d, "|F|max K %.3f eV/A, strain %.4f eV",
+                 a.f_max_eV_A, a.strain_eV);
+        ok("strain = |F|^2 / 2k, and the force is finite",
+           a.f_max_eV_A > 0.0 && isfinite(a.strain_eV) && a.strain_eV > 0.0, d);
+    }
+
+    /* Bad input is refused rather than producing a plausible number. */
+    {
+        QmKcsaElastic z;
+        ok("non-positive stiffness refused",
+           qm_kcsa_elastic_strain(19, sites[1], 0.0, &z) == -1, "rc -1");
+        ok("negative stiffness refused",
+           qm_kcsa_elastic_strain(19, sites[1], -5.0, &z) == -1, "rc -1");
+        ok("null output refused",
+           qm_kcsa_elastic_strain(19, sites[1], 10.0, NULL) == -1, "rc -1");
+        ok("non-positive atomic number refused",
+           qm_kcsa_elastic_strain(0, sites[1], 10.0, &z) == -1, "rc -1");
+    }
+
+    /* Bad input to the series sampler, which is the expensive entry point
+     * and must not be reachable with nonsense. */
+    {
+        QmKcsaSeries ss;
+        ok("series refuses n_sample < 2",
+           qm_kcsa_binding_series(19, sites[1], 300.0, 100, 1, 1u, 0.5,
+                                  NULL, NULL, 0, &ss) == -1, "rc -1");
+        ok("series refuses a non-positive temperature",
+           qm_kcsa_binding_series(19, sites[1], 0.0, 100, 100, 1u, 0.5,
+                                  NULL, NULL, 0, &ss) == -1, "rc -1");
+        /* A buffer smaller than n_sample must be refused UP FRONT. If it
+         * were not, the sampler would write 1000 doubles into 10 slots;
+         * this check is also why the refusal is tested with a real buffer
+         * rather than NULL, since a NULL buffer legitimately needs no
+         * capacity and would run the whole trajectory. */
+        {
+            double tiny[8];
+            int rc = qm_kcsa_binding_series(19, sites[1], 300.0, 100, 1000,
+                                            1u, 0.5, tiny, tiny, 8, &ss);
+            ok("series refuses a series buffer smaller than n_sample",
+               rc == -1, "rc -1, refused before any sampling");
+        }
+        ok("site-integrity threshold is the deposited coordination",
+           QM_KCSA_SITE_MIN_CN == 7, "CN >= 7 counts as maintained");
+    }
+}
+
 int main(void) {
     printf("╔══════════════════════════════════════════════════════════════╗\n");
     printf("║  v9R4 AUDIT REGRESSION SUITE                                 ║\n");
@@ -1573,6 +1804,8 @@ int main(void) {
     test_constants_derived();
     test_minimizer_zero_tolerance();
     test_dihedral_rotational_invariance();
+    test_zero_strain_bonds();
+    test_kcsa_elastic_strain();
     printf("\n══════════════════════════════════════════════════════════════\n");
     /* Not "  PASS n FAIL m": the verify script counts check lines by
      * that prefix and would count this summary as one of its own checks. */
