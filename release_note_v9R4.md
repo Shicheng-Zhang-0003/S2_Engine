@@ -808,3 +808,139 @@ suites, all green, with three new structural checks in `verify_scripts.sh`
 covering verdict-slot ownership. The record's stdout diff against part 2 is
 a **single added line** — the recap row demo 12c was owed — so no physics in
 the record moved; only its self-description was incomplete.
+
+---
+
+## Part 4 — auditing what IS there, not what is missing
+
+Parts 1-3 went after absent physics and against the record's own
+self-description. Part 4 asked the opposite question: of the KcsA
+machinery already in the tree, what is wrong, or wrong in some parameter
+regime. Everything below was found by probing the built engine rather than
+by reading it, and two of the initial suspicions turned out to be wrong and
+are recorded as such.
+
+### N2 — `kcsa_cation_radius` failed OPEN *(src/kcsa_filter.c)*
+
+`default: return 1.51` handed **potassium's** radius to any ion not on the
+list. Measured: Z = 1, 8, 26, 27, 54 and 86 all returned 1.51 Å.
+
+The failure was silent *and* plausible, and it was compound. The two
+functions that together define what this program thinks an ion is —
+`kcsa_cation_radius` and `kcsa_hydration_free_energy_kJmol` — failed in
+**opposite directions**. The radius fell back to potassium; hydration
+correctly returned 0.0. An unlisted cation therefore got a full-size
+potassium Lennard-Jones site *and* a zero desolvation cost, which is a
+complete, coherent-looking, wrong answer rather than an error.
+
+The pair now fails the same way: 0.0 for an unlisted ion from both, with
+every caller required to refuse rather than propagate. `kcsa_set_ion_radius`
+needed a guard of its own for a subtler reason — with a zero radius the
+contact computes to 1.40 Å, which drives `sigma_ion` negative and was
+silently clamped to a 0.05 Å floor. A value that looks like a deliberate
+number and is not one. `qm_kcsa_elastic_strain` got the same guard.
+
+### N3 — the Joung–Cheatham parameters had no oracle *(kcsa_filter.h)*
+
+Four numbers drove a full row of the KcsA forensic table, carried the
+external provenance tag `jc2008-params` in the sealed `kcsa.cvmds`, and
+were validated by **no gate anywhere in the tree** — confirmed by grepping
+all seven suites and the audit harness. Every other outside number in this
+program has an independent check: AMBER against the vendored `parm99.dat`,
+Marcus hydration against its primary table, Shannon radii against the
+deposited geometry, NIST against CODATA.
+
+They are now `KCSA_JC_*` macros in `include/kcsa_filter.h`, beside the
+Shannon radii and the hydration table they are compared against, and 23
+checks in `test_external` pin all four against Joung & Cheatham, *J. Phys.
+Chem. B* **112**, 9020 (2008), doi:10.1021/jp8001614. The checks include the
+orderings a transcription slip would break — K⁺ well deeper than Na⁺, K⁺
+R\* larger — and the K/Na gap pinned independently of the absolutes.
+
+**A caveat that was implicit and is now written down.** These put the
+ion–oxygen minimum at 3.366 Å (K⁺) and 3.030 Å (Na⁺), while the
+Shannon-based contacts are 2.910 and 2.580 Å — a ~0.45 Å disagreement in
+absolute distance. They agree on what decides selectivity (gap 0.336 Å vs
+0.330 Å, within 2%), so it is a constant offset rather than a disagreement
+about the ions. But the JC leg and the real-filter leg of the table are
+measured at **different geometries**, and both that fact and the 2% are now
+pinned.
+
+### N4 — the 1000:1 reference scale was asserted, not sourced *(main.c)*
+
+`KCSA_EXPT_RATIO` was commented "Experimental K+/Na+ selectivity ~1000:1 for
+KcsA" with no citation, and the sealed file tagged the result
+`expt-1000:1@300K`, which reads as a measurement. It is not one. The
+published numbers disagree with each other and neither is 1000:
+
+* LeMasurier, Hille & Horn, *J. Gen. Physiol.* **118** (2001) 341 — KcsA
+  `P_Na/P_K ≤ 0.006`, i.e. **≥ 167-fold**. Channel-specific, conservative.
+* Doyle et al., *Science* **280** (1998) 69 — K⁺ "at least **10⁴** times
+  more permeant than Na⁺". A potassium channel generally, and a lower bound.
+
+The defensible statement is a bracket of ~1.7×10² to 10⁴. **The constant
+keeps its value** — moving every reference-scaled number in the record for
+no evidential gain, when a bracket is what the literature supports and a
+point is not. What changed is the label (now a chosen representative), the
+sealed tag (`representative-in-bracket-167..10000@300K`), and a printed
+span showing the bracket runs from -0.238 to -0.132 eV and is 59% wide
+relative to the representative point in ln(ratio), so no leg is read
+against that scale more tightly than the evidence allows.
+
+### N5 — two different oxygen polarizabilities, one unstated *(main.c)*
+
+`KCSA_POL_ALPHA_O = 0.84` is a **carbonyl**-oxygen value (Applequist),
+deliberately not the engine's free-oxygen 0.7854. Different physical
+quantities, 7% apart — not an error in either. But nothing said so, which
+left a reader comparing 0.84 against the engine's own table with no way to
+tell whether one was stale.
+
+It stays 0.84: this is an induction *proxy* for a carbonyl oxygen, and
+substituting the free-atom value would make it consistently wrong instead
+of correctly-sourced. A gate now pins both numbers **and** pins that they
+differ by less than 10%, so a future edit to either surfaces the question
+rather than letting the two drift apart silently.
+
+### N6 — the coordination cutoff, stated as a threshold *(kcsa_filter.h)*
+
+Callers pass 3.4 Å, and that single number is what "the filter is
+8-coordinate" means throughout the program. It is a threshold, not a
+measurement, and it reclassifies silently as the shell deforms — which is
+exactly what happens in the flexible legs, where CN falls from 8 to 3–5.
+The header now says so, and `test_external` pins both the CN = 8 at the
+deposited sites and the fact that the on-axis distance is a **minimum**,
+which is the part the exclusion argument actually rests on.
+
+### Checked and CLEARED — recorded so they are not re-audited
+
+* **`kcsa_set_ion_radius` places the LJ minimum exactly on target** —
+  2.3200 / 2.5800 / 2.9100 Å, error 0.0000. My first probe reported it off
+  by 0.23 Å; I had written `σ^1.2` where the LJ minimum is
+  `2^(1/6)·σ`. The probe was wrong, not the code.
+* **`qm_alpha` is wrong for cations and it does not matter.** Na⁺ 6.5× too
+  small, Cs⁺ 4.3× too *large*, K⁺/Na⁺ ratio 18.6 against Pauling's 4.61 —
+  but it is diagnostic-only. Every energy path uses `qm_polarizability`,
+  which already handles cations correctly (K⁺ 0.83, Na⁺ 0.18).
+* **Cα indices {1,8,15,19,31}** are all carbons with ≥2 bonds.
+* **The filter is exactly neutral** per segment and as a tetramer
+  (+0.000000 e).
+* **The golden section returning r = 0** is the physical on-axis answer,
+  not an ion escaping a bracket edge.
+* **The vendored `parm99.dat` cannot oracle the JC values** — it carries
+  ion hydration radii, not ion Lennard-Jones. The oracle has to be the
+  paper, which is why the gate transcribes it.
+
+### Negative testing
+
+Every gate above was checked against a mutation, not only against the fix.
+Reintroducing the exact N2 fail-open in `kcsa_cation_radius` — and
+verifying the build still succeeded, which is the step that made the first
+attempt meaningless — turns **five** checks red, including the
+`set_ion_radius` guard firing on the observed σ change from 2.5587 to the
+2.2251 clamp. A gate that has only ever seen a passing tree is not known to
+work.
+
+**Gates.** `test_external` 127 → 150, for **491** pinned checks across
+seven suites, all green; `verify_scripts.sh` passes. The record's stdout
+diff against part 3 is the new bracket line printed beside the 1000:1
+reference and nothing else — no physics in the record moved.
