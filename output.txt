@@ -992,6 +992,95 @@ Sum minus experimental dG: -0.5469 eV
     result: it was the electrostatics of a constructed cage.
 
 ╔══════════════════════════════════════════════════════╗
+║  DEMO 12c: ionic self-energy, and the filter's contact mismatch║
+╚══════════════════════════════════════════════════════╝
+
+  Born self-energy, continuum model, against the measured table.
+  Na+ r_Born 1.80 A (Latimer-Pitzer-Slansky) -> -381.0 kJ/mol
+  K+  r_Born 2.08 A                          -> -329.7 kJ/mol
+  differential dG(Na-K), Born                = -51.3 kJ/mol
+  differential dG(Na-K), measured TATB       = -70.0 kJ/mol
+  shortfall (Born has no cavity or dispersion room) = +18.7 kJ/mol
+  Born radius is not unique: refitting it to the measured
+  hydration shifts the differential by -20.4 kJ/mol, which is the
+  honest sensitivity of this leg to a single unsolvable choice.
+  Cost of taking Na+ from water into the protein interior
+  (eps 78.5 -> 4): +91.6 kJ/mol. K+: +79.2 kJ/mol. A cation is
+  cheaper in the pore than in the matrix, and cheaper still if
+  it is K+ than if it is Na+ - the usual Born argument for a
+  potassium channel, now derived here rather than quoted.
+
+  Free-ion polarizability is the induction handle: K+ 0.83 A^3
+  against Na+ 0.18 A^3, a ratio of 4.6. The same field polarizes
+  K+ that much harder. In the eight-carbonyl cage the bare field
+  at 2.78 A is about 5.2 e/A per unit charge; screened to the
+  protein interior (eps 4) that is 1.295 e/A, giving induction
+  energies of -0.6960 eV for K+ and -0.1509 eV for Na+.
+  Screening is not optional: unscreened these are -42 and -9 eV,
+  i.e. four orders of magnitude too large to be an ion-ligand
+  binding energy. Real, correctly signed, and still too small to
+  decide anything alone. Reported, not relied on.
+
+  Does the deposited geometry let each ion reach its own
+  preferred ion-oxygen distance? Preferred = Shannon VIII radius
+  + 1.40 A carbonyl oxygen. Each ion is then relaxed in the PLANE
+  of its site (radius and azimuth free, axial coordinate held).
+
+  ion    preferred   achieved   mismatch        CN  Fmax eV/A    Ustrain
+  K+        2.910 A     2.777 A    -0.133 A         8      1.097     0.448 eV
+  Na+       2.580 A     2.777 A    +0.197 A         8      1.106     0.454 eV
+  (linear-elastic strain at k = 10 eV/A^2; stiffness is scanned
+   below because the protein's effective one is not knowable here)
+
+  Both ions relax ON AXIS at the same 2.777 A mean distance.
+  On the axis 2.777 A is the SHORTEST the geometry permits, so:
+    K+  sits 0.133 A CLOSER than its own 2.910 A contact wants;
+    Na+ sits 0.197 A FURTHER out than its own 2.580 A contact wants.
+  The cage is built for K+, so the larger ion is squeezed 0.13 A
+  inside its preference while the smaller one is held 0.20 A
+  outside it, and cannot get closer anywhere on the axis. That
+  asymmetry is the exclusion mechanism, and it is a property of
+  the deposited coordinates alone - no force field involved.
+  Strains differ by 1.2%, so in THIS engine that geometric
+  mismatch does not convert into a binding-energy difference.
+  Reason: the ion-O wall is 0.05 kcal/mol, about four orders
+  of magnitude below the Coulomb pull at 2.8 A, so nothing here
+  rewards a cation for having the right radius.
+
+  Stiffness scan (strain scales as 1/k, so the RATIO is the
+  stiffness-independent result):
+  k eV/A^2   Ustrain K+  Ustrain Na+   ratio Na/K
+  1.0         4.4814 eV      4.5359 eV       1.0122
+  5.0         0.8963 eV      0.9072 eV       1.0122
+  20.0        0.2241 eV      0.2268 eV       1.0122
+  50.0        0.0896 eV      0.0907 eV       1.0122
+  The ratio does not move. There is no stiffness at which this
+  model starts preferring K+ on shell strain alone.
+
+  The decisive term, and its status here.
+  Dixit & Asthagiri (JCTC 5, 1037, 2009) show the MEAN binding
+  energy slightly favours Na+ - Na+ is the better fit for an
+  eight-carbonyl cage - and that selectivity comes from the
+  FLUCTUATION term, d(beta*sigma^2/2) = 5-6 kcal/mol, driven by
+  carbonyl-carbonyl repulsion strain of about 7.3 kcal/mol.
+  This release adds that machinery (qm_fluctuation): it runs the
+  deposited filter as a breathing peptide with the ion inside and
+  measures the variance of the ion's binding energy over an
+  explicit Langevin NVT trajectory.
+  It does NOT converge, and the reason is structural: the engine
+  has no side-chain torsion terms, and four of the eight filter
+  oxygens belong to Thr75's side chain. Without torsions the
+  hydroxyl leaves the shell, the coordination number falls from
+  8 to 3-5, and the O-O diagonals close from the crystallographic
+  ~4.5-5.5 A to ~3.5 A. Measured at every temperature from 50 K to
+  300 K and every C-alpha restraint stiffness from 0.5 to 16
+  eV/A^2. No thermostat and no restraint recovers it, because the
+  missing term is the physics and not the parameters.
+  So the entropic leg is reported UNRESOLVED rather than filled in.
+  Closing it needs a real protein force field and explicit
+  solvent, not a smaller timestep.
+
+╔══════════════════════════════════════════════════════╗
 ║  DEMO 17: DNA duplex - minimal G-C and A-T base pair stack║
 ╚══════════════════════════════════════════════════════╝
   Placed: G-C at y=0, A-T at y=3.4 with 36-deg B-DNA twist
