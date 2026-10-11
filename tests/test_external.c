@@ -829,6 +829,91 @@ static void test_kcsa_contact_geometry(void) {
     sim_destroy(s);
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+ * kcsa_ionic_measure: the numbers demo 12c PRINTS and the numbers sealed
+ * into kcsa.cvmds.
+ *
+ * These are the same measurement reached by two call sites — demo 12 seals
+ * the claims before demo 12c runs — which is safe only because the
+ * measurement is a pure deterministic function of the deposited
+ * coordinates. If that ever stops being true, the record would print one
+ * number and the sealed file would carry another, and nothing in the tree
+ * would notice, because both would be individually plausible.
+ *
+ * test_external cannot call the static in main.c, so instead it pins the
+ * VALUES this measurement must produce against the same outside references
+ * the claims carry their provenance for. A drift on either call site then
+ * breaks a gate instead of quietly disagreeing with its twin.
+ * ══════════════════════════════════════════════════════════════════════════ */
+static void test_kcsa_ionic_layer(void) {
+    grp("KcsA ionic layer (printed and sealed)");
+
+    /* Born radii as the claims tag them: Latimer-Pitzer-Slansky. */
+    okrel("sealed r_Born(Na+) = 1.80 A", qm_born_radius(11), 1.80, 1e-12);
+    okrel("sealed r_Born(K+)  = 2.08 A", qm_born_radius(19), 2.08, 1e-12);
+
+    /* Pauling free-ion polarizabilities, as the claims tag them. */
+    okrel("sealed alpha(Na+) = 0.18 A^3", qm_ion_alpha_free(11), 0.18, 1e-12);
+    okrel("sealed alpha(K+)  = 0.83 A^3", qm_ion_alpha_free(19), 0.83, 1e-12);
+    {
+        char d[224];
+        double r = qm_ion_alpha_free(19) / qm_ion_alpha_free(11);
+        snprintf(d, sizeof d, "sealed ratio %.6f", r);
+        okrel("sealed alpha ratio 4.611111", r, 4.611111111, 1e-9);
+        ok("sealed ratio is dimensionless (unit 1, not A^3)",
+           fabs(r - 4.611111111) < 1e-8, d);
+    }
+
+    /* The Born differential and its two companions, at eps 78.5. */
+    okrel("sealed dG(Na-K) Born = -51.29 kJ/mol",
+          qm_born_hydration_differential_kJmol(11, 19, 78.5), -51.2905, 1e-4);
+    okrel("sealed radius-choice spread = -20.35 kJ/mol",
+          qm_born_hydration_differential_spread_kJmol(11, 19, 78.5), -20.3534, 1e-4);
+    {
+        double tab = kcsa_hydration_free_energy_kJmol(11) -
+                     kcsa_hydration_free_energy_kJmol(19);
+        double deficit = qm_born_hydration_differential_kJmol(11, 19, 78.5) - tab;
+        okrel("sealed Born deficit = +18.71 kJ/mol", deficit, 18.7095, 1e-4);
+        ok("the deficit is positive: Born under-predicts", deficit > 0.0,
+           "linear-response continuum has no cavity/dispersion room");
+    }
+    okrel("sealed bury Na+ (water->eps 4) = +91.57 kJ/mol",
+          qm_born_transfer_kJmol(11, 78.5, 4.0), 91.5666, 1e-4);
+    okrel("sealed bury K+  (water->eps 4) = +79.24 kJ/mol",
+          qm_born_transfer_kJmol(19, 78.5, 4.0), 79.2404, 1e-4);
+
+    /* Screened induction at the cage field, eps 4 — the values demo 12c
+     * prints as -0.6960 and -0.1509 eV. */
+    okrel("sealed induction K+  = -0.69597 eV",
+          qm_born_induction_eV(0.83, 5.18, 4.0), -0.695965375, 1e-9);
+    okrel("sealed induction Na+ = -0.15093 eV",
+          qm_born_induction_eV(0.18, 5.18, 4.0), -0.150932250, 1e-9);
+
+    /* The shell claims: contact from Shannon + 1.40, achieved and mismatch
+     * from the deposited geometry, strain at the recorded stiffness. */
+    QmKcsaElastic ek, en;
+    Vec3 sites[4];
+    if (kcsa_ion_sites(4, sites) < 2) {
+        ok("elastic strain reachable for the sealed claims", 0, "no ion sites");
+        return;
+    }
+    ok("sealed shell measurement evaluates (K+)",
+       qm_kcsa_elastic_strain(19, sites[1], 10.0, &ek) == 0, "rc 0");
+    ok("sealed shell measurement evaluates (Na+)",
+       qm_kcsa_elastic_strain(11, sites[1], 10.0, &en) == 0, "rc 0");
+    okrel("sealed contact K+  = 2.910 A", ek.target_contact_A, 2.910, 1e-9);
+    okrel("sealed contact Na+ = 2.580 A", en.target_contact_A, 2.580, 1e-9);
+    okrel("sealed achieved mean ion-O = 2.7766 A", ek.shell_mean_iono_A, 2.7766, 1e-4);
+    ok("sealed CN = 8 for both ions", (int)ek.cn == 8 && (int)en.cn == 8, "8 / 8");
+    okrel("sealed strain ratio Na/K = 1.012162",
+          en.strain_eV / ek.strain_eV, 1.012162, 1e-5);
+    /* The ratio near 1 is the negative result; pin it so a future change
+     * that quietly starts discriminating has to update this line on
+     * purpose rather than by accident. */
+    ok("sealed strain ratio is near 1 (strain does not discriminate)",
+       fabs(en.strain_eV / ek.strain_eV - 1.0) < 0.05, "within 5% of unity");
+}
+
 int main(void) {
     test_codata();
     test_amber_lj_external();
@@ -840,6 +925,7 @@ int main(void) {
     test_born_external();
     test_fluctuation_external();
     test_kcsa_contact_geometry();
+    test_kcsa_ionic_layer();
     printf("\n%s\n", "=====================================================");
     printf("  EXTERNAL: %d passed, %d failed\n", g_pass, g_fail);
     printf("%s\n", "=====================================================");

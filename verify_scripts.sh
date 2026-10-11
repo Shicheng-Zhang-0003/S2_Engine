@@ -123,7 +123,7 @@ chk "regression gate count == 202" "202" "$RT_PASS"
 printf '  ---- audit regression suite: %s checks passed, %s failed ----\n' "$RT_PASS" "$RT_FAIL"
 [ "$RT_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_REG_LOG" | head -20
 chk "selftest-external green" "0" "$ET"
-chk "external gate count == 105" "105" "$ET_PASS"
+chk "external gate count == 127" "127" "$ET_PASS"
 printf '  ---- external sources: %s checks passed, %s failed ----\n' "$ET_PASS" "$ET_FAIL"
 [ "$ET_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_EXT_LOG" | head -20
 # Loop-closure suite: bio/QC/QM share one physics (Nernst, kT scale,
@@ -173,6 +173,40 @@ print('OK' if hashlib.sha256(d[:i]).hexdigest()==h else 'BAD')")
   chk "source-hash record-tree-* present" "1" "$(grep -Fc 'source-hash: record-tree-' kcsa.cvmds)"
   chk "provenance legacy-free (JC2008-alone deprecated)" "0" "$(grep -cE ' JC2008( |$)' kcsa.cvmds || true)"
   chk "no digest duplicated in prose" "0" "$(grep -rE '[0-9a-f]{64}' readme.md release_note_v9R4.md DATASTREAM_SPEC.md 2>/dev/null | wc -l)"
+
+# Verdict-slot ownership. The recap table's invariant is that every demo
+# that ran has its own line, and sizing the arrays is only HALF of that:
+# a bounds check stops an out-of-range slot but cannot stop two demos
+# writing the same in-range one. Demo 12c was given slot 13 because 12 was
+# the last slot anyone had looked at; demo 17 already owned 13 and runs
+# later, so 12c's summary was overwritten before the recap read it and the
+# row silently showed someone else's text. Parse main.c and require that
+# no two different demo functions write the same slot, and that the
+# names[] table is exactly as long as DEMO_VERDICT_COUNT so the labels and
+# the slots cannot drift apart either.
+VD_DUP=$(awk '
+  /^static void demo_[a-z0-9_]*\(void\)/ { fn=$3; sub(/\(void\).*/,"",fn) }
+  /set_verdict\([0-9]+/ {
+    if (match($0, /set_verdict\([0-9]+/)) {
+      s = substr($0, RSTART+11, RLENGTH-11)
+      key = s "|" fn
+      if (!(key in seen)) { seen[key]=1; owners[s] = owners[s] " " fn }
+    }
+  }
+  END { n=0
+        for (s in owners) { c = split(owners[s], a, " "); if (c > 1) { n++; printf("%s", owners[s]) } }
+        print "" ; print n }
+' src/main.c | tail -1)
+
+chk "no two demos write the same verdict slot" "0" "$VD_DUP"
+
+VD_COUNT=$(sed -n 's/^#define DEMO_VERDICT_COUNT \([0-9]*\).*/\1/p' src/main.c | head -1)
+VD_NAMES=$(sed -n '/static const char \*names\[DEMO_VERDICT_COUNT\]/,/};/p' src/main.c \
+           | grep -oE '"[^"]+"' | wc -l)
+chk "names[] length == DEMO_VERDICT_COUNT ($VD_COUNT)" "$VD_COUNT" "$VD_NAMES"
+
+VD_SLOTS=$(grep -oE 'set_verdict\([0-9]+' src/main.c | grep -oE '[0-9]+' | sort -n -u | wc -l)
+chk "distinct verdict slots in use == DEMO_VERDICT_COUNT" "$VD_COUNT" "$VD_SLOTS"
 else
   echo "  FAIL  kcsa.cvmds missing"; fail=1
 fi
