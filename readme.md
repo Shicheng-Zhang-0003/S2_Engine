@@ -71,7 +71,7 @@ this document describes — not the other way around.
 |---|---|
 | `output.txt` | the verbatim 16-demo record (~1200 lines) |
 | `CURRENT_BASELINE_SHA.txt` | its SHA-256 (single source of truth — do not duplicate digests in prose) |
-| `kcsa.cvmds` | a schema-1 datastream written by Demo 12: worked-example claims with provenance tags and a SHA-256 payload seal (`DATASTREAM_SPEC.md`) |
+| `kcsa.cvmds` | a schema-1 datastream written by Demo 12: 147 worked-example claims with provenance tags and a SHA-256 payload seal (`DATASTREAM_SPEC.md`). Covers every KcsA leg including Demo 12c's Born layer and contact mismatch |
 | `runs/` | candidate runs; untracked. Promotion is explicit (`./run --accept`) precisely so an accidental overwrite cannot masquerade as a record update |
 | `audit/` | the audit's own evidence tree: independent math oracles, C harnesses, external references, pre-fix engine copies |
 
@@ -90,19 +90,19 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **30 186 lines** (src 23 039 · include 3 504 · tests 3 643).
+Current tree: **30 448 lines** (src 23 215 · include 3 504 · tests 3 729).
 
 | File | Lines | Role |
 |---|---:|---|
 | `src/tui.c` | 7245 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
-| `src/main.c` | 4356 | the 15-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
+| `src/main.c` | 4694 | the 16-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
 | `src/qm.c` | 2113 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
 | `src/forces.c` | 1032 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud |
-| `src/sim.c` | 866 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints) |
+| `src/sim.c` | 893 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints) |
 | `src/integrator.c` | 847 | Velocity Verlet, S2-PCG64-like/LCG (O'Neill-inspired, NOT reference pcg64), Maxwell–Boltzmann, Berendsen/Andersen/exact-OU-Langevin, steepest descent, FIRE |
 | `src/quantum.c` | 547 | Slater screening and orbital energies, hydrogenic radial profiles, Clementi–Raimondi exponents, real spherical harmonics |
-| `src/kcsa_filter.c` | 767 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit) |
+| `src/kcsa_filter.c` | 772 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit) |
 | `src/qm_born.c` | 112 | Born ionic self-energy, Latimer–Pitzer–Slansky radii, Pauling free-ion polarizabilities |
 | `src/qm_fluctuation.c` | 702 | variance/entropy machinery, KcsA shell strain, site-integrity gate |
 | `src/aminoacids.c` | 513 | glycine/alanine/dipeptide/polyalanine builders |
@@ -113,14 +113,14 @@ Current tree: **30 186 lines** (src 23 039 · include 3 504 · tests 3 643).
 | `src/neuron.c` | 164 | Hodgkin–Huxley 1952 (squid giant axon) |
 | `src/loop.c` | 76 | bio/QC/QM loop closure: Nernst, kT scale, LJ/Coulomb from same primaries |
 | `tests/test_regression.c` | 1815 | the 202-check in-repo oracle suite |
-| `tests/test_external.c` | 543 | the 51-check outside-reference suite |
+| `tests/test_external.c` | 932 | the 127-check outside-reference suite |
 | `tests/test_loop.c` | 273 | the 60-check loop-closure + best-layer suite |
 | `src/qm_eht_overlap.c` | 342 | exact STO overlaps: prolate A/B machinery, GL quadrature for p-pi |
 | `src/qm_eht_scf.c` | 620 | Hoffmann EHT + SCC (Jacobi, Lowdin, Mulliken, Mayer, trust mixing) |
 | `tests/test_eht.c` | 331 | the 31-check EHT oracle suite |
 | `include/qm_eht.h` | 107 | EHT API + E1-E11 abstraction inventory |
 | `include/loop.h` | 55 | loop bridge contract + abstraction inventory |
-| `include/` | 2825 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
+| `include/` | 3504 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
 | `tests/` (other) | 335 | datastream, forces, fire suites |
 
 ---
@@ -320,6 +320,24 @@ with a SHA-256 integrity seal over the payload, written by Demo 12 as
 `Marcus1991-TATB`, `1K4C-LINK`, …) and a validator can check external-citation
 claims against reference values. The writer fails closed: truncated or
 unsealed output is never written.
+
+Two properties of the writer are worth stating because they shaped how
+Demo 12c reached the file at all. `ds_open` buffers the whole payload and
+truncates at `ds_close` — there is no append path and no reopen — and Demo 12
+runs *before* Demos 12b/12c, so the writer cannot reach a value Demo 12c has
+not computed yet. Rather than hoist Demo 12's hundred-odd locals to file
+scope, Demo 12c's measurement is factored into `kcsa_ionic_measure`, a pure
+deterministic function of the deposited coordinates called by both the
+printer and the writer. The printed table and the sealed claims therefore
+come from one code path and cannot drift apart in principle; 22 checks in
+`test_external` pin the values so a loss of determinism breaks a gate rather
+than producing two plausible, disagreeing numbers.
+
+A claim that is *not* computable is sealed explicitly rather than omitted:
+`kcsa.entropic.computed` is recorded as `0 kcal/mol` tagged
+`UNRESOLVED-no-sidechain-torsions`, so the gap sits in the sealed file
+beside its published target (`kcsa.entropic.target`, 5.5 kcal/mol from
+Dixit & Asthagiri) rather than only in prose.
 
 ### Interactive terminal — `s2tui`
 A separate binary so the record path can never leak wall time or keystrokes

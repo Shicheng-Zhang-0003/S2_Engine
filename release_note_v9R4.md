@@ -691,3 +691,120 @@ rather than read back from the engine's own bookkeeping. The regression suite
 additionally pins the defect class this whole part is about — a variance that
 is *identically* zero because a code path skipped the sampling would pass
 every check that only looked at a mean.
+
+---
+
+## Part 3 — two defects found by reading the record rather than trusting it
+
+Part 2 shipped a working demo and a green tree. Both of the defects below
+were present in it, and neither was caught by any gate that existed, which
+is the part worth recording.
+
+### V1 — the verdict slot collided, and the recap silently lied *(main.c)*
+
+Demo 12c was given verdict slot 13, because 12 was the last slot anyone had
+looked at. **Demo 17 already owned slot 13.** Demo 17 runs after 12c, so
+12c's summary was overwritten before the recap ever read it, and the row
+labelled `17 duplex` was the only thing visible.
+
+This is precisely the failure `AUDIT FIX V2` in `src/main.c` was written to
+prevent. Its comment says the next demo added cannot quietly disappear from
+the recap — and the mechanism does not deliver that. The bounds check stops
+an out-of-range **slot**; two demos writing the same **in-range** slot is
+perfectly in range, and no amount of array sizing catches it. That is what
+"necessary but not sufficient" means, and demo 12c demonstrated it inside
+the same commit series that added the protection.
+
+The symptom was invisible by construction. The recap table printed
+perfectly, every row was populated, and one row simply showed the wrong
+demo's text. Nothing looked broken.
+
+Fixed: `DEMO_VERDICT_COUNT` 15 → 16, `names[]` gains `12c ionic layer`, and
+duplex and EHT move to slots 14 and 15. Every demo now owns a distinct slot
+and the label sits in the same position as the slot.
+
+**And gated**, because the fix that was supposed to prevent this
+demonstrably did not. `verify_scripts.sh` now parses `src/main.c`, resolves
+each `set_verdict` call to its enclosing demo function, and fails if any
+slot has more than one owner, if `names[]` is not exactly as long as
+`DEMO_VERDICT_COUNT`, or if the distinct slot count differs from the
+declared count. The three together mean every declared slot has exactly
+one writer.
+
+The gate was checked against the bug, not only against the fix:
+reintroducing the 12c-into-13 collision in a scratch copy of `main.c` turns
+it from 0 to 1. A gate that has only ever seen a passing tree is not known
+to work.
+
+### V2 — demo 12c contributed no claims to `kcsa.cvmds` *(main.c)*
+
+The sidecar is the sealed provenance ledger for the KcsA program and held
+**zero** of demo 12c's quantities. Nothing detected it: `verify_scripts.sh`
+checks the seal, the schema, the key case, the units and the provenance
+vocabulary, but there was no claim-*coverage* check, because the writer and
+the demo it was supposed to be recording for were never compared.
+
+**30 claims added, 117 → 147:** the Born radii and self-energies, the Born
+differential with its deficit against the measured table, the radius-choice
+spread, both transfer energies, the screened induction pair, the full shell
+set (CN, preferred contacts, achieved distances, mismatches, forces,
+strains, and the stiffness-independent ratio), and the Dixit entropic
+targets. Provenance tags follow the file's own convention — published
+transcriptions are tagged as transcriptions (`Latimer-Pitzer-Slansky1936`,
+`Pauling-free-ion`, `Shannon1976-VIII+1.40A`) rather than as `computed`,
+because a reader checking this file against outside references needs to
+know which numbers to check where.
+
+A claim that **cannot** be computed is sealed explicitly rather than
+omitted: `kcsa.entropic.computed` reads `0 kcal/mol` tagged
+`UNRESOLVED-no-sidechain-torsions`, beside its published target
+`kcsa.entropic.target` of 5.5 kcal/mol. An absent claim reads as an
+oversight; a zeroed claim with a reason reads as a measurement that failed,
+which is what happened.
+
+### The structural problem underneath V2
+
+`ds_open` buffers the entire payload and truncates at `ds_close` — there is
+no append path and no reopen — and Demo 12 runs *before* Demos 12b/12c. The
+writer therefore cannot reach a value demo 12c has not computed yet. The
+obvious fix, hoisting demo 12's hundred-odd locals to file scope so the
+whole block can move later, is a large refactor of working code for no
+benefit.
+
+The cheap correct answer is that demo 12c's measurement is a **pure
+deterministic function of the deposited coordinates**. Factored into
+`kcsa_ionic_measure` and called from both the printer and the writer, the
+two call sites cannot disagree even in principle, at a cost of ~40 ms
+against a record run measured in minutes. The printed contact table now
+reads from the same struct the claims are written from, rather than
+recomputing beside it — which is how the two could have drifted in the
+first place.
+
+That determinism is load-bearing, so it is pinned: 22 checks in
+`test_external` assert every value both call sites share, against the same
+outside references the claims carry provenance for. If the measurement ever
+stops being deterministic, it breaks a gate instead of producing two
+plausible, disagreeing numbers that nobody compares.
+
+One of those 22 is deliberately a tripwire rather than a regression:
+`kcsa.shell.strain_ratio` must stay within 5% of unity. The ratio being
+near 1 **is** the negative result of this release, so a future change that
+quietly starts discriminating has to update that line on purpose and say so
+in the commit message.
+
+### The `-dirty` stamp, and what it was telling us
+
+The previous `kcsa.cvmds` read `source-hash: record-tree-07af540…-dirty`.
+That suffix was honest — it says the file was produced from a working tree
+with uncommitted changes, which it was — but it was avoidable. The code
+fixes were committed first, the tree was brought fully clean, and only then
+was the record regenerated, so the new sidecar reads
+`record-tree-1702c9b…` with no suffix. The inherent one-commit lag remains
+and is a property of the design rather than a defect: a stamp cannot name
+the commit that contains its own output.
+
+**Gates.** `test_external` 105 → 127 for **468** pinned checks across seven
+suites, all green, with three new structural checks in `verify_scripts.sh`
+covering verdict-slot ownership. The record's stdout diff against part 2 is
+a **single added line** — the recap row demo 12c was owed — so no physics in
+the record moved; only its self-description was incomplete.
