@@ -31,7 +31,7 @@ every line command works, only the alternate-screen reports unavailable).
 | `./carbonsim` | run the 15-demo record sequence (**~6 minutes**; the polar-WHAM leg dominates); stdout is the byte-deterministic record |
 | `./run` | clean build behind a warning gate, run to `runs/<timestamp>.txt`, print old/new digests side by side |
 | `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt` + `kcsa.cvmds` (staged atomically as `runs/<stamp>.{txt,cvmds}`); refuses to promote unless stderr is empty AND `make test` is green |
-| `make test` | build and run the seven unit gates only (19/22/7/202/127/60/31) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
+| `make test` | build and run the seven unit gates only (19/22/7/202/150/60/31) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
 | `make tui` | build just the interactive terminal (`./s2tui`) |
 | `./verify_scripts.sh` | read-only record + spec verifier: baseline digest, `kcsa.cvmds` seal, key/unit compliance, every suite |
 | `./s01_verify_record.sh` | builds normally and under ASan/UBSan, asserts both reproduce the recorded digest with empty stderr |
@@ -53,7 +53,7 @@ commit time so `kcsa.cvmds` seals identically across repeated runs).
 | `test_forces` | 22 | analytic dihedrals vs finite-difference oracle, net-zero forces, collinear guard |
 | `test_fire` | 7 | FIRE and steepest descent reach the same minima |
 | `test_regression` | 202 | independent in-repo oracles: quadrature, finite differences, hand-derived values, QEq ordering guard, QM minimum image, zero-strain bonds, KcsA shell strain |
-| `test_external` | 127 | values from outside this repository (NIST CODATA, parm99.dat, FIPS, PDB 1K4C, Latimer–Pitzer–Slansky Born radii, Pauling free-ion polarizabilities) + HO-eps unit pin |
+| `test_external` | 150 | values from outside this repository (NIST CODATA, parm99.dat, FIPS, PDB 1K4C, Latimer–Pitzer–Slansky Born radii, Pauling free-ion polarizabilities) + HO-eps unit pin |
 | `test_loop` | 60 | bio/QC/QM loop closure + best-layer: Nernst, kT, Marcus/Shannon/LJ/Coulomb, BJ/penetration, Langevin, flat-bottom, tethers, H-complete ions-hold |
 | `test_eht` | 31 | exact overlaps vs 3D-grid STO oracles, Jacobi vs 2x2 forms, H2/H2O SCF laws, fail-loud gates |
 
@@ -113,7 +113,7 @@ Current tree: **30 448 lines** (src 23 215 · include 3 504 · tests 3 729).
 | `src/neuron.c` | 164 | Hodgkin–Huxley 1952 (squid giant axon) |
 | `src/loop.c` | 76 | bio/QC/QM loop closure: Nernst, kT scale, LJ/Coulomb from same primaries |
 | `tests/test_regression.c` | 1815 | the 202-check in-repo oracle suite |
-| `tests/test_external.c` | 932 | the 127-check outside-reference suite |
+| `tests/test_external.c` | 932 | the 150-check outside-reference suite |
 | `tests/test_loop.c` | 273 | the 60-check loop-closure + best-layer suite |
 | `src/qm_eht_overlap.c` | 342 | exact STO overlaps: prolate A/B machinery, GL quadrature for p-pi |
 | `src/qm_eht_scf.c` | 620 | Hoffmann EHT + SCC (Jacobi, Lowdin, Mulliken, Mayer, trust mixing) |
