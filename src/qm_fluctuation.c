@@ -599,7 +599,14 @@ int qm_kcsa_elastic_strain(int ion_Z, Vec3 site, double stiffness,
             }
         }
         sim->atoms[ion].position = vec3(best_x, best_y, site.z);
-        out->target_contact_A = kcsa_cation_radius(ion_Z) + QM_KCSA_O_RADIUS;
+        /* AUDIT FIX N2: kcsa_cation_radius now returns 0.0 for an ion it
+         * does not know instead of silently returning potassium's. Propagate
+         * that as a refusal rather than computing a preferred contact of
+         * 1.40 A and reporting a strain for an ion this module cannot
+         * size. */
+        double r_cat = kcsa_cation_radius(ion_Z);
+        if (!(r_cat > 0.0)) { sim_destroy(sim); return -1; }
+        out->target_contact_A = r_cat + QM_KCSA_O_RADIUS;
     }
 
     /* NO RELAXATION OF THE FILTER, BY DESIGN. The strain being measured is the ion's

@@ -405,7 +405,21 @@ double kcsa_cation_radius(int Z) {
         case 19: return 1.51;   /* K+  VIII */
         case 37: return 1.61;   /* Rb+ VIII */
         case 55: return 1.74;   /* Cs+ VIII */
-        default: return 1.51;
+        /* AUDIT FIX N2: this was `default: return 1.51`, which handed
+         * POTASSIUM's radius to any ion not on the list - measured here
+         * for Z = 1, 8, 26, 27, 54 and 86, every one of which came back
+         * 1.51 A. It failed OPEN, and the failure was silent and
+         * plausible: an unlisted cation got a full-size potassium LJ
+         * site, and because kcsa_hydration_free_energy_kJmol fails the
+         * OTHER way (0.0 for an unlisted ion) it also got a zero
+         * desolvation cost. The two functions together define what this
+         * program thinks an ion is, and they disagreed about what to do
+         * when they did not know. The pair now fails the same way.
+         *
+         * A zero radius is not a usable radius, so every caller has to
+         * refuse rather than propagate it; kcsa_set_ion_radius does,
+         * and qm_kcsa_elastic_strain does. Tests assert the refusal. */
+        default: return 0.0;
     }
 }
 
@@ -427,7 +441,16 @@ double kcsa_cation_radius(int Z) {
 
 void kcsa_set_ion_radius(Simulation *sim, int ion, int Z) {
     if (!sim || !sim->atoms || ion < 0 || ion >= sim->num_atoms) return;
-    double contact = kcsa_cation_radius(Z) + KCSA_O_RADIUS;
+    double r_cation = kcsa_cation_radius(Z);
+    /* AUDIT FIX N2: refuse an ion with no tabulated radius rather than
+     * inventing one. Returning early leaves the ion at whatever LJ site
+     * its element default gave it, which is visible and wrong; the
+     * alternative this replaces computed contact = 0 + 1.40 = 1.40 A,
+     * drove sigma_ion negative, and was silently clamped to the 0.05 A
+     * floor - a value that looks like a deliberate number and is not
+     * one. */
+    if (!(r_cation > 0.0)) return;
+    double contact = r_cation + KCSA_O_RADIUS;
     double sig_ionO = contact / TWOPOW_SIXTH;
     double sig_ion  = 2.0 * sig_ionO - KCSA_FILTER_O_SIGMA;
     if (!(sig_ion > 0.05)) sig_ion = 0.05;
