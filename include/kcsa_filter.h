@@ -237,7 +237,21 @@ int kcsa_add_calpha_tethers(Simulation *sim, int filter_first,
  * path stays 41 atoms; flexible path calls this. Returns H count
  * (104 for tetramer) or -1. With ions + zero-strain bonds/geometric
  * angles + tethers + Langevin, the filter HOLDS (CN 8->8); empty it
- * collapses (CN 8->1) — the 1K4D inactivated split, not an artefact. */
+ * collapses (CN 8->1) — the 1K4D inactivated split, not an artefact.
+ *
+ * CAPACITY REQUIRED (the trap that cost an afternoon, now stated here
+ * because nothing said it): one hydrogen AND one bond per appended
+ * hydrogen, so a tetramer needs
+ *
+ *     atoms >= KCSA_FILTER_ATOMS*4 + 26*4 + 1
+ *     bonds >= KCSA_FILTER_BONDS*4 + 26*4
+ *
+ * Passing the filter's own KCSA_FILTER_*4 + 16 instead fills the filter's
+ * 164 heavy-atom bonds and then fails on the 18th hydrogen, returning -1
+ * after having already appended 17 (a Thr/Val/Gly fully hydrogenated and
+ * a TYR missing one aromatic hydrogen). It fails closed rather than
+ * returning a silently half-built filter, but the caller must size for
+ * the hydrogens, not just the peptide. */
 int kcsa_add_hydrogens(Simulation *sim, int filter_first, int n_subunits);
 
 #endif /* KCSA_FILTER_H */
