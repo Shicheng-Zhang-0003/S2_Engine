@@ -519,3 +519,175 @@ none of the four fixes changes a number the record contains: the QEq guard
 only refuses geometries the record never visits, minimum image is a no-op in
 vacuum, the seal change only rejects files that were never valid, and the
 path change is invisible to the build.
+
+---
+
+## Part 2 — the KcsA ionic layer: Born self-energy, the contact mismatch, and the entropic term
+
+This part answers a standing request — search everything relevant outside the
+tree, then build the quantum parts far enough to settle KcsA. The short
+version is that the settling came as a **negative result with a positive
+mechanism attached**, which is the most this engine can honestly deliver, and
+here is what it is.
+
+### The literature, and what it changed
+
+The decisive source is Dixit & Asthagiri, *J. Chem. Theory Comput.* **5**,
+1037 (2009), with Asthagiri, Roux & Cross, *Biophys. J.* **95**, 1269 (2008).
+Their result is that the previous KcsA story was the wrong kind of story. The
+**mean** binding energy slightly *favours Na⁺* — Na⁺ is simply the better fit
+for an eight-carbonyl cage — and selectivity comes from the **fluctuation**
+term `Δ(βσ²/2) ≈ 5–6 kcal/mol`, whose physical source is carbonyl–carbonyl
+repulsion strain of roughly 7.3 kcal/mol. Na⁺ reaches its favourable
+contacts only by squeezing the site, and pays for that entropically.
+
+So a model that reports a binding energy and a hydration free energy and
+subtracts them has been describing the part of the mechanism that is
+approximately *zero*. That is the single most important thing found in this
+pass, and it is why the new module exists.
+
+Supporting external facts now used and cited: Doyle et al., *Science* **280**,
+69 (1998) (K⁺ at least 10⁴ more permeant than Na⁺ in the generic channel);
+LeMasurier et al., *J. Gen. Physiol.* **118** (2001) (KcsA `P_Na/P_K ≤ 0.006`);
+B(h)yskov, Asthagiri et al., *JCTC* (2010) QM/MM coordination numbers — K⁺ 6.6,
+Na⁺ 5.2, first-peak ion–O 2.93 vs 2.55 Å; Latimer, Pitzer & Slansky (1936)
+Born radii, corroborated for Na⁺ by Hummer, Pratt & García,
+arXiv:physics/9709042 (1.80 Å there, 1.88 Å in Marcus's later compilation);
+Pauling's free-ion polarizabilities; Gong, Hocky & Freed, *PNAS* **105**
+(2008) for the protein-interior ε ≈ 4.
+
+### N1 — the Born ionic layer *(new: `src/qm_born.c`)*
+
+Until now the desolvation leg was a transcribed table with nothing in the code
+able to check it, vary it, or explain it. There is now a Born self-energy to
+compare it against, derived from the CODATA primaries the engine's own
+electrostatics uses.
+
+* Differential ΔG(Na⁺−K⁺): Born −51.3 kJ/mol against the measured TATB
+  −70.0, a deficit of **+18.7 kJ/mol**. That is the known Born limitation —
+  a linear-response continuum has no room for cavity and dispersion — and it
+  is reported as a model property, not tuned away.
+* The Born radius is not unique. The fitted alternative set (Valisko, reported
+  by Antonijevic, *Electrochem. Sci.* **15**, 1511 (2010)) shifts the
+  differential by a further −20.4 kJ/mol. That is now a returned number,
+  not a caveat.
+* Induction had to be **screened**, and the screening is load-bearing. At the
+  ~5.2 e/Å a cation sees in the cage, unscreened induction is −42 eV for K⁺
+  and −9 eV for Na⁺ — four orders of magnitude too large to be an ion–ligand
+  binding energy, and it would have silently dominated any total it entered.
+  With ε = 4 it is −0.70 and −0.15 eV: real, correctly signed, still too
+  small to decide anything alone.
+
+### N2 — the contact mismatch *(new, and the sharpest KcsA result here)*
+
+A geometric question with a geometric answer. On the pore axis the mean
+ion–oxygen distance over the eight coordinating oxygens is **2.777 Å**, and
+that is the *shortest the deposited geometry permits*. Against each ion's own
+preferred contact:
+
+| ion | prefers | achieves | mismatch |
+|---|---|---|---|
+| K⁺ | 2.910 Å | 2.777 Å | −0.133 Å (squeezed inside) |
+| Na⁺ | 2.580 Å | 2.777 Å | +0.197 Å (held outside) |
+
+The cage is built for K⁺. The larger ion is squeezed 0.13 Å inside its
+preference; the smaller is held 0.20 Å outside its preference and cannot get
+closer anywhere on the axis. **That is the exclusion mechanism, and it needs
+no force field at all.**
+
+Three placements were tried on the way to this and each is instructive:
+
+1. *Relax the ion's radius to the potential minimum* — returns **on-axis for
+   both ions**, same 2.777 Å, because the ion–O interaction here is a
+   0.05 kcal/mol Lennard-Jones wall with no minimum and the Coulomb term
+   simply parks the cation on the axis. Strains then agree to 1%: one
+   measurement taken twice. This also revealed that **the 0.36 Å K/Na contact
+   difference `kcsa_set_ion_radius` exists to express is never realised
+   anywhere in this model** — relax the ion freely and it leaves at its own
+   contact distance immediately.
+2. *Impose each ion's Shannon contact by bisecting* — impossible on the axis,
+   and the bisection silently pinned both ions back at r = 0, losing the
+   mismatch entirely. It also produced a two-ligand complex reporting a
+   perfect eight-ligand contact distance, because the mean was taken over
+   "whatever is in range now" while the ion was moving. The ligand set has to
+   be frozen at the deposited geometry.
+3. *Allow the ions off-axis* — they both stay on-axis, and strains still agree
+   to 1.2%, a ratio of **1.0122 invariant across a 25× stiffness scan**
+   because strain goes as 1/k and the ratio does not.
+
+Enabling the exchange (overlap-Pauli) and dispersion terms moves the
+difference by under 0.1%. So the sharp negative result: **in this model the
+entire K⁺/Na⁺ discrimination is the tabulated hydration free energy.** The
+geometric mismatch is real, measurable, and does not convert into an energy.
+
+### N3 — the entropic machinery, and its honest verdict *(new: `src/qm_fluctuation.c`)*
+
+`qm_fluctuation` runs the deposited filter as a breathing peptide with the ion
+inside and measures the variance of the ion's binding energy over an explicit
+Langevin NVT trajectory — the `Δ(βσ²/2)` term that the whole selectivity
+argument turns on and that a rigid cage cannot produce.
+
+**It does not converge.** The filter holds CN = 8 through minimisation
+(2.777 Å) and loses it within a few hundred steps of Langevin dynamics at
+every temperature from 50 K to 300 K and every Cα restraint stiffness from
+0.5 to 16 eV/Å²: CN falls to 3–5 and the O–O diagonals close from the
+crystallographic ~4.5–5.5 Å to ~3.5 Å. The cause is structural, not
+numerical — **the engine has no side-chain torsion terms, and four of the
+eight filter oxygens belong to Thr75's side chain.** Without torsions the
+hydroxyl leaves the shell. No thermostat and no restraint recovers it.
+
+The leg is therefore reported **UNRESOLVED**, with the evidence attached and a
+`site_maintained` gate that fails closed rather than printing a number from a
+filter that came apart. Closing it needs a real protein force field and
+explicit solvent, not a smaller timestep.
+
+Three implementation defects were found and fixed on the way, each of which
+would have produced a confidently wrong number:
+
+* **The variance was silently zero** whenever the caller did not request the
+  series buffers — the moments were computed in a second pass over an
+  optional array and fell back to the running mean, turning the module's
+  entire reason for existing into a constant. Now Welford streaming, which
+  is also the numerically better form here given binding energies of tens of
+  eV fluctuating by tenths.
+* **The coordination diagnostic counted hydrogens.** With the side-chain H
+  completed, an unrestricted count inside the same cutoff returns CN = 10.5
+  (the Thr75 OG1–H and Tyr78 OH–H are not ligands), so it now counts
+  oxygens, matching `kcsa_coord_stats`, without which the two numbers cannot
+  be compared.
+* **`kcsa_add_hydrogens` needed an undocumented bond capacity.** Asked for the
+  filter's own `KCSA_FILTER_BONDS*4 + 16`, it fills the 164 heavy-atom bonds
+  and then fails on the 18th hydrogen, having already appended 17 — a
+  Thr/Val/Gly fully hydrogenated and a TYR missing one aromatic hydrogen. It
+  fails closed, but the requirement is now stated in the header.
+
+### N4 — `sim_zero_strain_bonds` *(engine fix, `src/sim.c`)*
+
+The bond and angle tables are keyed on element and bond order and are
+parameterised for the small gas-phase fragments this engine was originally
+built for. Turning on `use_bonds` against a *deposited* structure charges it
+bond-length strain it never had, in a direction set by gas-phase constants
+rather than by anything about the ion. On the KcsA filter that strain was
+worth **11.7 eV** of potential energy and crushed the 8-fold site to CN 4
+with the shell diagonals closing from ~4.5–5.5 Å to ~3.7 Å — every one of
+those numbers the deposit being deformed by the force field rather than by
+the ion.
+
+`kcsa_site_binding` solves this by disabling the bonded terms entirely, which
+is right for a rigid cage and useless where the strain mechanism is the
+subject: the filter has to be able to be strained. `sim_zero_strain_bonds`
+is the third option and the one this work needed — set every bond's `r0` to
+the distance its atoms actually have, leaving `k` alone. The bonded terms then
+are live, and zero at the reference geometry, so what they report afterwards
+is deviation from experiment.
+
+**Gates.** `test_external` 60 → 105, `test_regression` 170 → 202, for a
+total of **392** pinned checks across seven suites, all green. Every new
+external check names its source: the Born coefficient against the closed form
+built from CODATA, the Born radii against Latimer–Pitzer–Slansky with the
+Na⁺ value corroborated by Hummer/Pratt/García, the Pauling polarizabilities
+cross-tabulated, and the 2.777 Å site mean re-derived from the deposition
+rather than read back from the engine's own bookkeeping. The regression suite
+additionally pins the defect class this whole part is about — a variance that
+is *identically* zero because a code path skipped the sampling would pass
+every check that only looked at a mean.
