@@ -31,7 +31,7 @@ every line command works, only the alternate-screen reports unavailable).
 | `./carbonsim` | run the 15-demo record sequence (**~6 minutes**; the polar-WHAM leg dominates); stdout is the byte-deterministic record |
 | `./run` | clean build behind a warning gate, run to `runs/<timestamp>.txt`, print old/new digests side by side |
 | `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt` + `kcsa.cvmds` (staged atomically as `runs/<stamp>.{txt,cvmds}`); refuses to promote unless stderr is empty AND `make test` is green |
-| `make test` | build and run the seven unit gates only (19/22/7/170/51/60/31) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
+| `make test` | build and run the seven unit gates only (19/22/7/202/105/60/31) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
 | `make tui` | build just the interactive terminal (`./s2tui`) |
 | `./verify_scripts.sh` | read-only record + spec verifier: baseline digest, `kcsa.cvmds` seal, key/unit compliance, every suite |
 | `./s01_verify_record.sh` | builds normally and under ASan/UBSan, asserts both reproduce the recorded digest with empty stderr |
@@ -52,8 +52,8 @@ commit time so `kcsa.cvmds` seals identically across repeated runs).
 | `test_datastream` | 19 | FIPS 180-4 SHA-256 known-answer vectors, round-trip, tamper rejection, seal-is-final |
 | `test_forces` | 22 | analytic dihedrals vs finite-difference oracle, net-zero forces, collinear guard |
 | `test_fire` | 7 | FIRE and steepest descent reach the same minima |
-| `test_regression` | 170 | independent in-repo oracles: quadrature, finite differences, hand-derived values, QEq ordering guard, QM minimum image |
-| `test_external` | 51 | values from outside this repository (NIST CODATA, parm99.dat, FIPS, PDB 1K4C) + HO-eps unit pin |
+| `test_regression` | 202 | independent in-repo oracles: quadrature, finite differences, hand-derived values, QEq ordering guard, QM minimum image, zero-strain bonds, KcsA shell strain |
+| `test_external` | 105 | values from outside this repository (NIST CODATA, parm99.dat, FIPS, PDB 1K4C, Latimer–Pitzer–Slansky Born radii, Pauling free-ion polarizabilities) + HO-eps unit pin |
 | `test_loop` | 60 | bio/QC/QM loop closure + best-layer: Nernst, kT, Marcus/Shannon/LJ/Coulomb, BJ/penetration, Langevin, flat-bottom, tethers, H-complete ions-hold |
 | `test_eht` | 31 | exact overlaps vs 3D-grid STO oracles, Jacobi vs 2x2 forms, H2/H2O SCF laws, fail-loud gates |
 
@@ -69,7 +69,7 @@ this document describes — not the other way around.
 
 | Artifact | What it is |
 |---|---|
-| `output.txt` | the verbatim 15-demo record (~1110 lines) |
+| `output.txt` | the verbatim 16-demo record (~1200 lines) |
 | `CURRENT_BASELINE_SHA.txt` | its SHA-256 (single source of truth — do not duplicate digests in prose) |
 | `kcsa.cvmds` | a schema-1 datastream written by Demo 12: worked-example claims with provenance tags and a SHA-256 payload seal (`DATASTREAM_SPEC.md`) |
 | `runs/` | candidate runs; untracked. Promotion is explicit (`./run --accept`) precisely so an accidental overwrite cannot masquerade as a record update |
@@ -90,7 +90,7 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **28 129 lines** (src 22 028 · include 2 994 · tests 3 107).
+Current tree: **30 186 lines** (src 23 039 · include 3 504 · tests 3 643).
 
 | File | Lines | Role |
 |---|---:|---|
@@ -103,6 +103,8 @@ Current tree: **28 129 lines** (src 22 028 · include 2 994 · tests 3 107).
 | `src/integrator.c` | 847 | Velocity Verlet, S2-PCG64-like/LCG (O'Neill-inspired, NOT reference pcg64), Maxwell–Boltzmann, Berendsen/Andersen/exact-OU-Langevin, steepest descent, FIRE |
 | `src/quantum.c` | 547 | Slater screening and orbital energies, hydrogenic radial profiles, Clementi–Raimondi exponents, real spherical harmonics |
 | `src/kcsa_filter.c` | 767 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit) |
+| `src/qm_born.c` | 112 | Born ionic self-energy, Latimer–Pitzer–Slansky radii, Pauling free-ion polarizabilities |
+| `src/qm_fluctuation.c` | 702 | variance/entropy machinery, KcsA shell strain, site-integrity gate |
 | `src/aminoacids.c` | 513 | glycine/alanine/dipeptide/polyalanine builders |
 | `src/datastream.c` | 374 | schema-1 writer, self-contained FIPS 180-4 SHA-256, seal verifier (fseeko/ftello, record-tree source-hash, \r/bracket hygiene) |
 | `src/periodic_table.c` | 294 | H–Kr element data, UFF ε/σ, Madelung electron configurations |
@@ -110,7 +112,7 @@ Current tree: **28 129 lines** (src 22 028 · include 2 994 · tests 3 107).
 | `src/tui_screen.c` | 169 | ncursesw alternate-screen monitor (optional dep, TTY-gated, piped-safe) |
 | `src/neuron.c` | 164 | Hodgkin–Huxley 1952 (squid giant axon) |
 | `src/loop.c` | 76 | bio/QC/QM loop closure: Nernst, kT scale, LJ/Coulomb from same primaries |
-| `tests/test_regression.c` | 1582 | the 170-check in-repo oracle suite |
+| `tests/test_regression.c` | 1815 | the 202-check in-repo oracle suite |
 | `tests/test_external.c` | 543 | the 51-check outside-reference suite |
 | `tests/test_loop.c` | 273 | the 60-check loop-closure + best-layer suite |
 | `src/qm_eht_overlap.c` | 342 | exact STO overlaps: prolate A/B machinery, GL quadrature for p-pi |
@@ -225,6 +227,92 @@ with the experimental −0.179 eV reference as a scale check, never as a
 prediction. The umbrella sampler prints its measured autocorrelation time τ
 and effective sample size with every barrier.
 
+#### Demo 12c — what the ionic layer actually shows
+
+Demo 12c exists because the forensic table above is not the whole story, and
+because two questions the tree previously could not ask at all now have
+answers.
+
+**Where the desolvation leg comes from.** Until now the hydration free energy
+was a transcribed table with nothing able to check it or vary it. There is now
+a Born self-energy to compare it against — and it disagrees with the table by
++18.7 kJ/mol, which is *supposed* to happen: the Born expression is a
+linear-response continuum result with no room for the cavity and dispersion
+terms the real ion–water interaction has, and for monovalent cations it
+under-predicts the differential by about that much.
+
+| | ΔG(Na⁺−K⁺), kJ/mol |
+|---|---|
+| Born, r_Born 1.80 / 2.08 Å | −51.3 |
+| measured, Marcus 1991 TATB | −70.0 |
+| Born's deficit | **+18.7** |
+
+The Born radius is not unique, and that is reported rather than hidden:
+refitting it to the measured hydration free energies shifts the differential
+by a further −20.4 kJ/mol. That is the honest size of the uncertainty
+attributable to one unsolvable choice.
+
+**Whether the filter actually excludes Na⁺.** This is a geometric question
+with a geometric answer, and it is the sharpest thing this engine knows about
+KcsA. On the pore axis the mean ion–oxygen distance over the eight
+coordinating oxygens is **2.777 Å**, and that is the *shortest the deposited
+geometry permits* — an ion cannot get closer than the oxygens are. Measured
+against each ion's own preferred contact (Shannon VIII radius + 1.40 Å
+carbonyl oxygen):
+
+| ion | prefers | achieves | mismatch |
+|---|---|---|---|
+| K⁺ | 2.910 Å | 2.777 Å | **−0.133 Å** (squeezed inside its preference) |
+| Na⁺ | 2.580 Å | 2.777 Å | **+0.197 Å** (held outside it) |
+
+The cage is built for K⁺, so the larger ion is squeezed 0.13 Å inside what it
+wants while the smaller one is held 0.20 Å outside what it wants and cannot
+get closer anywhere on the axis. **That asymmetry is the exclusion mechanism,
+and it is a property of the deposited coordinates alone** — no force field, no
+dielectric, no fitted parameter.
+
+**Why that still does not produce a selectivity number here.** Both ions relax
+to the *same* on-axis minimum at the same 2.777 Å, and their ion-induced shell
+strains agree to **1.2%** — a ratio of 1.0122 that is exactly invariant across
+a 25× stiffness scan, because strain goes as 1/k and the ratio does not. The
+reason is quantitative: the ion–oxygen Lennard-Jones wall here is 0.05
+kcal/mol, roughly four orders of magnitude below the Coulomb pull at 2.8 Å, so
+nothing in this potential rewards a cation for having the right radius.
+Turning on the exchange (overlap-Pauli) and dispersion terms moves the
+difference by under 0.1%.
+
+So the honest conclusion is a sharp negative one: **in this model the entire
+K⁺/Na⁺ discrimination is the tabulated hydration free energy.** The geometric
+mismatch is real and measurable, and it still does not convert into a
+binding-energy difference.
+
+**The entropic term, and why it is reported unresolved.** Dixit & Asthagiri
+(*J. Chem. Theory Comput.* **5**, 1037, 2009; with Asthagiri, Roux & Cross,
+*Biophys. J.* **95**, 1269, 2008) show that the *mean* binding energy slightly
+**favours Na⁺** — Na⁺ is the better fit for an eight-carbonyl cage — and that
+KcsA selectivity comes from the **fluctuation** term, `Δ(βσ²/2) ≈ 5–6
+kcal/mol`, driven by carbonyl–carbonyl repulsion strain of about 7.3 kcal/mol.
+That is the whole mechanism, and it is a term a rigid-cage model cannot
+produce.
+
+This release adds the machinery (`qm_fluctuation`): it runs the deposited
+filter as a breathing peptide with the ion inside and measures the variance of
+the ion's binding energy over an explicit Langevin NVT trajectory, with
+streaming (Welford) moments, standard errors on every variance, a
+stiffness-independent linear-elastic strain model, and a **site-integrity
+gate** that fails closed if the filter does not hold its 8-fold site.
+
+**It does not converge, and the reason is structural.** The engine has no
+side-chain torsion terms, and four of the eight filter oxygens belong to
+Thr75's side chain. Without torsions the hydroxyl leaves the shell, the
+coordination number falls from 8 to 3–5, and the O–O diagonals close from the
+crystallographic ~4.5–5.5 Å to ~3.5 Å — measured at every temperature from
+50 K to 300 K and every Cα restraint stiffness from 0.5 to 16 eV/Å². No
+thermostat and no restraint recovers it, because the missing term is the
+physics and not the parameters. The leg is therefore reported **UNRESOLVED**
+rather than filled in. Closing it needs a real protein force field and
+explicit solvent, not a smaller timestep.
+
 ### Datastream
 A text, self-describing, line-oriented format (`DATASTREAM_SPEC.md`, schema 1)
 with a SHA-256 integrity seal over the payload, written by Demo 12 as
@@ -302,6 +390,7 @@ Demo numbers skip 13–16 (never assigned; reserved). 12b is the real-filter twi
 | 11 | α-helix | i,i+4 H-bond emerges: H···O 2.1204 Å, N···O 3.0982 Å |
 | 12 | KcsA legacy cage | full selectivity leg program; vacuum sites favor Na⁺, exchange favors K⁺ |
 | 12b | Real KcsA filter | deposited TVGYG, 164 atoms, C4 symmetry, CN = 8 at every site |
+| 12c | KcsA ionic layer | Born self-energy vs the measured table; filter contact mismatch; entropic term's status |
 | 17 | DNA duplex | G–C / A–T stack with B-DNA rise and twist; G–C BREATHING / A–T HELD |
 | 18 | EHT semiempirical SCF | H2 band dissociation, H2O Mulliken + gap, BO switch dissolves the wall |
 
@@ -322,6 +411,9 @@ oracles. `make audit` runs the evidence.
 | Biomolecular geometry | RCSB PDB CCD ideal coordinates | re-measured from placed Cartesians, not read back |
 | KcsA structure | PDB 1K4C chain C | deposited coordinates; C4 symmetry and CN = 8 verified |
 | Ion hydration ΔG | Marcus 1991, TATB absolute scale | primary table (−295.3/−365.3 kJ/mol K⁺/Na⁺) |
+| Born radii | Latimer, Pitzer & Slansky 1936 | corroborated for Na⁺ by Hummer/Pratt/García arXiv:physics/9709042 (1.80 Å) |
+| Free-ion α | Pauling compilation | cross-tabulated; K⁺/Na⁺ ratio 4.6 gated |
+| KcsA entropic term | Dixit & Asthagiri, JCTC 5, 1037 (2009) | mechanism, sign and ~5–6 kcal/mol scale recorded as the target |
 | Ion LJ sizes | Joung–Cheatham 2008 | parameters + derived conversion |
 | Water | TIP3P | geometry and σ against literature |
 | Ionic radii | Shannon 1976 (VIII) | contact distances against deposited geometry |
@@ -403,6 +495,22 @@ Stated plainly, because the numbers above cannot be read correctly without them.
 * **No quantitative KcsA selectivity free energy.** The real filter is rigid,
   the legs disagree, and the umbrella `±` is a three-seed spread, not a
   standard error. Read every K⁺/Na⁺ number as "in this reduced model".
+* **The KcsA entropic term is implemented but does not converge.** The
+  machinery to measure `Δ(βσ²/2)` exists and is gated, but the filter cannot
+  hold its 8-fold site under dynamics at any temperature or restraint
+  stiffness tried, because the engine has no side-chain torsions and four of
+  the eight filter oxygens belong to a side chain. Demo 12c reports this as
+  UNRESOLVED with the evidence. It is *not* filled with a plausible number.
+* **Shell strain does not discriminate in this model.** The geometric contact
+  mismatch is real (K⁺ −0.133 Å, Na⁺ +0.197 Å against their preferred
+  distances) but the ion–oxygen Lennard-Jones wall is ~4 orders of magnitude
+  too weak to turn it into an energy difference: the two ions' strains agree
+  to 1.2% and that ratio is exactly invariant across a 25× stiffness scan.
+* **The Born radius is not unique.** It shifts the hydration differential by
+  −20.4 kJ/mol between the Latimer–Pitzer–Slansky tabulation and a fitted
+  set. The Born self-energy is a cross-check on the desolvation leg, not a
+  replacement for the measured TATB values, and its +18.7 kJ/mol deficit is a
+  known property of the model rather than a bug to be tuned away.
 * **The three tracks are unconnected.** Nucleic acids, proteins and
   electrophysiology each run standalone; gating is not derived from protein
   structure.
