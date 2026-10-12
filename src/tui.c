@@ -5818,11 +5818,12 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
     int releg[SH_MAXARG];
     int rn = 0, rr;
     if (nt == 0) return 0;
-    if ((rr = posix_rewrite(tok, nt, rtok, &rn)) < 0) {
-        sh_err("  %s: not a POSIX command — see `man`\n", tok[0]);
-        return 127;
-    }
-    if (rr > 0) {
+    rr = posix_rewrite(tok, nt, rtok, &rn);
+    if (rr < 0) {
+        /* Command is an S2-specific command (refused by posix_rewrite).
+         * Continue processing with the original tokens. */
+        rn = nt;
+    } else if (rr > 0) {
         for (int i = 0; i < rn; i++) releg[i] = 0;
         tok = rtok;
         nt = rn;
