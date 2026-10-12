@@ -129,10 +129,13 @@ void integrator_step(Simulation *sim) {
                 Atom *a = &sim->atoms[i];
                 a->velocity.x *= s; a->velocity.y *= s; a->velocity.z *= s;
             }
-            /* Record contract: diagnostics to stderr ONLY when live (TTY).
-             * The cap still applies silently on redirect so stdout stays the
-             * sole DATA stream and s01 empty-stderr holds. */
-            if (!sim->temp_capped_latched && display_live())
+            /* FULL-AUDIT C32: temperature cap warning is suppressed in live
+             * mode because it writes to stderr and corrupts the TUI display.
+             * The live status line already shows the temperature, so the
+             * warning is redundant and actively harmful there. In batch mode
+             * (redirected stderr), the warning is still emitted so operators
+             * see the cap event. */
+            if (!sim->temp_capped_latched && !display_live())
                 fprintf(stderr, "  capped T=%.3gK to %.3gK (set maxtemp to change)\n",
                         T, sim->max_temperature);
             sim->temp_capped_latched = 1;
