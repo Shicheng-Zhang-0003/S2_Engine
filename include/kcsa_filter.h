@@ -314,4 +314,29 @@ int kcsa_add_calpha_tethers(Simulation *sim, int filter_first,
  * the hydrogens, not just the peptide. */
 int kcsa_add_hydrogens(Simulation *sim, int filter_first, int n_subunits);
 
+/* ── Backbone + side-chain dihedral torsions for the filter ──────────────
+ *
+ * The engine's harmonic bonds/angles alone cannot hold the deposited
+ * TVGYG geometry under dynamics: without torsions the side chains (and
+ * in particular the Thr75 OG1 hydroxyl, one of the eight coordinating
+ * oxygens) rotate freely and the filter collapses CN 8 -> 3-5, which is
+ * why the fluctuation/selectivity term never converged. This function
+ * adds the torsions that hold the fold:
+ *
+ *   - backbone phi   C(i-1)-N(i)-CA(i)-C(i)      (n=1, k=2 kcal/mol)
+ *   - backbone psi   N(i)-CA(i)-C(i)-N(i+1)      (n=1, k=2 kcal/mol)
+ *   - backbone omega CA(i)-C(i)-N(i+1)-CA(i+1)   (n=2, delta=pi, k=15 kcal/mol)
+ *   - side-chain chi1 N-CA-CB-OG1/CG/CG1         (n=1, k=3 kcal/mol)
+ *
+ * delta is computed from the deposited geometry at build time (like
+ * sim_rebuild_angles_geometric computes theta0), so each torsion is
+ * restrained toward its own crystallographic value. k values are
+ * gentle: strong enough to keep the side chains in the shell at
+ * 50-300 K, weak enough not to distort the deposited fold.
+ * Returns the number of dihedrals added, or -1 on failure.
+ * Opt-in: record path stays rigid (no dihedrals); flexible path calls
+ * this after kcsa_add_hydrogens. Requires sim->use_dihedrals = 1 in
+ * forces_calculate for the terms to contribute. */
+int kcsa_add_dihedrals(Simulation *sim, int filter_first, int n_subunits);
+
 #endif /* KCSA_FILTER_H */

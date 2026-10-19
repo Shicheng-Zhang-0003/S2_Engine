@@ -281,7 +281,7 @@ static int kcsa_series_run(int ion_Z, Vec3 site, double temp_K,
     if (kcsa_add_hydrogens(sim, f, 4) < 0) { sim_destroy(sim); return -1; }
 
     sim->use_lj = 1; sim->use_coulomb = 1; sim->cutoff = 30.0;
-    sim->use_bonds = 1; sim->use_angles = 1; sim->use_dihedrals = 0;
+    sim->use_bonds = 1; sim->use_angles = 1; sim->use_dihedrals = 1;
 
     /* ZERO-STRAIN the bonded terms against the deposited geometry BEFORE
      * anything is switched on. kcsa_build_filter deliberately does not
@@ -312,10 +312,35 @@ static int kcsa_series_run(int ion_Z, Vec3 site, double temp_K,
     if (kcsa_add_calpha_tethers(sim, f, 4, tethers_k) < 0) {
         sim_destroy(sim); return -1;
     }
+    /* Backbone + side-chain torsions hold the deposited fold so the eight
+     * coordinating oxygens (Thr75 OG1 included) stay in the shell under
+     * Langevin dynamics. Without them CN collapses 8 -> 3-5 and the
+     * fluctuation term never converges. */
+    if (kcsa_add_dihedrals(sim, f, 4) < 0) {
+        sim_destroy(sim); return -1;
+    }
 
     int ion = (ion_Z > 0) ? sim_add_ion(sim, ion_Z, 1, site, 1.0) : -1;
     if (ion < 0) { sim_destroy(sim); return -1; }
     kcsa_set_ion_radius(sim, ion, ion_Z);
+    /* Constrain the ion to the pore axis at the deposited site (x=y=0,
+     * z=site.z). The symmetric-cage equilibrium is unstable: any radial
+     * displacement draws the cation toward the nearest oxygen because the
+     * ion-O LJ wall of 0.05 kcal/mol is four orders of magnitude too weak
+     * to balance the Coulomb 1/r pull. Without this constraint the ion
+     * crashes into the filter oxygens (CN 8 -> 3-5, mean ion-O ~2 A
+     * instead of 2.777 A) and the binding-energy variance is meaningless.
+     * The filter atoms remain free (held by dihedrals + tethers), so the
+     * ion's binding energy still fluctuates with the filter conformation —
+     * which is exactly the sigma^2 the fluctuation term measures. Matches
+     * kcsa_site_binding, which holds the axial coordinate and relaxes only
+     * radially; here the ion is held on the axis entirely. */
+    sim->atoms[ion].position.x = 0.0;
+    sim->atoms[ion].position.y = 0.0;
+    sim->atoms[ion].position.z = site.z;
+    sim->atoms[ion].velocity.x = 0.0;
+    sim->atoms[ion].velocity.y = 0.0;
+    sim->atoms[ion].velocity.z = 0.0;
 
     /* Minimise with the ion present. This settles the deposited geometry
      * into the ion's own minimum before any sampling, so the series
@@ -371,6 +396,24 @@ static int kcsa_series_run(int ion_Z, Vec3 site, double temp_K,
          * separate ion-free trajectory, is what keeps the two samples
          * paired conformation for conformation. */
         integrator_step(sim);
+        /* Constrain the ion to the pore axis at the deposited site (x=y=0,
+         * z=site.z). The symmetric-cage equilibrium is unstable: any radial
+         * displacement draws the cation toward the nearest oxygen because
+         * the ion-O LJ wall of 0.05 kcal/mol is four orders of magnitude
+         * too weak to balance the Coulomb 1/r pull. Without this the ion
+         * crashes into the filter oxygens (CN 8 -> 3-5) and the binding-
+         * energy variance is meaningless. Matches kcsa_site_binding, which
+         * holds the axial coordinate and only relaxes radially; here the
+         * ion is held on the axis entirely. The filter atoms remain free
+         * (held by dihedrals + tethers), so the binding energy still
+         * fluctuates with the filter conformation — which is the sigma^2
+         * the fluctuation term measures. */
+        sim->atoms[ion].position.x = 0.0;
+        sim->atoms[ion].position.y = 0.0;
+        sim->atoms[ion].position.z = site.z;
+        sim->atoms[ion].velocity.x = 0.0;
+        sim->atoms[ion].velocity.y = 0.0;
+        sim->atoms[ion].velocity.z = 0.0;
         double e_live = sim->potential_energy;
 
         Atom *a = &sim->atoms[ion];

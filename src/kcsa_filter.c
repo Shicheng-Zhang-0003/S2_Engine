@@ -563,6 +563,108 @@ int kcsa_add_calpha_tethers(Simulation *sim, int filter_first,
     return n;
 }
 
+/* ── Backbone + side-chain dihedral torsions for the filter ──────────────
+ *
+ * Holds the deposited TVGYG fold under dynamics so the eight coordinating
+ * oxygens (including Thr75 OG1) stay in the shell. Without torsions the
+ * side chains rotate freely and CN collapses 8 -> 3-5, which is why the
+ * fluctuation/selectivity term never converged.
+ *
+ * Adds phi/psi/omega backbone torsions and chi1 side-chain torsions,
+ * each restrained toward its own deposited-geometry value (delta computed
+ * from the current Cartesian positions, like sim_rebuild_angles_geometric
+ * computes theta0). k values are gentle: strong enough to keep side chains
+ * in the shell at 50-300 K, weak enough not to distort the deposited fold.
+ * Returns dihedral count added, or -1 on failure. Opt-in: record path
+ * stays rigid; flexible path calls this after kcsa_add_hydrogens and sets
+ * sim->use_dihedrals = 1 so forces_calculate evaluates the terms. */
+int kcsa_add_dihedrals(Simulation *sim, int filter_first, int n_subunits) {
+    if (!sim || !sim->atoms || filter_first < 0) return -1;
+    if (n_subunits < 1 || n_subunits > 4) n_subunits = 4;
+
+    /* KCSA_TVGYG indices within one subunit (see KCSA_TVGYG table). */
+    static const int phi4[4][4] = {
+        { 2,  7,  8,  9 },   /* Val76  phi: C75-N76-CA76-C76   */
+        { 9, 14, 15, 16 },   /* Gly77  phi: C76-N77-CA77-C77   */
+        {16, 18, 19, 20 },   /* Tyr78  phi: C77-N78-CA78-C78   */
+        {20, 30, 31, 32 },   /* Gly79  phi: C78-N79-CA79-C79   */
+    };
+    static const int psi4[4][4] = {
+        { 0,  1,  2,  7 },   /* Thr75  psi: N75-CA75-C75-N76   */
+        { 7,  8,  9, 14 },   /* Val76  psi: N76-CA76-C76-N77   */
+        {14, 15, 16, 18 },   /* Gly77  psi: N77-CA77-C77-N78   */
+        {18, 19, 20, 30 },   /* Tyr78  psi: N78-CA78-C78-N79   */
+    };
+    static const int omg4[4][4] = {
+        { 1,  2,  7,  8 },   /* Thr75  omega: CA75-C75-N76-CA76 */
+        { 8,  9, 14, 15 },   /* Val76  omega: CA76-C76-N77-CA77 */
+        {15, 16, 18, 19 },   /* Gly77  omega: CA77-C77-N78-CA78 */
+        {19, 20, 30, 31 },   /* Tyr78  omega: CA78-C78-N79-CA79 */
+    };
+    static const int chi1_4[3][4] = {
+        { 0,  1,  4,  6 },   /* Thr75 chi1: N75-CA75-CB75-OG175 */
+        { 7,  8, 11, 12 },   /* Val76 chi1: N76-CA76-CB76-CG176 */
+        {18, 19, 22, 23 },   /* Tyr78 chi1: N78-CA78-CB78-CG78  */
+    };
+
+    const double KCAL = KCAL_MOL_TO_EV;
+    int n = 0;
+
+    for (int s = 0; s < n_subunits; s++) {
+        int base = filter_first + s * KCSA_FILTER_ATOMS;
+
+        /* Backbone phi (skip Thr75: its C74 predecessor is outside seg). */
+        for (int t = 0; t < 4; t++) {
+            int a = base + phi4[t][0], b = base + phi4[t][1];
+            int c = base + phi4[t][2], d = base + phi4[t][3];
+            double delta = vec3_dihedral(
+                vec3_sub(sim->atoms[b].position, sim->atoms[a].position),
+                vec3_sub(sim->atoms[c].position, sim->atoms[b].position),
+                vec3_sub(sim->atoms[d].position, sim->atoms[c].position));
+            if (sim_add_dihedral(sim, a, b, c, d, 2.0 * KCAL, 1, delta) < 0)
+                return -1;
+            n++;
+        }
+        /* Backbone psi (skip Gly79: its N80 successor is outside seg). */
+        for (int t = 0; t < 4; t++) {
+            int a = base + psi4[t][0], b = base + psi4[t][1];
+            int c = base + psi4[t][2], d = base + psi4[t][3];
+            double delta = vec3_dihedral(
+                vec3_sub(sim->atoms[b].position, sim->atoms[a].position),
+                vec3_sub(sim->atoms[c].position, sim->atoms[b].position),
+                vec3_sub(sim->atoms[d].position, sim->atoms[c].position));
+            if (sim_add_dihedral(sim, a, b, c, d, 2.0 * KCAL, 1, delta) < 0)
+                return -1;
+            n++;
+        }
+        /* Backbone omega (trans peptide bond, n=2). */
+        for (int t = 0; t < 4; t++) {
+            int a = base + omg4[t][0], b = base + omg4[t][1];
+            int c = base + omg4[t][2], d = base + omg4[t][3];
+            double delta = vec3_dihedral(
+                vec3_sub(sim->atoms[b].position, sim->atoms[a].position),
+                vec3_sub(sim->atoms[c].position, sim->atoms[b].position),
+                vec3_sub(sim->atoms[d].position, sim->atoms[c].position));
+            if (sim_add_dihedral(sim, a, b, c, d, 15.0 * KCAL, 2, delta) < 0)
+                return -1;
+            n++;
+        }
+        /* Side-chain chi1 (skip Gly77, Gly79: no side chain past CA). */
+        for (int t = 0; t < 3; t++) {
+            int a = base + chi1_4[t][0], b = base + chi1_4[t][1];
+            int c = base + chi1_4[t][2], d = base + chi1_4[t][3];
+            double delta = vec3_dihedral(
+                vec3_sub(sim->atoms[b].position, sim->atoms[a].position),
+                vec3_sub(sim->atoms[c].position, sim->atoms[b].position),
+                vec3_sub(sim->atoms[d].position, sim->atoms[c].position));
+            if (sim_add_dihedral(sim, a, b, c, d, 3.0 * KCAL, 1, delta) < 0)
+                return -1;
+            n++;
+        }
+    }
+    return n;
+}
+
 /* ── side-chain H completion ───────────────────────────────────────
  * Ideal geometries: C-H 1.09 (aliphatic), 1.08 (aromatic), O-H 0.96;
  * tetrahedral 109.47°, trigonal 120°. Hydroxyl torsion points away
