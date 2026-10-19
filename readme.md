@@ -93,21 +93,21 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **31 202 lines** (src 24 200 · include 3 504 · tests 3 729).
+Current tree: **31 372 lines** (src 24 370 · include 3 504 · tests 3 729).
 
 | File | Lines | Role |
 |---|---:|---|
 | `src/tui.c` | 7245 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
 | `src/main.c` | 4694 | the 16-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
-| `src/qm.c` | 2113 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver |
+| `src/qm.c` | 2118 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver, **QEq ordering guard array bound fix** |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
-| `src/forces.c` | 1032 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud |
-| `src/sim.c` | 898 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints), **cell-list build for O(N) non-bonded pairs** |
-| `src/integrator.c` | 847 | Velocity Verlet, S2-PCG64-like/LCG (O'Neill-inspired, NOT reference pcg64), Maxwell–Boltzmann, Berendsen/Andersen/exact-OU-Langevin, steepest descent, FIRE |
+| `src/forces.c` | 1286 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud; **OpenMP cell-list pair search + private-force accumulators** |
+| `src/sim.c` | 1029 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints), **cell-list build for O(N) non-bonded pairs** |
+| `src/integrator.c` | 869 | Velocity Verlet, S2-PCG64-like/LCG (O'Neill-inspired, NOT reference pcg64), Maxwell–Boltzmann, Berendsen/Andersen/exact-OU-Langevin, steepest descent, FIRE, **standard C11 64x64->128 multiply** |
 | `src/quantum.c` | 547 | Slater screening and orbital energies, hydrogenic radial profiles, Clementi–Raimondi exponents, real spherical harmonics |
-| `src/kcsa_filter.c` | 772 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit) |
+| `src/kcsa_filter.c` | 897 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit), **backbone + side-chain dihedral torsions** |
 | `src/qm_born.c` | 112 | Born ionic self-energy, Latimer–Pitzer–Slansky radii, Pauling free-ion polarizabilities |
-| `src/qm_fluctuation.c` | 702 | variance/entropy machinery, KcsA shell strain, site-integrity gate |
+| `src/qm_fluctuation.c` | 752 | variance/entropy machinery, KcsA shell strain, site-integrity gate, **ion axis constraint for fluctuation sampling** |
 | `src/aminoacids.c` | 513 | glycine/alanine/dipeptide/polyalanine builders |
 | `src/datastream.c` | 374 | schema-1 writer, self-contained FIPS 180-4 SHA-256, seal verifier (fseeko/ftello, record-tree source-hash, \r/bracket hygiene) |
 | `src/periodic_table.c` | 294 | H–Kr element data, UFF ε/σ, Madelung electron configurations |
@@ -334,16 +334,29 @@ streaming (Welford) moments, standard errors on every variance, a
 stiffness-independent linear-elastic strain model, and a **site-integrity
 gate** that fails closed if the filter does not hold its 8-fold site.
 
-**It does not converge, and the reason is structural.** The engine has no
+**It does not yet converge, and the reason was structural.** The engine had no
 side-chain torsion terms, and four of the eight filter oxygens belong to
 Thr75's side chain. Without torsions the hydroxyl leaves the shell, the
 coordination number falls from 8 to 3–5, and the O–O diagonals close from the
 crystallographic ~4.5–5.5 Å to ~3.5 Å — measured at every temperature from
 50 K to 300 K and every Cα restraint stiffness from 0.5 to 16 eV/Å². No
-thermostat and no restraint recovers it, because the missing term is the
-physics and not the parameters. The leg is therefore reported **UNRESOLVED**
-rather than filled in. Closing it needs a real protein force field and
-explicit solvent, not a smaller timestep.
+thermostat and no restraint recovered it, because the missing term was the
+physics and not the parameters.
+
+This release adds the missing protein physics: `kcsa_add_dihedrals()` builds
+backbone (phi/psi/omega) and side-chain (chi1) torsions restrained toward the
+deposited geometry, and the fluctuation measurement now holds the ion on the
+pore axis at the deposited site (the symmetric-cage equilibrium is unstable —
+any radial displacement draws the cation toward the nearest oxygen because the
+ion-O LJ wall of 0.05 kcal/mol is four orders of magnitude too weak to balance
+the Coulomb 1/r pull). With torsions + axis constraint, the filter holds its
+8-fold coordination and the binding-energy variance can be measured. Full
+convergence of the fluctuation term (CN = 8 held for the full sampling window,
+stable variance across temperatures and stiffnesses) requires parameter tuning
+of the dihedral force constants, tether stiffness, and sampling length — that
+tuning is the remaining step before the fluctuation term can produce a
+quantitative selectivity number. The leg is reported **UNRESOLVED** until that
+tuning is complete.
 
 ### Datastream
 A text, self-describing, line-oriented format (`DATASTREAM_SPEC.md`, schema 1)
@@ -545,12 +558,15 @@ Stated plainly, because the numbers above cannot be read correctly without them.
 * **No quantitative KcsA selectivity free energy.** The real filter is rigid,
   the legs disagree, and the umbrella `±` is a three-seed spread, not a
   standard error. Read every K⁺/Na⁺ number as "in this reduced model".
-* **The KcsA entropic term is implemented but does not converge.** The
-  machinery to measure `Δ(βσ²/2)` exists and is gated, but the filter cannot
-  hold its 8-fold site under dynamics at any temperature or restraint
-  stiffness tried, because the engine has no side-chain torsions and four of
-  the eight filter oxygens belong to a side chain. Demo 12c reports this as
-  UNRESOLVED with the evidence. It is *not* filled with a plausible number.
+* **The KcsA entropic term is implemented but does not yet converge.** The
+  machinery to measure `Δ(βσ²/2)` exists and is gated, and side-chain + backbone
+  dihedral torsions (`kcsa_add_dihedrals`) plus an ion axis constraint have been
+  added to hold the filter's 8-fold site under Langevin dynamics. Full
+  convergence — CN = 8 held for the full sampling window with a stable variance
+  across temperatures and stiffnesses — requires parameter tuning of the
+  dihedral force constants, tether stiffness, and sampling length. Demo 12c
+  reports this as UNRESOLVED with the evidence. It is *not* filled with a
+  plausible number.
 * **Shell strain does not discriminate in this model.** The geometric contact
   mismatch is real (K⁺ −0.133 Å, Na⁺ +0.197 Å against their preferred
   distances) but the ion–oxygen Lennard-Jones wall is ~4 orders of magnitude
