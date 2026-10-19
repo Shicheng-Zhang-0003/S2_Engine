@@ -27,8 +27,9 @@ every line command works, only the alternate-screen reports unavailable).
 
 | Command | Effect |
 |---|---|
-| `make` / `make -j$(nproc)` | build everything: `carbonsim`, `s2tui`, and all seven test binaries |
-| `./carbonsim` | run the 15-demo record sequence (**~6 minutes**; the polar-WHAM leg dominates); stdout is the byte-deterministic record |
+| `make` / `make -j$(nproc)` | build everything: `carbonsim`, `s2tui`, and all seven test binaries (serial record build, byte-deterministic) |
+| `make perf` | build everything with **OpenMP multicore** (`-fopenmp -DS2_OPENMP -march=native`) — cell-list O(N) pair search + parallel O(N²) kernels across all cores. Performance runs only; **never for the record** (thread scheduling changes FP summation order, so digests differ from the serial record). |
+| `./carbonsim` | run the 16-demo record sequence (**~6 minutes**; the polar-WHAM leg dominates); stdout is the byte-deterministic record |
 | `./run` | clean build behind a warning gate, run to `runs/<timestamp>.txt`, print old/new digests side by side |
 | `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt` + `kcsa.cvmds` (staged atomically as `runs/<stamp>.{txt,cvmds}`); refuses to promote unless stderr is empty AND `make test` is green |
 | `make test` | build and run the seven unit gates only (19/22/7/202/150/60/31) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
@@ -57,8 +58,10 @@ commit time so `kcsa.cvmds` seals identically across repeated runs).
 | `test_loop` | 60 | bio/QC/QM loop closure + best-layer: Nernst, kT, Marcus/Shannon/LJ/Coulomb, BJ/penetration, Langevin, flat-bottom, tethers, H-complete ions-hold |
 | `test_eht` | 31 | exact overlaps vs 3D-grid STO oracles, Jacobi vs 2x2 forms, H2/H2O SCF laws, fail-loud gates |
 
-plus a warning-free clean build, empty stderr, byte-identical stdout across
-repeated runs, and an intact `kcsa.cvmds` seal.
+plus a warning-free clean build (serial and `make perf`), empty stderr,
+byte-identical stdout across repeated runs (serial record only), an intact
+`kcsa.cvmds` seal, and the OpenMP build passing all seven gates with
+numerically consistent results (within FP reassociation tolerance).
 
 ---
 
@@ -90,7 +93,7 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **30 448 lines** (src 23 215 · include 3 504 · tests 3 729).
+Current tree: **31 202 lines** (src 24 200 · include 3 504 · tests 3 729).
 
 | File | Lines | Role |
 |---|---:|---|
@@ -99,7 +102,7 @@ Current tree: **30 448 lines** (src 23 215 · include 3 504 · tests 3 729).
 | `src/qm.c` | 2113 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
 | `src/forces.c` | 1032 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud |
-| `src/sim.c` | 893 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints) |
+| `src/sim.c` | 898 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints), **cell-list build for O(N) non-bonded pairs** |
 | `src/integrator.c` | 847 | Velocity Verlet, S2-PCG64-like/LCG (O'Neill-inspired, NOT reference pcg64), Maxwell–Boltzmann, Berendsen/Andersen/exact-OU-Langevin, steepest descent, FIRE |
 | `src/quantum.c` | 547 | Slater screening and orbital energies, hydrogenic radial profiles, Clementi–Raimondi exponents, real spherical harmonics |
 | `src/kcsa_filter.c` | 772 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit) |
@@ -122,6 +125,35 @@ Current tree: **30 448 lines** (src 23 215 · include 3 504 · tests 3 729).
 | `include/loop.h` | 55 | loop bridge contract + abstraction inventory |
 | `include/` | 3504 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
 | `tests/` (other) | 335 | datastream, forces, fire suites |
+
+### 3.1 Multicore and cell lists (performance build)
+
+**The engine was single-threaded through v9R3.** `make perf` (v9R4+) adds OpenMP multicore
+parallelisation plus cell-list spatial partitioning:
+
+| Component | Serial (record) | `make perf` | Scaling |
+|-----------|----------------|-------------|---------|
+| Non-bonded pairs (LJ+Coulomb) | O(N²), one core | **O(N) cell list + OpenMP over cells** | Near-linear to core count |
+| Induction (polarisation) | O(N²), one core | **OpenMP over atoms** | Near-linear |
+| Pauli repulsion (FD forces) | O(N²)·6N evals, one core | **OpenMP over pairs** | Near-linear |
+| Dispersion (TT-damped C6/r⁶) | O(N²), one core | **OpenMP over pairs** | Near-linear |
+| QEq charge equilibration | O(n³) Gaussian elimination, ≤128 atoms | Serial (small n, memory bound) | N/A |
+
+**Cell lists** (`sim_rebuild_cell_list`): a spatial grid with cell size ≥ cutoff. Build is O(N);
+pair enumeration visits only the same and 26 neighbouring cells, reducing the pair loop from
+O(N²) to O(N + N_neighbours). The list is rebuilt automatically by `forces_calculate` when
+`sim->use_cell_list` is set and the atom count exceeds 512 (PBC boxes use the serial path;
+cell-list PBC minimum-image is future work).
+
+**Thread safety:** every OpenMP region uses per-thread private force accumulators that are
+reduced after the parallel region, so there is no race on `atoms[].force`. Energy sums use
+OpenMP reduction (floating-point reassociation — same total, different order), which is why
+the perf build is **not byte-identical** to the serial record and must never be used for
+record production.
+
+**Record path:** `make` (default) builds without `-fopenmp`, so `#pragma omp` is a no-op,
+`S2_OPENMP` is 0, and the record is bit-identical to before. The OpenMP code is compiled in
+but dormant.
 
 ---
 
@@ -591,9 +623,14 @@ Stated plainly, because the numbers above cannot be read correctly without them.
 * **Cutoff switching is implemented but off by default.** Every current demo
   is gas-phase and wants the plain hard cutoff; enable the switch before any
   condensed-phase system.
-* **O(N²) non-bonded loop, no neighbour list.** Fine at the current system
-  sizes (≤ hundreds of atoms); pair exclusion is O(coordination).
-  `forces_calculate` warns once above 2000 atoms; cell lists are future work.
+* **O(N²) non-bonded loop with cell-list opt-in.** Fine at the current
+  system sizes (≤ hundreds of atoms); pair exclusion is O(coordination).
+  `forces_calculate` warns once above 2000 atoms. **`make perf` builds with
+  cell lists** (spatial grid, cell size ≥ cutoff, O(N) pair enumeration) and
+  OpenMP parallelisation over cell pairs, induction atoms, Pauli pairs, and
+  dispersion pairs. Cell lists are used automatically for vacuum systems
+  with N > 512 atoms when `sim->use_cell_list` is set; PBC boxes use the
+  serial path (cell-list PBC minimum-image is future work).
   The RNG labelled PCG64 is S2-PCG64-like (O'Neill-inspired, NOT reference
   pcg-random.org pcg64 — 64-bit increment, non-reference output permutation);
   the LCG remains the record default. QEq is QEq-lite (topological 1-2/1-3
