@@ -1,11 +1,16 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include "../include/forces.h"
 #include "../include/constants.h"
 #include "../include/periodic_table.h"
 #include "../include/qm.h"
 #include "../include/qm_eht.h"
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 /*
 * forces.c
@@ -414,6 +419,83 @@ PairEnergy forces_nonbonded_energy(const Atom *atoms, int num_atoms, int ia, int
     return out;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Non-bonded pair core that writes force into a PRIVATE accumulator
+ * (F_priv[N][3]) instead of sim->atoms[].force, so multiple threads can
+ * accumulate without race conditions. Energy bookkeeping is returned via
+ * *pe_out (caller reduces). Same physics as pair_nonbonded_core:
+ *   - P9 eps/sigma guard
+ *   - LJ + Coulomb with optional switching
+ *   - Minimum image via box when periodic
+ * Returns 0 on success, -1 if the pair should be skipped (cutoff, bad
+ * indices, NaN).
+ * ════════════════════════════════════════════════════════════════════════════ */
+static int pair_nonbonded_core_priv(const Atom *atoms, int num_atoms,
+                                    int ia, int ib,
+                                    const SimBox *box,
+                                    int use_lj, int use_coulomb,
+                                    double dielectric,
+                                    int do_switch, double r_switch, double r_cutoff,
+                                    PairEnergy *pe_out,
+                                    double *F_priv) {
+    if (!atoms || num_atoms < 1 || ia < 0 || ib < 0 || ia >= num_atoms || ib >= num_atoms || ia == ib)
+        return -1;
+    if (!(dielectric > 1e-9) || !isfinite(dielectric)) dielectric = 1.0;
+    const Atom *ai = &atoms[ia];
+    const Atom *bi = &atoms[ib];
+    Vec3 r_ij = vec3_sub(bi->position, ai->position);
+    if (!isfinite(r_ij.x) || !isfinite(r_ij.y) || !isfinite(r_ij.z)) return -1;
+    if (box && (box->periodic[0] || box->periodic[1] || box->periodic[2]))
+        r_ij = vec3_pbc_box(r_ij, box->dimensions, box->periodic);
+    double r2 = vec3_norm2(r_ij);
+    if (r2 < 1.0e-10) return -1;
+    double r = sqrt(r2);
+    double f_total = 0.0;
+
+    double S = 1.0, dSdr = 0.0;
+    if (do_switch) S = lj_switch_fn(r, r_switch, r_cutoff, &dSdr);
+
+    PairEnergy pe = {0.0, 0.0};
+    if (use_lj) {
+        double eps = lj_eps_combine(ai->lj_epsilon, bi->lj_epsilon);
+        double sigma = lj_sigma_combine(ai->lj_sigma, bi->lj_sigma);
+        if (isfinite(eps) && isfinite(sigma) && sigma > 1e-12) {
+            double sr2 = (sigma * sigma) / r2;
+            double sr6 = sr2 * sr2 * sr2;
+            double sr12 = sr6 * sr6;
+            double V_lj = 4.0 * eps * (sr12 - sr6);
+            double f_lj = (24.0 * eps / r2) * (sr6 - 2.0 * sr12);
+            if (!isfinite(V_lj) || !isfinite(f_lj)) { V_lj = 0.0; f_lj = 0.0; }
+            pe.lj_energy = V_lj * S;
+            f_total += f_lj * S + V_lj * dSdr / r;
+        }
+    }
+    if (use_coulomb) {
+        double qi = ai->partial_charge;
+        double qj = bi->partial_charge;
+        if (fabs(qi) > 1.0e-9 && fabs(qj) > 1.0e-9) {
+            double V_c = COULOMB_MD * qi * qj / (r * dielectric);
+            double f_c = -COULOMB_MD * qi * qj / (r2 * r * dielectric);
+            pe.coulomb_energy = V_c * S;
+            f_total += f_c * S + V_c * dSdr / r;
+        }
+    }
+
+    if (pe_out) *pe_out = pe;
+    if (F_priv) {
+        Vec3 F_i = vec3_scale(r_ij, f_total);
+        if (isfinite(F_i.x) && isfinite(F_i.y) && isfinite(F_i.z)) {
+            F_priv[3 * ia + 0] += F_i.x;
+            F_priv[3 * ia + 1] += F_i.y;
+            F_priv[3 * ia + 2] += F_i.z;
+            F_priv[3 * ib + 0] -= F_i.x;
+            F_priv[3 * ib + 1] -= F_i.y;
+            F_priv[3 * ib + 2] -= F_i.z;
+        }
+    }
+    return 0;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
  * Harmonic bond force
  *
@@ -813,16 +895,187 @@ void forces_calculate(Simulation *sim) {
     double r_switch = 0.8 * r_cutoff;
     int do_switch = (sim->use_switching && r_cutoff > 2.0) ? 1 : 0;
     /* 2. Non-bonded pairs.
-     * Exclusion via per-atom bond_partners lists: O(degree) per pair
-     * instead of O(B+A) scans. 1-2: j in i's partners. 1-3: share a
-     * common bonded neighbor (angle center or either endpoint's
-     * partner walk). Degree is bounded by MAX_BONDS_PER_ATOM (8), so
-     * per-pair work is O(1). Falls back to exact angle-list check only
-     * if topology and partner lists ever diverge (defensive). */
+     *
+     * Two execution paths:
+     *
+     *   - CELL-LIST PATH (S2_OPENMP + sim->use_cell_list): spatial grid
+     *     with cell size >= cutoff, O(N) pair enumeration, parallelised
+     *     over cells with per-thread force accumulators (no race on the
+     *     shared atoms[].force). Used for large vacuum systems where the
+     *     O(N^2) all-pairs scan dominates wall time.
+     *
+     *   - SERIAL PATH (default): the original all-pairs scan, bit-identical
+     *     to the pre-OpenMP record. Used for the record path, small
+     *     systems, and any PBC box (cell lists with minimum-image PBC are
+     *     a separate, not-yet-implemented optimisation).
+     *
+     * Exclusion (1-2 bonded, 1-3 angle-related) and the P9 eps/sigma
+     * guard are identical in both paths; energies are accumulated with
+     * OpenMP reduction in the cell path so E_lj/E_coulomb match the
+     * serial path to floating-point reassociation (same sum, different
+     * order — acceptable for a performance build, not for the record).
+     * ══════════════════════════════════════════════════════════════════════════ */
     double cutoff2 = sim->cutoff * sim->cutoff;
     int cutoff_ok = (sim->cutoff > 0.0) && isfinite(sim->cutoff);
-    for (int i = 0; i < N - 1; i++) {
-        for (int j = i + 1; j < N; j++) {
+    int use_cells = sim->use_cell_list && sim->cell_list &&
+                    sim->num_atoms > 512 &&
+                    !(sim->box.periodic[0] || sim->box.periodic[1] || sim->box.periodic[2]);
+
+    if (use_cells) {
+        /* ═══ CELL-LIST + OPENMP PATH ═══ */
+        int N = sim->num_atoms;
+        int n_threads = 1;
+#ifdef _OPENMP
+        n_threads = omp_get_max_threads();
+        if (n_threads < 1) n_threads = 1;
+#endif
+        if (n_threads > 128) n_threads = 128;
+        double (*F_priv)[3] = (double (*)[3])calloc((size_t)n_threads * (size_t)N, sizeof(double) * 3);
+        double *E_lj_priv = (double *)calloc((size_t)n_threads, sizeof(double));
+        double *E_coul_priv = (double *)calloc((size_t)n_threads, sizeof(double));
+        if (!F_priv || !E_lj_priv || !E_coul_priv) {
+            free(F_priv); free(E_lj_priv); free(E_coul_priv);
+            use_cells = 0; /* fall back to serial */
+        }
+    }
+
+    if (use_cells) {
+        SimCellList *cl = sim->cell_list;
+        int N = sim->num_atoms;
+        int n_threads = 1;
+#ifdef _OPENMP
+        n_threads = omp_get_max_threads();
+        if (n_threads < 1) n_threads = 1;
+#endif
+        if (n_threads > 128) n_threads = 128;
+        double (*F_priv)[3] = (double (*)[3])calloc((size_t)n_threads * (size_t)N, sizeof(double) * 3);
+        double *E_lj_priv = (double *)calloc((size_t)n_threads, sizeof(double));
+        double *E_coul_priv = (double *)calloc((size_t)n_threads, sizeof(double));
+
+#ifdef _OPENMP
+#pragma omp parallel if(N > 512) num_threads(n_threads)
+#endif
+        {
+            int tid = 0, nth = 1;
+#ifdef _OPENMP
+            tid = omp_get_thread_num();
+            nth = omp_get_num_threads();
+#endif
+            double (*myF)[3] = &F_priv[tid * N];
+            double my_el = 0.0, my_ec = 0.0;
+
+            /* Each thread owns cells c = tid, tid+nth, ... . For each
+             * owned cell c: self pairs (i<j within c) and pairs to forward
+             * neighbours c' > c. Each unordered cell-pair visited once. */
+            for (int c = tid; c < cl->ncells; c += nth) {
+                int cx = c / (cl->ny * cl->nz);
+                int cy = (c / cl->nz) % cl->ny;
+                int cz = c % cl->nz;
+
+                /* Self-cell pairs. */
+                for (int i = cl->head[c]; i >= 0; i = cl->list[i]) {
+                    for (int j = cl->list[i]; j >= 0; j = cl->list[j]) {
+                        Vec3 r_ij = vec3_sub(sim->atoms[j].position,
+                                             sim->atoms[i].position);
+                        double r2 = vec3_norm2(r_ij);
+                        if (!(r2 > cutoff2) && r2 > 1.0e-10) {
+                            int skip = 0;
+                            for (int p = 0; p < sim->atoms[i].num_bonds && !skip; p++)
+                                if (sim->atoms[i].bond_partners[p] == j) skip = 1;
+                            if (!skip) {
+                                for (int p = 0; p < sim->atoms[i].num_bonds && !skip; p++) {
+                                    int k = sim->atoms[i].bond_partners[p];
+                                    if (k < 0 || k >= N) continue;
+                                    for (int q = 0; q < sim->atoms[k].num_bonds; q++)
+                                        if (sim->atoms[k].bond_partners[q] == j) { skip = 1; break; }
+                                }
+                            }
+                            if (skip) continue;
+                            PairEnergy pe;
+                            if (pair_nonbonded_core_priv(
+                                    sim->atoms, N, i, j, &sim->box,
+                                    sim->use_lj, sim->use_coulomb, sim->dielectric,
+                                    do_switch, r_switch, r_cutoff,
+                                    &pe, &myF[0][0]) == 0) {
+                                my_el += pe.lj_energy;
+                                my_ec += pe.coulomb_energy;
+                            }
+                        }
+                    }
+                }
+
+                /* Forward neighbour cells (26, but only c2 > c). */
+                for (int dx = -1; dx <= 1; dx++)
+                for (int dy = -1; dy <= 1; dy++)
+                for (int dz = -1; dz <= 1; dz++) {
+                    if (dx == 0 && dy == 0 && dz == 0) continue;
+                    int nx2 = cx + dx, ny2 = cy + dy, nz2 = cz + dz;
+                    if (nx2 < 0 || nx2 >= cl->nx) continue;
+                    if (ny2 < 0 || ny2 >= cl->ny) continue;
+                    if (nz2 < 0 || nz2 >= cl->nz) continue;
+                    int c2 = (nx2 * cl->ny + ny2) * cl->nz + nz2;
+                    if (c2 <= c) continue;
+                    for (int i = cl->head[c]; i >= 0; i = cl->list[i]) {
+                        for (int j = cl->head[c2]; j >= 0; j = cl->list[j]) {
+                            Vec3 r_ij = vec3_sub(sim->atoms[j].position,
+                                                 sim->atoms[i].position);
+                            double r2 = vec3_norm2(r_ij);
+                            if (!(r2 > cutoff2) && r2 > 1.0e-10) {
+                                int skip = 0;
+                                for (int p = 0; p < sim->atoms[i].num_bonds && !skip; p++)
+                                    if (sim->atoms[i].bond_partners[p] == j) skip = 1;
+                                if (!skip) {
+                                    for (int p = 0; p < sim->atoms[i].num_bonds && !skip; p++) {
+                                        int k = sim->atoms[i].bond_partners[p];
+                                        if (k < 0 || k >= N) continue;
+                                        for (int q = 0; q < sim->atoms[k].num_bonds; q++)
+                                            if (sim->atoms[k].bond_partners[q] == j) { skip = 1; break; }
+                                    }
+                                }
+                                if (skip) continue;
+                                PairEnergy pe;
+                                if (pair_nonbonded_core_priv(
+                                        sim->atoms, N, i, j, &sim->box,
+                                        sim->use_lj, sim->use_coulomb, sim->dielectric,
+                                        do_switch, r_switch, r_cutoff,
+                                        &pe, &myF[0][0]) == 0) {
+                                    my_el += pe.lj_energy;
+                                    my_ec += pe.coulomb_energy;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            E_lj_priv[tid]   = my_el;
+            E_coul_priv[tid] = my_ec;
+        }
+
+        /* Reduce per-thread forces into sim->atoms[].force. */
+        {
+            double (*F_priv_local)[3] = F_priv;
+            double *E_lj_priv_local = E_lj_priv;
+            double *E_coul_priv_local = E_coul_priv;
+            for (int t = 0; t < n_threads; t++) {
+                double (*tf)[3] = &F_priv_local[t * N];
+                for (int i = 0; i < N; i++) {
+                    sim->atoms[i].force.x += tf[i][0];
+                    sim->atoms[i].force.y += tf[i][1];
+                    sim->atoms[i].force.z += tf[i][2];
+                }
+            }
+            for (int t = 0; t < n_threads; t++) {
+                E_lj      += E_lj_priv_local[t];
+                E_coulomb += E_coul_priv_local[t];
+            }
+        }
+        free(F_priv);
+        free(E_lj_priv);
+        free(E_coul_priv);
+    } else {
+        /* ═══ SERIAL PATH (bit-identical to pre-OpenMP record) ═══ */
+        for (int i = 0; i < N - 1; i++) {
+            for (int j = i + 1; j < N; j++) {
             /* Skip pairs that are bonded (1-2) or angle-related (1-3) */
             int skip = 0;
             const Atom *ai0 = &sim->atoms[i];
@@ -879,6 +1132,7 @@ void forces_calculate(Simulation *sim) {
             E_lj      += pe.lj_energy;
             E_coulomb += pe.coulomb_energy;
         }
+    }
     }
 
     /* 3. Bonded stretches (EHT reactive hook, qm_eht.h E6). */

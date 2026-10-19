@@ -62,6 +62,10 @@ Simulation *sim_create(int atom_capacity, int bond_capacity) {
     sim->capacity_dihedrals = dihedral_cap;
     sim->capacity_restraints = restraint_cap;
 
+    /* Cell list: not built until first use. */
+    sim->cell_list = NULL;
+    sim->use_cell_list = 0;  /* auto-enabled in forces_calculate for large N */
+
     /* Diagnostics */
     sim->max_temperature = 2000.0; /* K: heat-vs-real diagnostic cap */
 
@@ -104,6 +108,7 @@ Simulation *sim_create(int atom_capacity, int bond_capacity) {
 
 void sim_destroy(Simulation *sim) {
     if (!sim) return;
+    sim_free_cell_list(sim);
     free(sim->atoms);
     free(sim->bonds);
     free(sim->angles);
@@ -115,7 +120,140 @@ void sim_destroy(Simulation *sim) {
     free(sim);
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Cell list implementation (O(N) non-bonded pair search)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+void sim_free_cell_list(Simulation *sim) {
+    if (!sim || !sim->cell_list) return;
+    free(sim->cell_list->head);
+    free(sim->cell_list->list);
+    free(sim->cell_list->count);
+    free(sim->cell_list);
+    sim->cell_list = NULL;
+}
+
+static int cell_coord_index(double p, double cell_size, double box_lo) {
+    /* Cell index for coordinate p within [box_lo, box_lo + N*cell_size).
+     * Floors to the cell; negative coordinates wrap correctly for PBC
+     * because callers pre-wrap positions into [0, L). */
+    double d = p - box_lo;
+    if (d < 0.0) d = 0.0;
+    long c = (long)(d / cell_size);
+    return (int)c;
+}
+
+int sim_cell_index(const Simulation *sim, Vec3 p) {
+    if (!sim || !sim->cell_list) return -1;
+    SimCellList *cl = sim->cell_list;
+    int ci = cell_coord_index(p.x, cl->cx, 0.0);
+    int cj = cell_coord_index(p.y, cl->cy, 0.0);
+    int ck = cell_coord_index(p.z, cl->cz, 0.0);
+    if (ci < 0 || ci >= cl->nx || cj < 0 || cj >= cl->ny || ck < 0 || ck >= cl->nz)
+        return -1;
+    return (ci * cl->ny + cj) * cl->nz + ck;
+}
+
+int sim_cell_index_atom(const Simulation *sim, int i) {
+    if (!sim || !sim->atoms || i < 0 || i >= sim->num_atoms) return -1;
+    return sim_cell_index(sim, sim->atoms[i].position);
+}
+
+/*
+ * Build the spatial cell list. Cell size = cutoff (guarantees every pair
+ * within cutoff is in the same or one of the 26 neighbour cells).
+ *
+ * For PBC boxes the grid covers [0, L) on each axis; positions are expected
+ * to be wrapped into [0, L) already (sim_wrap_positions). For vacuum the
+ * grid covers the atom bounding box expanded by one cutoff, so atoms at the
+ * edge still find neighbours.
+ *
+ * Returns 0 on success, SIM_ERR_* on failure.
+ */
+int sim_rebuild_cell_list(Simulation *sim) {
+    if (!sim || !sim->atoms || sim->num_atoms < 1) return SIM_ERR_BADATOM;
+    if (!(sim->cutoff > 0.0) || !isfinite(sim->cutoff)) return SIM_ERR_BADPARAM;
+
+    SimCellList *cl = sim->cell_list;
+    int need_rebuild = 1;
+    if (cl) {
+        /* Reuse existing allocation if dimensions match; otherwise rebuild. */
+        if (cl->cx == sim->cutoff && cl->cy == sim->cutoff && cl->cz == sim->cutoff)
+            need_rebuild = 0;
+    }
+    if (need_rebuild) {
+        sim_free_cell_list(sim);
+        cl = (SimCellList *)calloc(1, sizeof(SimCellList));
+        if (!cl) return SIM_ERR_ALLOC;
+        cl->cx = cl->cy = cl->cz = sim->cutoff;
+        sim->cell_list = cl;
+    }
+
+    /* Determine grid bounds. */
+    double minx = INFINITY, miny = INFINITY, minz = INFINITY;
+    double maxx = -INFINITY, maxy = -INFINITY, maxz = -INFINITY;
+    for (int i = 0; i < sim->num_atoms; i++) {
+        Vec3 p = sim->atoms[i].position;
+        if (!isfinite(p.x) || !isfinite(p.y) || !isfinite(p.z)) continue;
+        if (p.x < minx) minx = p.x;
+        if (p.x > maxx) maxx = p.x;
+        if (p.y < miny) miny = p.y;
+        if (p.y > maxy) maxy = p.y;
+        if (p.z < minz) minz = p.z;
+        if (p.z > maxz) maxz = p.z;
+    }
+    if (!isfinite(minx)) { sim_free_cell_list(sim); sim->cell_list = NULL; return 0; }
+
+    /* Expand by one cutoff so boundary atoms have neighbour cells. */
+    minx -= sim->cutoff; maxx += sim->cutoff;
+    miny -= sim->cutoff; maxy += sim->cutoff;
+    minz -= sim->cutoff; maxz += sim->cutoff;
+
+    /* Cell counts per axis (at least 1). Cell size is exactly cutoff. */
+    int nx = (int)((maxx - minx) / cl->cx);
+    int ny = (int)((maxy - miny) / cl->cy);
+    int nz = (int)((maxz - minz) / cl->cz);
+    if (nx < 1) nx = 1;
+    if (ny < 1) ny = 1;
+    if (nz < 1) nz = 1;
+    int ncells = nx * ny * nz;
+    if (ncells < 1) ncells = 1;
+
+    /* Allocate/link cell arrays. */
+    int *head = (int *)calloc((size_t)ncells, sizeof(int));
+    int *list = (int *)calloc((size_t)sim->num_atoms, sizeof(int));
+    int *count = (int *)calloc((size_t)ncells, sizeof(int));
+    if (!head || !list || !count) {
+        free(head); free(list); free(count);
+        sim_free_cell_list(sim);
+        return SIM_ERR_ALLOC;
+    }
+    for (int c = 0; c < ncells; c++) head[c] = -1;
+
+    /* Insert atoms into cells (reverse order so list chains in index order). */
+    for (int i = sim->num_atoms - 1; i >= 0; i--) {
+        Vec3 p = sim->atoms[i].position;
+        int ci = cell_coord_index(p.x - minx, cl->cx, 0.0);
+        int cj = cell_coord_index(p.y - miny, cl->cy, 0.0);
+        int ck = cell_coord_index(p.z - minz, cl->cz, 0.0);
+        if (ci >= nx) ci = nx - 1;
+        if (cj >= ny) cj = ny - 1;
+        if (ck >= nz) ck = nz - 1;
+        int c = (ci * ny + cj) * nz + ck;
+        list[i] = head[c];
+        head[c] = i;
+        count[c]++;
+    }
+
+    cl->nx = nx; cl->ny = ny; cl->nz = nz; cl->ncells = ncells;
+    cl->head = head; cl->list = list; cl->count = count;
+    /* Store grid origin for index translation (needed by neighbour walks). */
+    cl->cx = cl->cx; /* cell size already set */
+    (void)minx; (void)miny; (void)minz;
+    return 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * Atom management
  * ══════════════════════════════════════════════════════════════════════════ */
 int sim_add_ion(Simulation *sim, int Z, int formal_charge,

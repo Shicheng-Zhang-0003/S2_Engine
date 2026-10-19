@@ -292,6 +292,23 @@ void integrator_berendsen(Simulation *sim) {
  * each generator reproduce a fixed reference stream bit-for-bit.
  */
 
+/* 64x64 -> 128 multiply in strictly standard C11 (no __int128).
+ * Schoolbook: split each operand into 32-bit halves, cross-multiply,
+ * propagate carries. Produces the exact same result as
+ * `unsigned __int128 p = (uint64_t)a * b;`. */
+static void mul64x64(uint64_t a, uint64_t b, uint64_t *hi, uint64_t *lo) {
+    uint64_t a0 = (uint32_t)a, a1 = a >> 32;
+    uint64_t b0 = (uint32_t)b, b1 = b >> 32;
+    uint64_t p00 = a0 * b0;
+    uint64_t p01 = a0 * b1;
+    uint64_t p10 = a1 * b0;
+    uint64_t p11 = a1 * b1;
+    uint64_t mid = p01 + p10;
+    uint64_t carry = (mid < p01);
+    *lo = p00 + (mid << 32);
+    *hi = p11 + (mid >> 32) + carry + (*lo < p00);
+}
+
 /* S2-PCG64-like (O'Neill-inspired, NOT reference pcg-random.org pcg64; see M39 —
  * the standard `pcg64` of pcg-random.org). 128-bit LCG state, 64-bit
  * output, 2^64 period. */
@@ -304,19 +321,21 @@ static uint64_t pcg64_next(Simulation *sim) {
     const uint64_t old_lo = sim->rng_state;
     const uint64_t old_hi = sim->rng_state_hi;
 
-    /* state * MULT mod 2^128. Using 128-bit intermediate arithmetic:
+    /* state * MULT mod 2^128, using schoolbook 64x64->128 (mul64x64).
      *   lo' = lo*mul_lo                                  (mod 2^64)
      *   hi' = hi64(lo*mul_lo) + lo*mul_hi + hi*mul_lo    (mod 2^64)
      * The hi*mul_hi term contributes only above bit 128 and is dropped. */
-    unsigned __int128 p = (unsigned __int128)old_lo * PCG_DEFAULT_MUL_LO;
-    uint64_t lo = (uint64_t)p;
-    uint64_t hi = (uint64_t)(p >> 64);
-    p = (unsigned __int128)old_lo * PCG_DEFAULT_MUL_HI;
-    hi += (uint64_t)p;
-    p = (unsigned __int128)old_hi * PCG_DEFAULT_MUL_LO;
-    lo += (uint64_t)p;
-    if (lo < (uint64_t)p) hi += 1;      /* carry out of the low word */
-    hi += (uint64_t)(p >> 64);
+    uint64_t m_hi, m_lo;
+    mul64x64(old_lo, PCG_DEFAULT_MUL_LO, &m_hi, &m_lo);
+    uint64_t lo = m_lo;
+    uint64_t hi = m_hi;
+    mul64x64(old_lo, PCG_DEFAULT_MUL_HI, &m_hi, &m_lo);
+    hi += m_lo;
+    mul64x64(old_hi, PCG_DEFAULT_MUL_LO, &m_hi, &m_lo);
+    uint64_t add_lo = m_lo;
+    lo += add_lo;
+    if (lo < add_lo) hi += 1;      /* carry out of the low word */
+    hi += m_hi;
 
     /* + increment (64-bit), with carry into the high word */
     uint64_t nlo = lo + PCG_DEFAULT_INCREMENT;

@@ -639,13 +639,18 @@ static int qm_qeq_ordering_ok(const double *chi, const double *q,
      * 2-atom O...H case the guard exists for has one atom per group, so its
      * group means ARE its charges and the flip is still caught exactly.
      */
-    double gc[64], gq[64], gn[64];
+    /* At most `n` distinct electronegativity groups (one per atom), so size
+     * the group arrays to n. n <= 128 for QEq by construction, so this is
+     * bounded and cannot overflow. Fail closed (return 0) if we ever
+     * somehow exceed the bound, rather than silently passing an unchecked
+     * ordering. */
+    double gc[128], gq[128], gn[128];
     int ng = 0;
     for (int i = 0; i < n; i++) {
         int g = -1;
         for (int k = 0; k < ng; k++) if (gc[k] == chi[i]) { g = k; break; }
         if (g < 0) {
-            if (ng >= 64) { if (worst_viol) *worst_viol = 0.0; return 1; }
+            if (ng >= 128) { if (worst_viol) *worst_viol = 0.0; return 0; }
             g = ng++;
             gc[g] = chi[i];
             gq[g] = 0.0;
