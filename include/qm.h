@@ -115,12 +115,37 @@ double qm_alpha(const Atom *atom);
  * a hand-typed distance so BO is not systematically underestimated. */
 double qm_overlap_ref(const Atom *a, const Atom *b, Vec3 dir_a_to_b);
 
-/* ── Two-center estimates ──────────────────────────────────────────── */
+/* ── Two-center exact STO overlaps ────────────────────────────────────────
+ * qm_overlap() now dispatches to exact two-center Slater-type orbital
+ * integrals (prolate-spheroidal machinery from qm_eht_overlap.c, validated
+ * against brute-force 3D grid integration) instead of the former
+ * exp(-zeta*R) heuristic. Unsupported shells (d/f targets, n>2 p) fall
+ * back to the estimate. R in Angstrom, dimensionless result.
+ *
+ * Exact s-s (1s/2s), s-pσ (s on either atom, 2p on the other), p-pσ and
+ * p-pπ (2p only). Each resolves the atom's valence (n,l) from its electron
+ * configuration and computes zeta = Zeff/(n* a0). */
+double qm_sto_overlap_ss(const Atom *a, const Atom *b, double R_ang);
+double qm_sto_overlap_sps(const Atom *a, const Atom *b, double R_ang,
+                          int p_on_b);
+double qm_sto_overlap_pps(const Atom *a, const Atom *b, double R_ang);
+double qm_sto_overlap_ppi(const Atom *a, const Atom *b, double R_ang);
+
+/* Generic exact overlap: dispatches to ss/sps/pps/ppi by valence shell,
+ * falling back to the heuristic estimate for unsupported shells. Direction
+ * dir_a_to_b selects the sigma lobe orientation for p-involving channels. */
+double qm_sto_overlap(const Atom *a, const Atom *b, double R_ang,
+                      Vec3 dir_a_to_b);
+
 /* Overlap estimate between valence Slater orbitals along the bond axis:
  * S = exp(-zeta*R) * ang, zeta = 0.5*(Zeff_a/(n_a*a0) + Zeff_b/(n_b*a0))
  * in 1/A, R in A, ang = Y_a(dir)*Y_b(-dir) normalized product
- * (|ang|<=1). Documented estimate, not an exact two-center integral. */
+ * (|ang|<=1). Documented estimate, not an exact two-center integral.
+ * qm_overlap() itself now dispatches to qm_sto_overlap(); this estimate is
+ * retained for callers that explicitly want the old form. */
 double qm_overlap(const Atom *a, const Atom *b, double R_ang, Vec3 dir_a_to_b);
+double qm_overlap_estimate(const Atom *a, const Atom *b, double R_ang,
+                           Vec3 dir_a_to_b);
 
 /* Charge-responsive overlap: Zeff shifted by gamma*q per atom
  * (gamma from integer-config Slater finite differences, q in e).
@@ -173,6 +198,51 @@ double qm_tt_f6(double b, double r, double *dfdr_out);
  * Finite at R->0 (no 1/R^6 singularity), ->1 at long range like TT.
  * a1=0.4289, a2=4.4407 A are D3-BJ defaults for PBE; pass-through here. */
 double qm_bj_f6(double r, double r0ab, double a1, double a2);
+
+/* ── Two-electron integrals under ZDO (Zero Differential Overlap) ────────
+ *
+ * Mataga-Nishimoto Coulomb γ_ab(R) and Wolfsberg-Helmholtz exchange β_ab.
+ * γ_ab → η (Hubbard U) at R→0, → COULOMB_MD/R at R→∞. β_ab = -K_WH·S·(H_aa+H_bb)/2.
+ * qm_eri_zzdo() builds the two-electron Fock contribution J − 0.5·K from a
+ * diagonal density matrix. These are the building blocks of any SCF solver.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/* Two-center Coulomb integral γ_ab = ⟨χ_a χ_a | r12^-1 | χ_b χ_b⟩ (eV). */
+double qm_eri_coulomb(const Simulation *sim, int ia, int ib);
+
+/* Exchange (resonance) integral β_ab = -K_WH·S_ab·(H_aa+H_bb)/2 (eV). */
+double qm_eri_exchange(const Simulation *sim, int ia, int ib);
+
+/* ZDO two-electron Fock contribution: F_2e[mu][nu] = J_munu − 0.5·K_munu.
+ * P is n_ao×n_ao density matrix; atom_of_ao[k] → atom index of AO k.
+ * Returns 0 on success, -1 on bad input. */
+int qm_eri_zzdo(const Simulation *sim, const double *P, int n_ao,
+                const int *atom_of_ao, double *F_2e);
+
+/* ── One-electron integrals for s-type STOs ─────────────────────────────
+ *
+ * Kinetic energy T_ab = −½⟨χ_a|∇²|χ_b⟩ and nuclear attraction
+ * V_ab = Z_c⟨χ_a|1/r_c|χ_b⟩ for two 1s Slater-type orbitals, computed
+ * via prolate spheroidal coordinates with exact radial integrals and
+ * Gauss–Legendre angular quadrature. Units: ζ in Å⁻¹, R in Å, result in eV.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+double qm_kinetic_1s_1s(double za, double zb, double R);
+double qm_nuc_attr_1s_1s(double za, double zb, double R, int center, double Z_c);
+
+/* ── Roothaan–Hartree–Fock SCF solver ────────────────────────────────────
+ *
+ * Minimal valence basis (H 1s; C/N/O 2s+2p). Builds S and H_core from exact
+ * STO overlaps + kinetic/nuclear attraction integrals, forms the Fock matrix
+ * with ZDO two-electron terms (qm_eri_zzdo), and solves F·C = S·C·ε by
+ * Loewdin orthogonalization + Jacobi eigensolver with Aufbau filling and
+ * damped density mixing. Fail codes: −1 bad input, −2 singular overlap,
+ * −3 non-convergence. All outputs in eV (energies) or dimensionless.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
+              double *density, double *atom_charges, int *n_ao_out,
+              int *n_iter_out, double *resid_out);
 
 /* Charge-penetration damped Coulomb (opt-in for short H-bonds):
  * scale = 1-exp(-b*r)*(1+b*r+(b*r)^2/2), b in 1/A.
