@@ -1,4 +1,5 @@
 CC      = gcc
+.DEFAULT_GOAL := all
 # FULL-AUDIT C24/C25: -ffp-contract=off pins FP codegen (the -march ban alone
 # does not stop FMA fusion under -O3 on FMA hosts; -O3-vs-O0 parity was luck),
 # and -Werror makes warnings fail the build instead of advisory text.
@@ -24,6 +25,24 @@ CFLAGS = $(CFLAGS_BASE) -DDS_COMPILER_ID='"$(CC) $(CC_VERSION)"' -DDS_CFLAGS_ID=
 
 # Uncomment for debug build with address sanitiser:
 # CFLAGS = -g -O0 -Wall -std=c11 -Iinclude -fsanitize=address,undefined
+
+# ── OpenMP multicore build ─────────────────────────────────────────────
+# The record build stays single-threaded (-ffp-contract=off, byte-identical).
+# `make perf` builds the SAME sources with -fopenmp + -DS2_OPENMP so the
+# O(N^2) physics kernels (non-bonded pairs, induction, Pauli, dispersion)
+# run across all cores and the cell-list pair search goes O(N).
+# Use only for performance runs; never for the record (thread scheduling
+# changes FP summation order, so digests differ from the serial record).
+OPENMP_CFLAGS = -fopenmp -DS2_OPENMP -O3 -march=native
+OPENMP_LIBS   = -fopenmp
+
+perf: CFLAGS = $(CFLAGS_BASE) $(OPENMP_CFLAGS) -DDS_COMPILER_ID='"$(CC) $(CC_VERSION)"' -DDS_CFLAGS_ID='"$(CFLAGS_BASE)"'
+perf: LDFLAGS = $(OPENMP_LIBS)
+perf: all
+	@echo "=== OpenMP multicore build complete (perf target) ==="
+	@echo "  CFLAGS: $(CFLAGS)"
+	@echo "  LDFLAGS: $(LDFLAGS)"
+	@echo "  Run ./carbonsim for the multicore record, or the test binaries for parallel gates."
 
 # Dependency generation flags
 DEPFLAGS = -MMD -MP -MF $(OBJ_DIR)/$*.d

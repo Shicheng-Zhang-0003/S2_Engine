@@ -5,6 +5,15 @@
 #include "constants.h"
 #include "vec3.h"
 
+/* OpenMP availability macro: set by the build (make perf passes -fopenmp
+ * -DS2_OPENMP). Serial record builds leave it 0 and every OpenMP region
+ * below becomes a no-op, so the record path is bit-identical to before. */
+#ifdef _OPENMP
+#define S2_OPENMP 1
+#else
+#define S2_OPENMP 0
+#endif
+
 /*
  * types.h
  * All data structures for the chemistry simulator, organised bottom-up:
@@ -208,6 +217,21 @@ typedef struct {
     int  periodic[3];           /* 1 = periodic boundary in that axis        */
 } SimBox;
 
+/* Cell list for O(N) non-bonded pair search: replaces the O(N^2) all-pairs
+ * scan with a spatial grid whose cell size is >= the non-bonded cutoff,
+ * so every interacting pair lives in the same or a neighbouring cell.
+ * Build is O(N); pair enumeration is O(N + N_neighbours).
+ * Linked-list cells: head[cell] = first atom index, list[i] = next atom
+ * in the same cell (-1 terminates). count[cell] = occupancy. */
+typedef struct {
+    int  nx, ny, nz;
+    int  ncells;
+    double cx, cy, cz;
+    int  *head;
+    int  *list;
+    int  *count;
+} SimCellList;
+
 /* ══════════════════════════════════════════════════════════════════════════
  * Force-field parameters for non-bonded interactions
  * ══════════════════════════════════════════════════════════════════════════ */
@@ -301,6 +325,10 @@ typedef struct {
 
     /* Box */
     SimBox   box;
+
+    /* Cell list for O(N) non-bonded pair search (NULL = not built). */
+    SimCellList *cell_list;
+    int  use_cell_list;   /* 1 = use cell lists in forces_calculate */
 
     /* Time */
     double   time;              /* current time, fs                          */

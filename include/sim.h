@@ -220,6 +220,27 @@ void sim_set_box(Simulation *sim, double lx, double ly, double lz);
 /* Wrap all atom positions into the primary box [0, L). */
 void sim_wrap_positions(Simulation *sim);
 
+/* ── Cell lists for O(N) non-bonded pair search ─────────────────────────── */
+
+/*
+ * Build (or rebuild) the spatial cell list for sim->cutoff. Cell size is
+ * set to the cutoff so every interacting pair lies in the same or one of
+ * the 26 neighbouring cells (3D). Call after atom positions change
+ * significantly; forces_calculate rebuilds automatically when
+ * sim->use_cell_list is set. Returns 0 on success, SIM_ERR_* on failure.
+ * With S2_OPENMP the per-cell build is threaded.
+ */
+int sim_rebuild_cell_list(Simulation *sim);
+
+/* Free the cell list arrays. Called by sim_destroy. */
+void sim_free_cell_list(Simulation *sim);
+
+/* Return cell index for a point, or -1 if outside the box. */
+int sim_cell_index(const Simulation *sim, Vec3 p);
+
+/* Return cell index for atom i. */
+int sim_cell_index_atom(const Simulation *sim, int i);
+
 /* ── Pre-built molecule constructors ─────────────────────────────────────── */
 
 /*
