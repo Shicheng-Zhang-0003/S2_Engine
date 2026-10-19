@@ -93,13 +93,13 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **31 372 lines** (src 24 370 · include 3 504 · tests 3 729).
+Current tree: **32 203 lines** (src 24 632 · include 3 708 · tests 3 863).
 
 | File | Lines | Role |
 |---|---:|---|
 | `src/tui.c` | 7245 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
 | `src/main.c` | 4694 | the 16-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
-| `src/qm.c` | 2118 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver, **QEq ordering guard array bound fix** |
+| `src/qm.c` | 2879 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver, **exact STO overlaps (ss/sps/pps/ppi), two-electron integrals (Mataga-Nishimoto Coulomb + Wolfsberg-Helmholtz exchange), Roothaan–Hartree–Fock SCF solver** |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
 | `src/forces.c` | 1286 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud; **OpenMP cell-list pair search + private-force accumulators** |
 | `src/sim.c` | 1029 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints), **cell-list build for O(N) non-bonded pairs** |
@@ -166,6 +166,27 @@ with exact expectation values, Clementi–Raimondi SCF exponents for spatial
 ranges, and all 49 real spherical harmonics (orthonormal through l = 3).
 Demo 1 includes a per-element computed-vs-NIST ledger instead of a blanket
 accuracy claim.
+
+### Exact two-center STO integrals and Roothaan–Hartree–Fock SCF
+`qm_overlap()` now dispatches to exact two-center Slater-type orbital
+integrals computed via prolate-spheroidal coordinates (Rosen 1931; Roothaan
+1951), validated against brute-force 3D Cartesian grid integration in
+`tests/test_eht.c`. Channels: s–s, s–pσ, p–pσ, p–pπ (2p only). Unsupported
+shells fall back to the documented `exp(−ζR)·ang` heuristic.
+
+Built on those integrals: Mataga–Nishimoto two-center Coulomb `γ_ab(R)`
+(→ on-site Hubbard U at R→0, → COULOMB_MD/R at R→∞) and
+Wolfsberg–Helmholtz exchange `β_ab = −K_WH·S·(H_aa+H_bb)/2`. These feed
+`qm_eri_zzdo()`, which builds the two-electron Fock contribution
+`J − ½·K` from a diagonal density matrix under ZDO.
+
+A standalone Roothaan–Hartree–Fock SCF solver (`qm_hf_scf()`) assembles S and
+H_core (exact 1s kinetic + nuclear attraction integrals; EHT-parametrized
+off-diagonal for p-involving pairs), solves F·C = S·C·ε by Loewdin
+orthogonalization + Jacobi eigensolver, fills by Aufbau, and iterates the
+density matrix with damped mixing until convergence. Fail codes are loud:
+−1 bad input, −2 singular overlap, −3 non-convergence. Minimal valence basis:
+H 1s; C/N/O 2s+2px+2py+2pz.
 
 ### Classical molecular dynamics
 * Velocity Verlet (symplectic) with **Berendsen** weak-coupling (steering;
