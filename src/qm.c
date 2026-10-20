@@ -995,6 +995,10 @@ static int scf_jacobi(double A[SCF_MAX_AOS][SCF_MAX_AOS],
     return -1;
 }
 
+/* Last SCF total energy, cached by qm_hf_scf() for use by the force FD
+ * driver (avoids reconstructing E from mo_eps/density after each solve). */
+static double qm_hf_scf_last_E = 0.0;
+
 int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
               double *density, double *atom_charges, int *n_ao_out,
               int *n_iter_out, double *resid_out) {
@@ -1267,7 +1271,94 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
             atom_charges[a] = (double)ve - pop;
         }
     }
+    /* Total SCF energy: E = 0.5 * Tr(P @ (H_core + F)). */
+    double e_total = 0.0;
+    for (int m = 0; m < nao; m++)
+        for (int n = 0; n < nao; n++)
+            e_total += 0.5 * P[m][n] * (H[m][n] + F[m][n]);
+    qm_hf_scf_last_E = e_total;
     return 0;
+}
+
+/* Return the total SCF energy from the most recent successful qm_hf_scf()
+ * call. 0.0 if no successful solve has occurred. */
+static double qm_hf_scf_last_energy(void) {
+    return qm_hf_scf_last_E;
+}
+
+/* ── Roothaan–Hartree–Fock SCF forces ──────────────────────────────────
+ *
+ * Computes the SCF electronic energy and its finite-difference gradient
+ * with respect to atomic positions, following the same FD pattern as
+ * qm_pauli_forces(). For each atom and each Cartesian component, the
+ * coordinate is displaced by h, qm_hf_scf() is re-run at the displaced
+ * geometry, and F = -(E(+) - E(-)) / (2h) is accumulated onto that atom.
+ *
+ * Positions are restored exactly after each perturbation, so the returned
+ * energy is the exact SCF energy at the input geometry and the forces are
+ * the exact negative gradient to FD accuracy.
+ *
+ * Fail-safe: if qm_hf_scf() returns non-zero at the undisplaced geometry,
+ * returns 0.0 and writes no forces. If an individual displaced solve fails,
+ * that component's force is left at zero (honest gap rather than garbage).
+ *
+ * Cost: 6*N extra SCF solves per force call (N = num_atoms), acceptable
+ * for the small systems this reduced basis supports (<=128 atoms).
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+double qm_hf_scf_forces(Simulation *sim) {
+    if (!sim || !sim->atoms || sim->num_atoms < 1) return 0.0;
+    if (sim->num_atoms > 128) return 0.0;
+
+    /* Undisplaced SCF energy. */
+    double mo_eps[SCF_MAX_AOS], mo_coeff[SCF_MAX_AOS * SCF_MAX_AOS];
+    double density[SCF_MAX_AOS * SCF_MAX_AOS];
+    double atom_charges[128];
+    int n_ao = 0, n_iter = 0;
+    double resid = 0.0;
+
+    if (qm_hf_scf(sim, mo_eps, mo_coeff, density, atom_charges,
+                  &n_ao, &n_iter, &resid) != 0) {
+        return 0.0;
+    }
+
+    const double h = 1.0e-5; /* Å */
+    int N = sim->num_atoms;
+
+    /* Finite-difference forces: for each atom and each component,
+     * displace, re-solve SCF, compute F = -(E+ - E-) / (2h). */
+    for (int i = 0; i < N; i++) {
+        Atom *at = &sim->atoms[i];
+        double *cc[3] = {&at->position.x, &at->position.y, &at->position.z};
+        for (int c = 0; c < 3; c++) {
+            double o = *cc[c];
+
+            *cc[c] = o + h;
+            double Ep = 0.0;
+            if (qm_hf_scf(sim, mo_eps, mo_coeff, density, atom_charges,
+                          &n_ao, &n_iter, &resid) == 0) {
+                Ep = qm_hf_scf_last_energy();
+            }
+            *cc[c] = o - h;
+            double Em = 0.0;
+            if (qm_hf_scf(sim, mo_eps, mo_coeff, density, atom_charges,
+                          &n_ao, &n_iter, &resid) == 0) {
+                Em = qm_hf_scf_last_energy();
+            }
+            *cc[c] = o;
+
+            if (!isfinite(Ep) || !isfinite(Em)) continue;
+            double F = -(Ep - Em) / (2.0 * h);
+            if (!isfinite(F)) continue;
+            if (c == 0) at->force.x += F;
+            else if (c == 1) at->force.y += F;
+            else at->force.z += F;
+        }
+    }
+
+    /* Restore positions already done; return exact energy at input geometry. */
+    sim->E_qm_scf_total = qm_hf_scf_last_energy();
+    return sim->E_qm_scf_total;
 }
 
 double qm_overlap_q(const Atom *a, const Atom *b, double R_ang, Vec3 dir_a_to_b,

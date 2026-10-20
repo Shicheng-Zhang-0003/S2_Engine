@@ -244,6 +244,12 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
               double *density, double *atom_charges, int *n_ao_out,
               int *n_iter_out, double *resid_out);
 
+/* SCF energy + finite-difference forces (same FD pattern as qm_pauli_forces).
+ * Returns the total SCF electronic energy (eV) and accumulates analytic-by-FD
+ * forces onto sim->atoms[].force. Also sets sim->E_qm_scf_total. 0 default
+ * energy when the solver fails. */
+double qm_hf_scf_forces(Simulation *sim);
+
 /* Charge-penetration damped Coulomb (opt-in for short H-bonds):
  * scale = 1-exp(-b*r)*(1+b*r+(b*r)^2/2), b in 1/A.
  * ->0 at R->0 (removes point-charge collapse), ->1 at long range.
