@@ -56,7 +56,7 @@ static void demo_clock_done(const char *name) {
  * now owns a distinct slot, and names[] is the map that says which.
  * add a demo: give it a slot, put its name in the SAME position, and
  * check the recap actually shows its text. */
-#define DEMO_VERDICT_COUNT 16
+#define DEMO_VERDICT_COUNT 19
 /* FULL-AUDIT C27: fail-closed exit status. Demo alloc-failure paths
  * previously printed to stdout and main() unconditionally returned 0. */
 static int g_failed = 0;
@@ -2372,6 +2372,221 @@ static void kcsa_wham_one(unsigned long seed_base, long min_count,
  * functions of the deposited coordinates and both are deterministic, so
  * the call is safe in either order — see kcsa_ionic_measure's header. */
 static void kcsa_ionic_claims(DSWriter *w);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * DEMO 13: H2 quantum MD — Roothaan-HF SCF as the electronic energy source
+ *
+ * H2 is the smallest non-trivial quantum system: 2 electrons in a minimal
+ * valence basis (2 H 1s AOs). The Roothaan-HF SCF solves it essentially
+ * exactly (Heitler-London limit). We run MD with use_qm_scf=1 so the SCF
+ * energy+forces replace the classical bonded+non-bonded terms, and compare
+ * the SCF potential curve against the classical LJ+Coulomb curve.
+ * ════════════════════════════════════════════════════════════════════════════ */
+static void demo_quantum_h2(void) {
+    banner("DEMO 13: H2 quantum MD — SCF electronic energy vs classical");
+
+    Simulation *sim = sim_create(4, 8);
+    if (!sim) { fprintf(stderr, "  ERROR: allocation failed\n"); g_failed = 1; return; }
+
+    sim_place_h2(sim, vec3_zero());
+
+    /* Enable the quantum SCF force term: replaces classical energy/forces
+     * with the SCF electronic energy and its FD gradient. */
+    sim->use_qm_scf = 1;
+    sim->dt = 0.5;
+    sim->thermostat.type               = THERMOSTAT_NONE;
+    sim->thermostat.target_temperature = 300.0;
+    sim->thermostat.tau                = 100.0;
+
+    forces_calculate(sim);
+    sim->kinetic_energy = integrator_kinetic_energy(sim);
+    sim->total_energy   = sim->kinetic_energy + sim->potential_energy;
+
+    printf("  H2 at equilibrium R = %.4f A\n", vec3_dist(sim->atoms[0].position,
+                                                   sim->atoms[1].position));
+    printf("  %-8s  %-12s  %-12s  %-12s  %-12s  %-12s\n",
+           "Step","t (fs)","E_scf (eV)","E_class(eV)","Delta(eV)","|F|max(eV/A)");
+    printf("  %-8s  %-12s  %-12s  %-12s  %-12s  %-12s\n",
+           "────","────────","──────────","──────────","──────────","────────────");
+
+    /* Classical reference: recompute with SCF off */
+    sim->use_qm_scf = 0;
+    forces_calculate(sim);
+    double E_class = sim->potential_energy;
+    double E_scf   = sim->E_qm_scf_total;
+    sim->use_qm_scf = 1;
+
+    printf("  %-8d  %-12.3f  %-12.6f  %-12.6f  %-12.6f  %-12.6f\n",
+           0, sim->time, E_scf, E_class, E_scf - E_class,
+           vec3_norm(sim->atoms[0].force) > vec3_norm(sim->atoms[1].force)
+               ? vec3_norm(sim->atoms[0].force) : vec3_norm(sim->atoms[1].force));
+
+    /* Short MD trajectory at fixed geometry check: energy should be
+     * stationary at equilibrium (forces ~ 0). */
+    int N_steps = 50;
+    for (int step = 0; step < N_steps; step++) {
+        integrator_step(sim);
+        if (step % 10 == 0 || step == N_steps - 1) {
+            printf("  %-8d  %-12.3f  %-12.6f  %-12.6f  %-12.6f  %-12.6f\n",
+                   (int)sim->step, sim->time, sim->E_qm_scf_total, E_class,
+                   sim->E_qm_scf_total - E_class,
+                   fmax(vec3_norm(sim->atoms[0].force),
+                        vec3_norm(sim->atoms[1].force)));
+        }
+    }
+
+    printf("\n  SCF equilibrium energy: %.6f eV  classical: %.6f eV  delta: %+.6f eV\n",
+           E_scf, E_class, E_scf - E_class);
+    set_verdict(12, "H2 SCF E=%.3f eV vs classical %.3f eV (delta %+.3f eV)",
+                E_scf, E_class, E_scf - E_class);
+    sim_destroy(sim);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * DEMO 14: H2O quantum MD — SCF electronic energy/forces on water
+ *
+ * Water: 10 electrons in minimal valence basis (O 2s+2p + 2 H 1s = 5 AOs).
+ * Runs Berendsen NVT at 300 K with the SCF energy+forces active, printing
+ * the SCF potential energy trajectory alongside the classical reference.
+ * ════════════════════════════════════════════════════════════════════════════ */
+static void demo_quantum_h2o(void) {
+    banner("DEMO 14: H2O quantum MD — SCF vs classical at 300 K");
+
+    Simulation *sim = sim_create(16, 32);
+    if (!sim) { fprintf(stderr, "  ERROR: allocation failed\n"); g_failed = 1; return; }
+
+    sim_place_h2o(sim, vec3_zero());
+
+    sim->dt = 0.5;
+    sim->thermostat.type               = THERMOSTAT_BERENDSEN;
+    sim->thermostat.target_temperature = 300.0;
+    sim->thermostat.tau                = 100.0;
+
+    /* Classical reference energy at the placed geometry */
+    forces_calculate(sim);
+    double E_class_ref = sim->potential_energy;
+
+    /* Switch on SCF and get its reference energy */
+    sim->use_qm_scf = 1;
+    forces_calculate(sim);
+    double E_scf_ref = sim->E_qm_scf_total;
+
+    sim->kinetic_energy = integrator_kinetic_energy(sim);
+    sim->total_energy   = sim->kinetic_energy + sim->potential_energy;
+    integrator_maxwell_boltzmann(sim, 300.0, 42UL);
+    forces_calculate(sim);
+    sim->kinetic_energy = integrator_kinetic_energy(sim);
+    sim->total_energy   = sim->kinetic_energy + sim->potential_energy;
+    sim->temperature    = integrator_temperature(sim);
+
+    printf("  H2O placed geometry:\n");
+    sim_print_atoms(sim);
+    printf("\n  E_class_ref = %.6f eV   E_scf_ref = %.6f eV   delta = %+.6f eV\n\n",
+           E_class_ref, E_scf_ref, E_scf_ref - E_class_ref);
+
+    printf("  %-8s  %-10s  %-12s  %-12s  %-10s  %-12s\n",
+           "Step","t (fs)","E_scf (eV)","E_class(eV)","T (K)","|F|max(eV/A)");
+    printf("  %-8s  %-10s  %-12s  %-12s  %-10s  %-12s\n",
+           "────","──────","──────────","──────────","─────","────────────");
+
+    int N_steps = 500;
+    int print_every = 50;
+    double fmax_val = 0.0;
+    for (int step = 0; step < N_steps; step++) {
+        integrator_step(sim);
+        fmax_val = fmax(fmax_val, vec3_norm(sim->atoms[0].force));
+        fmax_val = fmax(fmax_val, vec3_norm(sim->atoms[1].force));
+        fmax_val = fmax(fmax_val, vec3_norm(sim->atoms[2].force));
+        if (step % print_every == 0 || step == N_steps - 1) {
+            printf("  %-8d  %-10.3f  %-12.6f  %-12.6f  %-10.2f  %-12.6f\n",
+                   (int)sim->step, sim->time, sim->E_qm_scf_total,
+                   sim->potential_energy - sim->E_qm_scf_total,
+                   sim->temperature, fmax_val);
+            fmax_val = 0.0;
+        }
+    }
+
+    printf("\n  SCF reference: %.6f eV  classical reference: %.6f eV  delta: %+.6f eV\n",
+           E_scf_ref, E_class_ref, E_scf_ref - E_class_ref);
+    set_verdict(13, "H2O SCF E=%.3f eV vs classical %.3f eV (delta %+.3f eV)",
+                E_scf_ref, E_class_ref, E_scf_ref - E_class_ref);
+    sim_destroy(sim);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * DEMO 15: H-H dissociation curve — quantum SCF vs classical LJ+Coulomb
+ *
+ * Scans H-H separation from 0.5 to 2.0 A. At each distance, places H2,
+ * evaluates the SCF energy (use_qm_scf=1) and the classical LJ+Coulomb
+ * energy (use_qm_scf=0), printing both. The quantum curve should show a
+ * bound minimum near 0.74 A; the classical curve is purely repulsive at
+ * short range and has no bond (no covalent term), demonstrating why a
+ * quantum electronic energy is required for chemistry.
+ * ════════════════════════════════════════════════════════════════════════════ */
+static void demo_quantum_h2_dissoc(void) {
+    banner("DEMO 15: H2 dissociation — SCF vs classical LJ+Coulomb");
+
+    Simulation *sim = sim_create(4, 8);
+    if (!sim) { fprintf(stderr, "  ERROR: allocation failed\n"); g_failed = 1; return; }
+
+    printf("  %-10s  %-14s  %-14s  %-14s\n",
+           "R_HH (A)","E_scf (eV)","E_class(eV)","Delta(eV)");
+    printf("  %-10s  %-14s  %-14s  %-14s\n",
+           "────────","──────────","──────────","──────────");
+
+    double R_min = 0.5, R_max = 2.0, dR = 0.1;
+    double best_R = 0.0, best_E = 1e300;
+
+    for (double R = R_min; R <= R_max + 1e-9; R += dR) {
+        /* Reset sim: place two H atoms at +/- R/2 on x axis */
+        sim_destroy(sim);
+        sim = sim_create(4, 8);
+        if (!sim) { fprintf(stderr, "  ERROR: allocation failed\n"); g_failed = 1; return; }
+        sim->atoms[0] = (Atom){0};
+        sim->atoms[0].Z = 1; sim->atoms[0].element = pt_element(1);
+        sim->atoms[0].mass = pt_element(1)->mass;
+        sim->atoms[0].position = vec3(-R/2.0, 0.0, 0.0);
+        sim->atoms[1] = (Atom){0};
+        sim->atoms[1].Z = 1; sim->atoms[1].element = pt_element(1);
+        sim->atoms[1].mass = pt_element(1)->mass;
+        sim->atoms[1].position = vec3(R/2.0, 0.0, 0.0);
+        sim->num_atoms = 2;
+        sim->atoms[0].id = 0; sim->atoms[1].id = 1;
+        sim->atoms[0].electron_config = (ElectronConfig){0};
+        sim->atoms[1].electron_config = (ElectronConfig){0};
+        pt_electron_config_n(1, 1, &sim->atoms[0].electron_config);
+        pt_electron_config_n(1, 1, &sim->atoms[1].electron_config);
+        quantum_fill_orbitals_checked(&sim->atoms[0], &(int){0});
+        quantum_fill_orbitals_checked(&sim->atoms[1], &(int){0});
+        sim->atoms[0].lj_epsilon = sim->atoms[0].element->lj_epsilon;
+        sim->atoms[0].lj_sigma   = sim->atoms[0].element->lj_sigma;
+        sim->atoms[1].lj_epsilon = sim->atoms[1].element->lj_epsilon;
+        sim->atoms[1].lj_sigma   = sim->atoms[1].element->lj_sigma;
+
+        /* SCF energy */
+        sim->use_qm_scf = 1;
+        sim->dt = 0.5;
+        sim->thermostat.type = THERMOSTAT_NONE;
+        forces_calculate(sim);
+        double E_scf = sim->E_qm_scf_total;
+
+        /* Classical energy */
+        sim->use_qm_scf = 0;
+        forces_calculate(sim);
+        double E_class = sim->potential_energy;
+
+        double d = E_scf - E_class;
+        if (E_scf < best_E) { best_E = E_scf; best_R = R; }
+
+        printf("  %-10.3f  %-14.6f  %-14.6f  %-14.6f\n",
+               R, E_scf, E_class, d);
+    }
+
+    printf("\n  SCF minimum: R = %.3f A, E = %.6f eV  (experimental Re = 0.741 A, De = 4.75 eV)\n",
+           best_R, best_E);
+    set_verdict(14, "H2 dissoc: SCF min R=%.3f A E=%.3f eV", best_R, best_E);
+    sim_destroy(sim);
+}
 
 static void demo_kcsa_filter(void) {
     banner("DEMO 12: KcsA selectivity filter - K+ vs Na+, second pass");
@@ -4718,8 +4933,11 @@ int main(void) {
     RUN_DEMO(demo_helix, "demo 11 helix");
     RUN_DEMO(demo_kcsa_filter, "demo 12 KcsA");
     RUN_DEMO(demo_kcsa_real_filter, "demo 12b real KcsA filter");
+    RUN_DEMO(demo_quantum_h2, "demo 13 H2 quantum MD");
+    RUN_DEMO(demo_quantum_h2o, "demo 14 H2O quantum MD");
+    RUN_DEMO(demo_quantum_h2_dissoc, "demo 15 H2 dissociation");
     RUN_DEMO(demo_dna_duplex, "demo 17 duplex");
-    RUN_DEMO(demo_eht, "demo 18 EHT");
+    RUN_DEMO(demo_eht, "demo 18 EHT SCF");
 #undef RUN_DEMO
 
     /* Result recap: one deterministic line per demo (see set_verdict
@@ -4730,7 +4948,8 @@ int main(void) {
             "5 methane", "6 nucleobases", "7 pairing", "8 dinucleotide",
             "9 HH neuron", "10 dipeptide", "11 helix", "12 KcsA",
             "12b real KcsA filter", "12c ionic layer", "17 duplex",
-            "18 EHT SCF"};
+            "18 EHT SCF", "13 H2 quantum MD", "14 H2O quantum MD",
+            "15 H2 dissociation"};
         printf("\n  ══════════════════════════════════════════════════\n");
         printf("  RESULT RECAP\n");
         for (int i = 0; i < DEMO_VERDICT_COUNT; i++)
