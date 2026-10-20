@@ -93,13 +93,13 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **32 203 lines** (src 24 632 · include 3 708 · tests 3 863).
+Current tree: **32 327 lines** (src 24 737 · include 3 727 · tests 3 863).
 
 | File | Lines | Role |
 |---|---:|---|
 | `src/tui.c` | 7245 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
 | `src/main.c` | 4694 | the 16-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
-| `src/qm.c` | 2879 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver, **exact STO overlaps (ss/sps/pps/ppi), two-electron integrals (Mataga-Nishimoto Coulomb + Wolfsberg-Helmholtz exchange), Roothaan–Hartree–Fock SCF solver** |
+| `src/qm.c` | 2970 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver, **exact STO overlaps (ss/sps/pps/ppi), two-electron integrals (Mataga-Nishimoto Coulomb + Wolfsberg-Helmholtz exchange), Roothaan–Hartree–Fock SCF solver + FD forces** |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
 | `src/forces.c` | 1286 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud; **OpenMP cell-list pair search + private-force accumulators** |
 | `src/sim.c` | 1029 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints), **cell-list build for O(N) non-bonded pairs** |
@@ -187,6 +187,26 @@ orthogonalization + Jacobi eigensolver, fills by Aufbau, and iterates the
 density matrix with damped mixing until convergence. Fail codes are loud:
 −1 bad input, −2 singular overlap, −3 non-convergence. Minimal valence basis:
 H 1s; C/N/O 2s+2px+2py+2pz.
+
+### Wiring quantum SCF into classical MD (`use_qm_scf`)
+`qm_hf_scf_forces()` computes the SCF electronic energy and its
+finite-difference gradient with respect to atomic positions (same FD pattern
+as `qm_pauli_forces()`: 6·N extra SCF solves per force call). It is exposed
+as an opt-in force term in `forces_calculate()` via `sim->use_qm_scf`:
+
+* **Default off (0):** the record path is completely classical — every
+  existing demo and the byte-deterministic record are unaffected.
+* **Opt-in (1):** the SCF energy is added to `potential_energy` and reported
+  as `E_qm_scf_total`; finite-difference forces are accumulated onto each
+  atom alongside LJ, Coulomb, bonded, angle, dihedral, Pauli, dispersion,
+  and induction terms. Independent of `use_scf` (QEq charge loop) — both
+  can be set simultaneously.
+* Supports H/C/N/O atoms within the minimal valence basis (≤128 atoms);
+  larger or unsupported systems return rc=-1 and U=0 silently.
+
+Because the SCF is O(nao⁴) per solve and forces need 6·N solves per step,
+this is intended for small quantum-MD test systems, not production-scale
+dynamics.
 
 ### Classical molecular dynamics
 * Velocity Verlet (symplectic) with **Berendsen** weak-coupling (steering;
