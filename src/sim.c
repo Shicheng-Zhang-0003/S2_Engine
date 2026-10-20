@@ -86,6 +86,8 @@ Simulation *sim_create(int atom_capacity, int bond_capacity) {
     sim->scf_pinned_idx = -1;
     sim->scf_pinned_q  = 0.0;
     sim->use_switching = 0;   /* gas-phase default: no cutoff smoothing */
+    sim->use_qm_scf = 0;      /* v5: Roothaan-HF SCF off by default;
+                                 * record path stays classical. */
     sim->dielectric   = 1.0;  /* no screening by default */
 
     /* Box: large vacuum (no PBC by default) */
