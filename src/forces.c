@@ -1253,8 +1253,19 @@ void forces_calculate(Simulation *sim) {
         if (!isfinite(E_disp)) E_disp = 0.0;
     }
 
+    /* 10. v5: Roothaan-HF SCF electronic energy + FD forces (opt-in quantum
+     * MD layer). Computes the SCF energy via qm_hf_scf_forces() and
+     * accumulates finite-difference forces onto sim->atoms[].force.
+     * Independent of use_scf (QEq charge loop) - both can be set. */
+    double E_qm_scf = 0.0;
+    if (sim->use_qm_scf) {
+        E_qm_scf = qm_hf_scf_forces(sim);
+        if (!isfinite(E_qm_scf)) E_qm_scf = 0.0;
+    }
+
     sim->potential_energy = E_lj + E_coulomb + E_bond + E_angle + E_dihedral
-                          + E_restraint + E_polar + E_pauli + E_disp;
+                          + E_restraint + E_polar + E_pauli + E_disp
+                          + E_qm_scf;
     sim->E_lj_total      = E_lj;
     sim->E_coulomb_total = E_coulomb;
     sim->E_restraint_total = E_restraint;
@@ -1264,6 +1275,7 @@ void forces_calculate(Simulation *sim) {
     sim->E_polar_total   = E_polar;
     sim->E_pauli_total   = E_pauli;
     sim->E_disp_total    = E_disp;
+    sim->E_qm_scf_total  = E_qm_scf;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
