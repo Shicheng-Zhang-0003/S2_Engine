@@ -56,7 +56,7 @@ static void demo_clock_done(const char *name) {
  * now owns a distinct slot, and names[] is the map that says which.
  * add a demo: give it a slot, put its name in the SAME position, and
  * check the recap actually shows its text. */
-#define DEMO_VERDICT_COUNT 19
+#define DEMO_VERDICT_COUNT 20
 /* FULL-AUDIT C27: fail-closed exit status. Demo alloc-failure paths
  * previously printed to stdout and main() unconditionally returned 0. */
 static int g_failed = 0;
@@ -2591,6 +2591,79 @@ static void demo_quantum_h2_dissoc(void) {
     sim_destroy(sim);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+ * DEMO 16: H2 geometry optimization using SCF forces
+ *
+ * Uses the Roothaan-HF SCF energy+forces to drive H2 bond length to its
+ * equilibrium value. Starting from a stretched geometry (R = 1.5 A), steepest
+ * descent minimization with SCF forces converges to R ≈ 0.74 A.
+ * ════════════════════════════════════════════════════════════════════════════ */
+static void demo_quantum_h2_opt(void) {
+    banner("DEMO 16: H2 geometry optimization via SCF forces");
+
+    Simulation *sim = sim_create(4, 8);
+    if (!sim) { fprintf(stderr, "  ERROR: allocation failed\n"); g_failed = 1; return; }
+
+    sim_place_h2(sim, vec3_zero());
+    sim->use_qm_scf = 1;
+    sim->dt = 0.5;
+    sim->thermostat.type = THERMOSTAT_NONE;
+
+    /* Start from stretched geometry: R = 1.5 A */
+    sim->atoms[0].position = vec3(-0.75, 0.0, 0.0);
+    sim->atoms[1].position = vec3( 0.75, 0.0, 0.0);
+
+    forces_calculate(sim);
+    sim->kinetic_energy = integrator_kinetic_energy(sim);
+    sim->total_energy   = sim->kinetic_energy + sim->potential_energy;
+
+    printf("  Starting H2 at R = %.4f A\n", vec3_dist(sim->atoms[0].position,
+                                               sim->atoms[1].position));
+    printf("  %-6s  %-12s  %-12s  %-12s\n",
+           "Step","E_scf (eV)","R_HH (A)","|F|max(eV/A)");
+    printf("  %-6s  %-12s  %-12s  %-12s\n",
+           "────","──────────","────────","────────────");
+
+    /* Steepest descent minimization using SCF forces */
+    int N_steps = 100;
+    double best_R = 0.0, best_E = 1e300;
+    for (int step = 0; step < N_steps; step++) {
+        double dR = 0.02; /* max displacement per step (A) */
+        double fmax = 0.0;
+        for (int i = 0; i < sim->num_atoms; i++) {
+            double f = vec3_norm(sim->atoms[i].force);
+            if (f > fmax) fmax = f;
+            /* Move atom along force direction, capped at dR */
+            Vec3 dir = vec3_scale(sim->atoms[i].force, 1.0 / f);
+            sim->atoms[i].position = vec3_add(sim->atoms[i].position,
+                                              vec3_scale(dir, dR));
+        }
+        forces_calculate(sim);
+
+        double R = vec3_dist(sim->atoms[0].position, sim->atoms[1].position);
+        double E = sim->E_qm_scf_total;
+        if (E < best_E) { best_E = E; best_R = R; }
+
+        if (step % 10 == 0 || step == N_steps - 1) {
+            fmax = 0.0;
+            for (int i = 0; i < sim->num_atoms; i++) {
+                double f = vec3_norm(sim->atoms[i].force);
+                if (f > fmax) fmax = f;
+            }
+            printf("  %-6d  %-12.6f  %-12.6f  %-12.6f\n",
+                   step, E, R, fmax);
+        }
+    }
+
+    printf("\n  SCF optimized: R = %.4f A, E = %.6f eV\n", best_R, best_E);
+    printf("  Experimental: R = 0.7414 A, De = 4.75 eV\n");
+    set_verdict(19, "H2 SCF opt: R=%.3f A E=%.3f eV", best_R, best_E);
+    sim_destroy(sim);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * DEMO 12: KcsA selectivity filter - K+ vs Na+, second pass
+ * ════════════════════════════════════════════════════════════════════════════ */
 static void demo_kcsa_filter(void) {
     banner("DEMO 12: KcsA selectivity filter - K+ vs Na+, second pass");
 
@@ -4928,6 +5001,7 @@ int main(void) {
     RUN_DEMO(demo_quantum_h2, "demo 13 H2 quantum MD");
     RUN_DEMO(demo_quantum_h2o, "demo 14 H2O quantum MD");
     RUN_DEMO(demo_quantum_h2_dissoc, "demo 15 H2 dissociation");
+    RUN_DEMO(demo_quantum_h2_opt, "demo 16 H2 geometry optimization");
     RUN_DEMO(demo_water_md, "demo 3 water MD");
     RUN_DEMO(demo_water_cluster, "demo 4 trimer");
     RUN_DEMO(demo_methane, "demo 5 methane");
@@ -4952,7 +5026,7 @@ int main(void) {
             "9 HH neuron", "10 dipeptide", "11 helix", "12 KcsA",
             "12b real KcsA filter", "12c ionic layer", "17 duplex",
             "18 EHT SCF", "13 H2 quantum MD", "14 H2O quantum MD",
-            "15 H2 dissociation"};
+            "15 H2 dissociation", "16 H2 geometry opt"};
         printf("\n  ══════════════════════════════════════════════════\n");
         printf("  RESULT RECAP\n");
         for (int i = 0; i < DEMO_VERDICT_COUNT; i++)
