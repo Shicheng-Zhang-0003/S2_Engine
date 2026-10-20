@@ -1005,7 +1005,7 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
     if (Nat < 1 || Nat > 128) return -1;
 
     /* Build minimal valence basis: H 1s; C/N/O 2s+2px+2py+2pz */
-    int ao_atom[SCF_MAX_AOS], ao_l[SCF_MAX_AOS], ao_m[SCF_MAX_AOS];
+    int ao_atom[SCF_MAX_AOS], ao_n[SCF_MAX_AOS] = {0}, ao_l[SCF_MAX_AOS], ao_m[SCF_MAX_AOS];
     double ao_zeta[SCF_MAX_AOS];
     int nao = 0;
     int n_elec = 0;
@@ -1037,6 +1037,7 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
         }
     }
     if (nao < 1 || n_elec > 2 * nao) return -1;
+    (void)ao_n; (void)ao_zeta; /* set during basis build, used via eht_vsip() */
 
     /* Build overlap S and core Hamiltonian H_core */
     static double S[SCF_MAX_AOS][SCF_MAX_AOS];
@@ -1098,15 +1099,19 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
             double Hjj = -chi_b - J_b; /* −IE */
             H[i][j] = H[j][i] = 1.75 * sij * 0.5 * (Hii + Hjj);
         }
-        /* Diagonal: exact 1s kinetic + nuclear attraction */
+        /* Diagonal: use VSIP (valence state ionization potential) for proper
+         * orbital energies. O 2s ≈ -28.5 eV, O 2p ≈ -13.6 eV, H 1s ≈ -13.6 eV. */
         {
             int a = ao_atom[i];
-            double za = ao_zeta[i];
-            double z_bohr = za * BOHR_TO_ANGSTROM;
-            double T_ii = 0.5 * z_bohr * z_bohr * HARTREE_TO_EV;
-            double zeta_h = za * BOHR_TO_ANGSTROM;
-            double V_ii = -(double)sim->atoms[a].Z * zeta_h * HARTREE_TO_EV;
-            H[i][i] = T_ii + V_ii;
+            int Z = sim->atoms[a].Z;
+            double vsip = eht_vsip(Z, ao_n[i], ao_l[i]);
+            if (!(vsip > 0.0)) {
+                /* Fallback: -IE from chi_J */
+                double chi, J;
+                qm_chi_J(sim->atoms[a].element, &chi, &J);
+                vsip = chi + J; /* = IE */
+            }
+            H[i][i] = -vsip;
         }
     }
 
@@ -1245,6 +1250,39 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
         for (int n = 0; n < nao; n++)
             e_total += 0.5 * P[m][n] * (H[m][n] + F[m][n]);
     qm_hf_scf_last_E = e_total;
+    if (n_ao_out) *n_ao_out = nao;
+    if (n_iter_out) *n_iter_out = it + 1;
+    if (resid_out) *resid_out = resid;
+    if (mo_eps) {
+        for (int i = 0; i < nao; i++) mo_eps[i] = eps[i];
+    }
+    if (mo_coeff) {
+        for (int i = 0; i < nao; i++)
+            for (int j = 0; j < nao; j++)
+                mo_coeff[i * nao + j] = C[i][j];
+    }
+    if (density) {
+        for (int i = 0; i < nao; i++)
+            for (int j = 0; j < nao; j++)
+                density[i * nao + j] = P[i][j];
+    }
+    /* Mulliken charges: q_A = Z_val_A − Σ_{μ∈A}(PS)_μμ */
+    if (atom_charges) {
+        for (int a = 0; a < Nat; a++) {
+            double pop = 0.0;
+            for (int m = 0; m < nao; m++) {
+                if (ao_atom[m] != a) continue;
+                double psm = 0.0;
+                for (int n = 0; n < nao; n++)
+                    psm += P[m][n] * S[n][m];
+                pop += psm;
+            }
+            int ve = (sim->atoms[a].Z == 1) ? 1 :
+                     (sim->atoms[a].Z == 6) ? 4 :
+                     (sim->atoms[a].Z == 7) ? 5 : 6;
+            atom_charges[a] = (double)ve - pop;
+        }
+    }
     return 0;
 }
 
