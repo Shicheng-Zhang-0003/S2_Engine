@@ -421,6 +421,119 @@ static int test_d17(void) {
     return ok ? t_pass("17", d) : t_fail("17", d);
 }
 
+static int test_d13(void) {
+    /* H2 SCF: energy should be finite and near -32 eV at 0.74 A */
+    Simulation *s = sim_create(4, 8);
+    if (!s) return t_fail("13", "alloc");
+    sim_place_h2(s, vec3_zero());
+    s->use_qm_scf = 1;
+    s->dt = 0.5; s->thermostat.type = THERMOSTAT_NONE;
+    forces_calculate(s);
+    double E = s->E_qm_scf_total;
+    char d[128];
+    snprintf(d, sizeof d, "E=%.2f eV", E);
+    int ok = isfinite(E) && E < -10.0 && E > -200.0;
+    sim_destroy(s);
+    return ok ? t_pass("13", d) : t_fail("13", d);
+}
+
+static int test_d14(void) {
+    /* H2O SCF: energy should be finite and near -31 eV */
+    Simulation *s = sim_create(16, 32);
+    if (!s) return t_fail("14", "alloc");
+    sim_place_h2o(s, vec3_zero());
+    s->use_qm_scf = 1;
+    s->dt = 0.5; s->thermostat.type = THERMOSTAT_NONE;
+    forces_calculate(s);
+    double E = s->E_qm_scf_total;
+    char d[128];
+    snprintf(d, sizeof d, "E=%.1f eV", E);
+    int ok = isfinite(E) && E < -10.0 && E > -200.0;
+    sim_destroy(s);
+    return ok ? t_pass("14", d) : t_fail("14", d);
+}
+
+static int test_d15(void) {
+    /* H2 dissociation: E should decrease from R=2.0 to R=0.5 */
+    Simulation *s = sim_create(4, 8);
+    if (!s) return t_fail("15", "alloc");
+    sim_add_atom(s, 1, vec3(-1.0, 0, 0), 0.0);
+    sim_add_atom(s, 1, vec3(1.0, 0, 0), 0.0);
+    s->num_atoms = 2;
+    s->atoms[0].id = 0; s->atoms[1].id = 1;
+    s->atoms[0].element = s->atoms[1].element = pt_element(1);
+    s->atoms[0].mass = s->atoms[1].mass = pt_element(1)->mass;
+    s->atoms[0].electron_config = (ElectronConfig){0};
+    s->atoms[1].electron_config = (ElectronConfig){0};
+    pt_electron_config_n(1, 1, &s->atoms[0].electron_config);
+    pt_electron_config_n(1, 1, &s->atoms[1].electron_config);
+    quantum_fill_orbitals_checked(&s->atoms[0], &(int){0});
+    quantum_fill_orbitals_checked(&s->atoms[1], &(int){0});
+    s->atoms[0].lj_epsilon = s->atoms[0].element->lj_epsilon;
+    s->atoms[0].lj_sigma   = s->atoms[0].element->lj_sigma;
+    s->atoms[1].lj_epsilon = s->atoms[1].element->lj_epsilon;
+    s->atoms[1].lj_sigma   = s->atoms[1].element->lj_sigma;
+    s->use_qm_scf = 1;
+    s->dt = 0.5; s->thermostat.type = THERMOSTAT_NONE;
+    forces_calculate(s);
+    double E2 = s->E_qm_scf_total;
+    /* Move atoms closer: R = 0.74 */
+    s->atoms[0].position = vec3(-0.37, 0, 0);
+    s->atoms[1].position = vec3(0.37, 0, 0);
+    forces_calculate(s);
+    double E1 = s->E_qm_scf_total;
+    char d[128];
+    snprintf(d, sizeof d, "E(2A)=%.1f E(0.74A)=%.1f", E2, E1);
+    int ok = isfinite(E1) && isfinite(E2) && E1 < E2;
+    sim_destroy(s);
+    return ok ? t_pass("15", d) : t_fail("15", d);
+}
+
+static int test_d16(void) {
+    /* H2 geometry optimization: SCF forces should reduce bond length */
+    Simulation *s = sim_create(4, 8);
+    if (!s) return t_fail("16", "alloc");
+    sim_add_atom(s, 1, vec3(-0.75, 0, 0), 0.0);
+    sim_add_atom(s, 1, vec3(0.75, 0, 0), 0.0);
+    s->num_atoms = 2;
+    s->atoms[0].id = 0; s->atoms[1].id = 1;
+    s->atoms[0].element = s->atoms[1].element = pt_element(1);
+    s->atoms[0].mass = s->atoms[1].mass = pt_element(1)->mass;
+    s->atoms[0].electron_config = (ElectronConfig){0};
+    s->atoms[1].electron_config = (ElectronConfig){0};
+    pt_electron_config_n(1, 1, &s->atoms[0].electron_config);
+    pt_electron_config_n(1, 1, &s->atoms[1].electron_config);
+    quantum_fill_orbitals_checked(&s->atoms[0], &(int){0});
+    quantum_fill_orbitals_checked(&s->atoms[1], &(int){0});
+    s->atoms[0].lj_epsilon = s->atoms[0].element->lj_epsilon;
+    s->atoms[0].lj_sigma   = s->atoms[0].element->lj_sigma;
+    s->atoms[1].lj_epsilon = s->atoms[1].element->lj_epsilon;
+    s->atoms[1].lj_sigma   = s->atoms[1].element->lj_sigma;
+    s->use_qm_scf = 1;
+    s->dt = 0.5; s->thermostat.type = THERMOSTAT_NONE;
+    double R0 = vec3_dist(s->atoms[0].position, s->atoms[1].position);
+    forces_calculate(s);
+    double E0 = s->E_qm_scf_total;
+    /* One minimization step */
+    double dR = 0.02;
+    for (int i = 0; i < s->num_atoms; i++) {
+        double f = vec3_norm(s->atoms[i].force);
+        if (f > 1e-9) {
+            Vec3 dir = vec3_scale(s->atoms[i].force, 1.0 / f);
+            s->atoms[i].position = vec3_add(s->atoms[i].position,
+                                            vec3_scale(dir, dR));
+        }
+    }
+    forces_calculate(s);
+    double R1 = vec3_dist(s->atoms[0].position, s->atoms[1].position);
+    double E1 = s->E_qm_scf_total;
+    char d[128];
+    snprintf(d, sizeof d, "R=%.3f->%.3f E=%.1f->%.1f", R0, R1, E0, E1);
+    int ok = R1 < R0 && E1 <= E0 + 1.0;
+    sim_destroy(s);
+    return ok ? t_pass("16", d) : t_fail("16", d);
+}
+
 static int run_demo_test(const char *id) {
     if (!strcmp(id, "1")) return !test_d1();
     else if (!strcmp(id, "2")) return !test_d2();
@@ -435,6 +548,10 @@ static int run_demo_test(const char *id) {
     else if (!strcmp(id, "11")) return !test_d11();
     else if (!strcmp(id, "12")) return !test_d12();
     else if (!strcmp(id, "12b")) return !test_d12b();
+    else if (!strcmp(id, "13")) return !test_d13();
+    else if (!strcmp(id, "14")) return !test_d14();
+    else if (!strcmp(id, "15")) return !test_d15();
+    else if (!strcmp(id, "16")) return !test_d16();
     else if (!strcmp(id, "17")) return !test_d17();
     else if (!strcmp(id, "18")) return !test_d18();
     sh_err("  unknown demo `%s` (try: 1 2 3 4 5 6 7 8 9 10 11 12 12b 17 18)\n", id);
@@ -467,7 +584,7 @@ static void print_help(void) {
   printf("      8 dinucleotide 9 neuron 10 dipeptide 11 helix 12 cage 12b filter 17 duplex\n");
   printf("    spawn quantum|water|trimer|methane | base <U|C|T|A|G> | pair [gc|au]\n");
     printf("    spawn dinucleotide|neuron|dipeptide|helix|cage|filter|duplex [x y z]\n");
-    printf("    spawn demo <1|2|3|4|5|6|7|8|9|10|11|12|12b|17|18> [variant] [x y z]\n");
+    printf("    spawn demo <1|2|3|4|5|6|7|8|9|10|11|12|12b|13|14|15|16|17|18> [variant] [x y z]\n");
     printf("      (variants: demo 6 [U|C|T|A|G], demo 7 [gc|au]; pair/duplex set dielectric 4;\n");
     printf("       helix/duplex clash-relieved; pass origins — default 0,0,0 overlaps!)\n");
     printf("  --- live controls ---\n");
@@ -479,7 +596,7 @@ static void print_help(void) {
     printf("    mol new|add|bond|list|clear|center|save|load|place (MOL1 templates)\n");
     printf("    rxn new|pair|break|make|delete|charge|list|save|load|fire|arm|auto\n");
     printf("  --- tests: each demo is a system test ---\n");
-    printf("    list demos | test demo <id> | test all   (id: 1 2 3 4 5 6 7 8 9 10 11 12 12b 17 18)\n");
+    printf("    list demos | test demo <id> | test all   (id: 1 2 3 4 5 6 7 8 9 10 11 12 12b 13 14 15 16 17 18)\n");
     printf("  --- grid display ---\n");
     printf("    render | view xy|xz|yz|auto | cam yaw|pitch|zoom|center|reset | slice | watch\n");
     printf("  --- files & shell (real POSIX) ---\n");
@@ -5777,7 +5894,7 @@ static int man_page(const char *topic) {
     }
     /* FULL-AUDIT O33: previously unmanned topics now have stubs. */
     if (!strcmp(topic, "test")) {
-        printf("TEST(1)\ntest demo <id>   run one demo as a live system test (ids 1 2 3 4 5 6 7\n  8 9 10 11 12 12b 17 18). test all runs all 15 (want 15/15).\n");
+        printf("TEST(1)\ntest demo <id>   run one demo as a live system test (ids 1 2 3 4 5 6 7\n  8 9 10 11 12 12b 13 14 15 16 17 18). test all runs all 19 (want 19/19).\n");
         return 0;
     }
     if (!strcmp(topic, "help")) {
@@ -5841,11 +5958,11 @@ static int dispatch_cmd(Tui *t, char **tok, const int *eleg, int nt) {
         print_help();
         return 0;
     }
-    else if (!strcmp(tok[0], "list") && nt >= 2 && !strcmp(tok[1], "demos"))
-            printf("  demos: 1 quantum 2 bond 3 water 4 trimer 5 methane 6 bases 7 pairing 8 dinucleotide 9 neuron 10 dipeptide 11 helix 12 kcsa 12b real-filter 17 duplex 18 EHT\n");
+        else if (!strcmp(tok[0], "list") && nt >= 2 && !strcmp(tok[1], "demos"))
+            printf("  demos: 1 quantum 2 bond 3 water 4 trimer 5 methane 6 bases 7 pairing 8 dinucleotide 9 neuron 10 dipeptide 11 helix 12 kcsa 12b real-filter 13 H2-QM 14 H2O-QM 15 H2-dissoc 16 H2-opt 17 duplex 18 EHT\n");
         else if (!strcmp(tok[0], "test") && nt >= 3 && !strcmp(tok[1], "demo")) return run_demo_test(tok[2]);
         else if (!strcmp(tok[0], "test") && nt >= 2 && !strcmp(tok[1], "all")) {
-            const char *ids[] = {"1","2","3","4","5","6","7","8","9","10","11","12","12b","17","18"};
+            const char *ids[] = {"1","2","3","4","5","6","7","8","9","10","11","12","12b","13","14","15","16","17","18"};
             int fails = 0;
             for (unsigned i = 0; i < sizeof ids / sizeof ids[0]; i++) fails += run_demo_test(ids[i]);
             return fails ? 1 : 0;
