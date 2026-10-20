@@ -2402,19 +2402,22 @@ static void demo_quantum_h2(void) {
     sim->kinetic_energy = integrator_kinetic_energy(sim);
     sim->total_energy   = sim->kinetic_energy + sim->potential_energy;
 
+    /* Classical reference: recompute with SCF off */
+    sim->use_qm_scf = 0;
+    forces_calculate(sim);
+    double E_class = sim->potential_energy;
+
+    /* Switch on SCF and get its reference energy */
+    sim->use_qm_scf = 1;
+    forces_calculate(sim);
+    double E_scf   = sim->E_qm_scf_total;
+
     printf("  H2 at equilibrium R = %.4f A\n", vec3_dist(sim->atoms[0].position,
                                                    sim->atoms[1].position));
     printf("  %-8s  %-12s  %-12s  %-12s  %-12s  %-12s\n",
            "Step","t (fs)","E_scf (eV)","E_class(eV)","Delta(eV)","|F|max(eV/A)");
     printf("  %-8s  %-12s  %-12s  %-12s  %-12s  %-12s\n",
            "────","────────","──────────","──────────","──────────","────────────");
-
-    /* Classical reference: recompute with SCF off */
-    sim->use_qm_scf = 0;
-    forces_calculate(sim);
-    double E_class = sim->potential_energy;
-    double E_scf   = sim->E_qm_scf_total;
-    sim->use_qm_scf = 1;
 
     printf("  %-8d  %-12.3f  %-12.6f  %-12.6f  %-12.6f  %-12.6f\n",
            0, sim->time, E_scf, E_class, E_scf - E_class,
@@ -2437,7 +2440,7 @@ static void demo_quantum_h2(void) {
 
     printf("\n  SCF equilibrium energy: %.6f eV  classical: %.6f eV  delta: %+.6f eV\n",
            E_scf, E_class, E_scf - E_class);
-    set_verdict(12, "H2 SCF E=%.3f eV vs classical %.3f eV (delta %+.3f eV)",
+    set_verdict(16, "H2 SCF E=%.3f eV vs classical %.3f eV (delta %+.3f eV)",
                 E_scf, E_class, E_scf - E_class);
     sim_destroy(sim);
 }
@@ -2508,7 +2511,7 @@ static void demo_quantum_h2o(void) {
 
     printf("\n  SCF reference: %.6f eV  classical reference: %.6f eV  delta: %+.6f eV\n",
            E_scf_ref, E_class_ref, E_scf_ref - E_class_ref);
-    set_verdict(13, "H2O SCF E=%.3f eV vs classical %.3f eV (delta %+.3f eV)",
+    set_verdict(17, "H2O SCF E=%.3f eV vs classical %.3f eV (delta %+.3f eV)",
                 E_scf_ref, E_class_ref, E_scf_ref - E_class_ref);
     sim_destroy(sim);
 }
@@ -2584,7 +2587,7 @@ static void demo_quantum_h2_dissoc(void) {
 
     printf("\n  SCF minimum: R = %.3f A, E = %.6f eV  (experimental Re = 0.741 A, De = 4.75 eV)\n",
            best_R, best_E);
-    set_verdict(14, "H2 dissoc: SCF min R=%.3f A E=%.3f eV", best_R, best_E);
+    set_verdict(18, "H2 dissoc: SCF min R=%.3f A E=%.3f eV", best_R, best_E);
     sim_destroy(sim);
 }
 
@@ -4922,6 +4925,9 @@ int main(void) {
 #define RUN_DEMO(fn, label) do { demo_clock_start(); fn(); demo_clock_done(label); } while (0)
     RUN_DEMO(demo_quantum, "demo 1 quantum");
     RUN_DEMO(demo_bond_curve, "demo 2 bond curve");
+    RUN_DEMO(demo_quantum_h2, "demo 13 H2 quantum MD");
+    RUN_DEMO(demo_quantum_h2o, "demo 14 H2O quantum MD");
+    RUN_DEMO(demo_quantum_h2_dissoc, "demo 15 H2 dissociation");
     RUN_DEMO(demo_water_md, "demo 3 water MD");
     RUN_DEMO(demo_water_cluster, "demo 4 trimer");
     RUN_DEMO(demo_methane, "demo 5 methane");
@@ -4933,9 +4939,6 @@ int main(void) {
     RUN_DEMO(demo_helix, "demo 11 helix");
     RUN_DEMO(demo_kcsa_filter, "demo 12 KcsA");
     RUN_DEMO(demo_kcsa_real_filter, "demo 12b real KcsA filter");
-    RUN_DEMO(demo_quantum_h2, "demo 13 H2 quantum MD");
-    RUN_DEMO(demo_quantum_h2o, "demo 14 H2O quantum MD");
-    RUN_DEMO(demo_quantum_h2_dissoc, "demo 15 H2 dissociation");
     RUN_DEMO(demo_dna_duplex, "demo 17 duplex");
     RUN_DEMO(demo_eht, "demo 18 EHT SCF");
 #undef RUN_DEMO

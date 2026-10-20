@@ -773,7 +773,8 @@ int qm_eri_zzdo(const Simulation *sim, const double *P, int n_ao,
 
             double J = 0.0, K = 0.0;
 
-            /* Coulomb: J_munu = delta_munu × Σ_C q_C × γ_AC */
+            /* Coulomb: J_munu = delta_munu × Σ_C q_C × γ_AC.
+             * Only diagonal (mu==nu) — off-diagonal J is zero in ZDO. */
             if (mu == nu) {
                 for (int C = 0; C < N; C++) {
                     if (!(q_atom[C] > 0.0)) continue;
@@ -782,16 +783,13 @@ int qm_eri_zzdo(const Simulation *sim, const double *P, int n_ao,
                 }
             }
 
-            /* Exchange: K_munu = P_nunu × β_AB (mu≠nu, different atoms) */
-            if (mu != nu && A != B) {
-                double p_nunu = P[nu * n_ao + nu];
-                if (p_nunu != 0.0) {
-                    double beta = qm_eri_exchange(sim, A, B);
-                    K = p_nunu * beta;
-                }
-            }
+            /* Exchange: K_munu = 0 in ZDO for off-diagonal — the off-diagonal
+             * Fock element is handled by the Wolfsberg-Helmholtz approximation
+             * in the core Hamiltonian. Adding both would double-count.
+             * Same-atom exchange is also zero (no self-exchange). */
+            (void)K;
 
-            double val = J - 0.5 * K;
+            double val = J;
             if (isfinite(val)) F_2e[mu * n_ao + nu] = val;
         }
     }
@@ -1007,7 +1005,7 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
     if (Nat < 1 || Nat > 128) return -1;
 
     /* Build minimal valence basis: H 1s; C/N/O 2s+2px+2py+2pz */
-    int ao_atom[SCF_MAX_AOS], ao_n[SCF_MAX_AOS], ao_l[SCF_MAX_AOS], ao_m[SCF_MAX_AOS];
+    int ao_atom[SCF_MAX_AOS], ao_l[SCF_MAX_AOS], ao_m[SCF_MAX_AOS];
     double ao_zeta[SCF_MAX_AOS];
     int nao = 0;
     int n_elec = 0;
@@ -1022,7 +1020,7 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
         if (Z == 1) {
             double z = eht_zeta(Z, 1, 0, &at->electron_config);
             if (!(z > 0.0)) return -1;
-            ao_atom[nao] = a; ao_n[nao] = 1; ao_l[nao] = 0; ao_m[nao] = 0;
+            ao_atom[nao] = a; ao_l[nao] = 0; ao_m[nao] = 0;
             ao_zeta[nao] = z; nao++;
             n_elec += 1;
         } else {
@@ -1032,7 +1030,7 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
             const int ls[4] = {0, 1, 1, 1};
             const int ms[4] = {0, 1, 2, 3};
             for (int k = 0; k < 4; k++) {
-                ao_atom[nao] = a; ao_n[nao] = 2; ao_l[nao] = ls[k]; ao_m[nao] = ms[k];
+                ao_atom[nao] = a; ao_l[nao] = ls[k]; ao_m[nao] = ms[k];
                 ao_zeta[nao] = ls[k] ? zp : zs; nao++;
             }
             n_elec += (Z == 6) ? 4 : (Z == 7) ? 5 : 6;
@@ -1058,7 +1056,6 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
     /* Overlap and core Hamiltonian */
     for (int i = 0; i < nao; i++) {
         for (int j = i + 1; j < nao; j++) {
-            double T_ij = 0.0, V_ij = 0.0;
             int ai = ao_atom[i], aj = ao_atom[j];
             if (ai == aj) continue;
             Vec3 d = vec3_sub(sim->atoms[aj].position, sim->atoms[ai].position);
@@ -1092,52 +1089,23 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
             if (!isfinite(sij)) return -1;
             S[i][j] = S[j][i] = sij;
 
-            /* Core Hamiltonian: H_core = T + V_nuc */
-            if (li == 0 && lj == 0) {
-                T_ij = qm_kinetic_1s_1s(ao_zeta[i], ao_zeta[j], R);
-                /* Nuclear attraction: sum over nuclei at ai and aj */
-                double Za = sim->atoms[ai].Z, Zb = sim->atoms[aj].Z;
-                V_ij = qm_nuc_attr_1s_1s(ao_zeta[i], ao_zeta[j], R, 0, (double)Za)
-                     + qm_nuc_attr_1s_1s(ao_zeta[i], ao_zeta[j], R, 1, (double)Zb);
-            }
-            /* For p-involving pairs, use overlap-scaled H_core (EHT-style) */
-            if (T_ij == 0.0 && V_ij == 0.0) {
-                double chi_i, J_i, chi_j, J_j;
-                qm_chi_J(sim->atoms[ai].element, &chi_i, &J_i);
-                qm_chi_J(sim->atoms[aj].element, &chi_j, &J_j);
-                double Hii = -chi_i - J_i; /* −(IE+EA)/2 − (IE−EA)/2 = −IE */
-                double Hjj = -chi_j - J_j;
-                T_ij = 1.75 * sij * 0.5 * (Hii + Hjj);
-                V_ij = 0.0;
-            }
-            H[i][j] = H[j][i] = T_ij + V_ij;
+            /* Core Hamiltonian off-diagonal: Wolfsberg-Helmholtz */
+            int a = ao_atom[i], b = ao_atom[j];
+            double chi_a, J_a, chi_b, J_b;
+            qm_chi_J(sim->atoms[a].element, &chi_a, &J_a);
+            qm_chi_J(sim->atoms[b].element, &chi_b, &J_b);
+            double Hii = -chi_a - J_a; /* −IE */
+            double Hjj = -chi_b - J_b; /* −IE */
+            H[i][j] = H[j][i] = 1.75 * sij * 0.5 * (Hii + Hjj);
         }
-        /* Diagonal: H_ii = T_ii + V_ii (atom's own nucleus) */
+        /* Diagonal: exact 1s kinetic + nuclear attraction */
         {
             int a = ao_atom[i];
-            double Za = (double)sim->atoms[a].Z;
-            double T_ii = 0.0, V_ii = 0.0;
-            if (ao_l[i] == 0 && ao_n[i] == 1) {
-                /* 1s: T_ii = ζ²/2 Hartree, V_ii = −Z × ⟨1s|1/r|1s⟩ = −Z×ζ Hartree */
-                double z_bohr = ao_zeta[i] * BOHR_TO_ANGSTROM;
-                T_ii = 0.5 * z_bohr * z_bohr * HARTREE_TO_EV;
-                /* ⟨1s|1/r|1s⟩ = ζ (in bohr⁻¹) → V = −Z×ζ×bohr⁻¹×Hartree... 
-                 * Use qm_nuc_attr_1s_1s with R→0 limit: V = −Z×ζ_hartree */
-                double zeta_h = ao_zeta[i] * BOHR_TO_ANGSTROM;
-                V_ii = -Za * zeta_h * HARTREE_TO_EV;
-            } else if (ao_l[i] == 0 && ao_n[i] == 2) {
-                /* 2s: parametrized */
-                double chi, J;
-                qm_chi_J(sim->atoms[a].element, &chi, &J);
-                T_ii = -chi - J;
-                V_ii = 0.0;
-            } else {
-                /* 2p: parametrized */
-                double chi, J;
-                qm_chi_J(sim->atoms[a].element, &chi, &J);
-                T_ii = -chi - J;
-                V_ii = 0.0;
-            }
+            double za = ao_zeta[i];
+            double z_bohr = za * BOHR_TO_ANGSTROM;
+            double T_ii = 0.5 * z_bohr * z_bohr * HARTREE_TO_EV;
+            double zeta_h = za * BOHR_TO_ANGSTROM;
+            double V_ii = -(double)sim->atoms[a].Z * zeta_h * HARTREE_TO_EV;
             H[i][i] = T_ii + V_ii;
         }
     }
@@ -1321,6 +1289,7 @@ double qm_hf_scf_forces(Simulation *sim) {
                   &n_ao, &n_iter, &resid) != 0) {
         return 0.0;
     }
+    double E0 = qm_hf_scf_last_energy(); /* undisplaced energy */
 
     const double h = 1.0e-5; /* Å */
     int N = sim->num_atoms;
@@ -1356,8 +1325,8 @@ double qm_hf_scf_forces(Simulation *sim) {
         }
     }
 
-    /* Restore positions already done; return exact energy at input geometry. */
-    sim->E_qm_scf_total = qm_hf_scf_last_energy();
+    /* Positions restored exactly; return undisplaced SCF energy. */
+    sim->E_qm_scf_total = E0;
     return sim->E_qm_scf_total;
 }
 
