@@ -59,7 +59,17 @@ static int ref_solve(int N, const double *pos, const double *q,
         if (f==0.0) continue;
         double r3=r*r*r;
         double u[3]={d[0]/r,d[1]/r,d[2]/r};
-        double kij=al[i]*COULOMB_MD*f/r3;
+        /* FULL-AUDIT F6: the coupling block is
+         *   A_ij = alpha_i f [3 u u^T - I] / r^3
+         * with NO extra COULOMB_MD. In the engine's own units the field
+         * is E [V/A], alpha is a VOLUME [A^3], the dipole is
+         * mu = alpha E / COULOMB_MD [e.A] and the field of a dipole is
+         * E_dip = COULOMB_MD [3(mu.d)d - mu] / r^3, so the COULOMB_MD
+         * CANCELS when mu_j is substituted back. The harness used to
+         * carry the extra factor, which pinned a 14.4x over-coupled
+         * operator - the harness and the engine agreed with each other
+         * and were both wrong. */
+        double kij=al[i]*f/r3;
         for (int a=0;a<3;a++) for (int b=0;b<3;b++)
             M[(3*i+a)*M3+(3*j+b)] -= kij*(3.0*u[a]*u[b] - (a==b?1.0:0.0));
     }
@@ -148,7 +158,9 @@ int main(void)
                 double r=sqrt(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]);
                 if (r<1e-8) continue;
                 double f=thole(r); if (f==0.0) continue;
-                double kij=al[i]*COULOMB_MD*f/(r*r*r);
+                /* Same operator as ref_solve() above: no extra
+                 * COULOMB_MD (full-audit F6). */
+                double kij=al[i]*f/(r*r*r);
                 double uj[3]={mu[j].x,mu[j].y,mu[j].z};
                 /* dot does NOT depend on the component index b; looping b
                  * around the accumulation applied the same term three

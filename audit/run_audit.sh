@@ -23,6 +23,20 @@ REVERT=0
 [ "${1:-}" = "--revert" ] && REVERT=1
 
 cd "$TREE"
+# FULL-AUDIT: the audit only built when the object directory was EMPTY.
+# With the repository's tracked build/*.o present (the normal case) it
+# linked whatever objects happened to be there - so the audit evidence
+# could predate the source it claimed to audit. Reproduced: appending a
+# comment to src/forces.c and running `make audit` used the STALE
+# build/forces.o and reported the harness green. The build is now
+# unconditional and clean-first, exactly like verify_scripts.sh.
+#
+# It has to run BEFORE the scratch directory is created: `make clean`
+# removes audit/build as well, and the harness compiler writes its logs
+# there.
+echo "audit: clean build of the engine (hermetic)" >&2
+(cd "$TREE" && make clean >/dev/null 2>&1 && make >/dev/null 2>&1) \
+  || { echo "FATAL: make failed" >&2; exit 2; }
 mkdir -p "$BUILD"
 
 # Engine objects, minus main.o. FULL-AUDIT O27: hermetic — build first instead
@@ -37,16 +51,12 @@ for o in "$TREE"/build/*.o; do
     case "$b" in main.o|tui.o|tui_view.o|tui_screen.o|test_*|*.d) continue ;; esac
     OBJS+=("$o")
 done
-if [ "${#OBJS[@]}" -eq 0 ]; then
-    echo "audit: no engine objects; running make first (hermetic)" >&2
-    (cd "$TREE" && make >/dev/null 2>&1) || { echo "FATAL: make failed" >&2; exit 2; }
-    OBJS=()
-    for o in "$TREE"/build/*.o; do
-        b="$(basename "$o")"
-        case "$b" in main.o|tui.o|tui_view.o|tui_screen.o|test_*|*.d) continue ;; esac
-        OBJS+=("$o")
-    done
-fi
+OBJS=()
+for o in "$TREE"/build/*.o; do
+    b="$(basename "$o")"
+    case "$b" in main.o|tui.o|tui_view.o|tui_screen.o|test_*|*.d) continue ;; esac
+    OBJS+=("$o")
+done
 if [ "${#OBJS[@]}" -eq 0 ]; then
     echo "FATAL: no engine objects in $TREE/build after make" >&2
     exit 2
