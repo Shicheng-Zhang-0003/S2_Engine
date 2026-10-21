@@ -27,12 +27,12 @@ every line command works, only the alternate-screen reports unavailable).
 
 | Command | Effect |
 |---|---|
-| `make` / `make -j$(nproc)` | build everything: `carbonsim`, `s2tui`, and all seven test binaries (serial record build, byte-deterministic) |
-| `make perf` | build everything with **OpenMP multicore** (`-fopenmp -DS2_OPENMP -march=native`) — cell-list O(N) pair search + parallel O(N²) kernels across all cores. Performance runs only; **never for the record** (thread scheduling changes FP summation order, so digests differ from the serial record). |
-| `./carbonsim` | run the 16-demo record sequence (**~6 minutes**; the polar-WHAM leg dominates); stdout is the byte-deterministic record |
+| `make` / `make -j$(nproc)` | build everything: `carbonsim`, `s2tui`, and all eight test binaries (serial record build, byte-deterministic) |
+| `make perf` | build everything with **OpenMP multicore** (`-fopenmp -DS2_OPENMP -march=native`) — cell-list O(N) pair search + parallel O(N²) kernels across all cores. The perf build has its **own object directory (`build-perf/`) and its own binaries (`carbonsim-perf`, `s2tui-perf`)**, so it can never contaminate the record build. Performance runs only; **never for the record** (thread scheduling changes FP summation order, so digests differ from the serial record). |
+| `./carbonsim` | run the 20-demo record sequence (**~7 minutes**; the polar-WHAM leg dominates); stdout is the byte-deterministic record |
 | `./run` | clean build behind a warning gate, run to `runs/<timestamp>.txt`, print old/new digests side by side |
-| `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt` + `kcsa.cvmds` (staged atomically as `runs/<stamp>.{txt,cvmds}`); refuses to promote unless stderr is empty AND `make test` is green |
-| `make test` | build and run the seven unit gates only (19/22/7/202/150/60/31) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
+| `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt` + `kcsa.cvmds` (staged atomically: each artefact is written to a temporary name and renamed into place, and the ledger is written last); refuses to promote unless stderr is empty, `make test` is green, **and** the staged `kcsa.cvmds` seal verifies |
+| `make test` | build and run the eight unit gates only (19/22/7/202/153/60/31/43) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
 | `make tui` | build just the interactive terminal (`./s2tui`) |
 | `./verify_scripts.sh` | read-only record + spec verifier: baseline digest, `kcsa.cvmds` seal, key/unit compliance, every suite |
 | `./s01_verify_record.sh` | builds normally and under ASan/UBSan, asserts both reproduce the recorded digest with empty stderr |
@@ -57,11 +57,33 @@ commit time so `kcsa.cvmds` seals identically across repeated runs).
 | `test_external` | 150 | values from outside this repository (NIST CODATA, parm99.dat, FIPS, PDB 1K4C, Latimer–Pitzer–Slansky Born radii, Pauling free-ion polarizabilities) + HO-eps unit pin |
 | `test_loop` | 60 | bio/QC/QM loop closure + best-layer: Nernst, kT, Marcus/Shannon/LJ/Coulomb, BJ/penetration, Langevin, flat-bottom, tethers, H-complete ions-hold |
 | `test_eht` | 31 | exact overlaps vs 3D-grid STO oracles, Jacobi vs 2x2 forms, H2/H2O SCF laws, fail-loud gates |
+| `test_audit4` | 43 | the fourth audit: reference PCG64 vs the upstream expected-output file, EHT mirror symmetry, textbook overlap closed forms, Born induction units, one-electron integral limits, SCF invariants, dipole-coupling scale, cell-list origin, datastream non-finite refusal, L'Hôpital limits, KcsA hydroxyl angle |
 
 plus a warning-free clean build (serial and `make perf`), empty stderr,
 byte-identical stdout across repeated runs (serial record only), an intact
-`kcsa.cvmds` seal, and the OpenMP build passing all seven gates with
+`kcsa.cvmds` seal, and the OpenMP build passing all eight gates with
 numerically consistent results (within FP reassociation tolerance).
+
+**537 checks in eight gates.** `make test` fails if any suite's exit code
+is non-zero **or** if any suite prints a `FAIL` line — both conditions are
+checked for every suite, not just some of them.
+
+**CI.** `.github/workflows/ci.yml` runs the whole chain on every push and
+pull request: the warning-free build, `make test`, `./verify_scripts.sh`,
+`make audit`, `./s01_verify_record.sh`, the OpenMP build and its eight
+gates, and finally
+
+```
+git diff --exit-code -- output.txt CURRENT_BASELINE_SHA.txt kcsa.cvmds
+```
+
+That last step is the one that matters. The October-2026 commits that added
+demos 13–16 all carry the message *"all 491 gates green"*, and every one of
+them ran `make test` only: the **record** gate was never run, so the
+tracked `output.txt` drifted away from HEAD while every commit message
+claimed a green tree. The staleness check is now a CI step, so a record
+that does not match its source fails the build instead of being
+rediscovered months later.
 
 ---
 
@@ -93,23 +115,23 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **32 327 lines** (src 24 737 · include 3 727 · tests 3 863).
+Current tree: **34 311 lines** (src 26 050 · include 3 830 · tests 4 431).
 
 | File | Lines | Role |
 |---|---:|---|
-| `src/tui.c` | 7245 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
-| `src/main.c` | 4694 | the 16-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
-| `src/qm.c` | 2970 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver, **exact STO overlaps (ss/sps/pps/ppi), two-electron integrals (Mataga-Nishimoto Coulomb + Wolfsberg-Helmholtz exchange), Roothaan–Hartree–Fock SCF solver + FD forces** |
+| `src/tui.c` | 7380 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
+| `src/main.c` | 5181 | the 20-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
+| `src/qm.c` | 3266 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver, **exact STO overlaps (ss/sps/pps/ppi), two-electron integrals (Hubbard-screened Coulomb + Wolfsberg-Helmholtz exchange), Roothaan–Hartree–Fock SCF solver + FD forces** |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
-| `src/forces.c` | 1286 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud; **OpenMP cell-list pair search + private-force accumulators** |
-| `src/sim.c` | 1029 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints), **cell-list build for O(N) non-bonded pairs** |
-| `src/integrator.c` | 869 | Velocity Verlet, S2-PCG64-like/LCG (O'Neill-inspired, NOT reference pcg64), Maxwell–Boltzmann, Berendsen/Andersen/exact-OU-Langevin, steepest descent, FIRE, **standard C11 64x64->128 multiply** |
+| `src/forces.c` | 1365 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud; **OpenMP cell-list pair search + private-force accumulators** |
+| `src/sim.c` | 1089 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints), **cell-list build for O(N) non-bonded pairs** |
+| `src/integrator.c` | 924 | Velocity Verlet, **reference PCG64** (O'Neill 2014, XSL-RR 128/64) / Knuth-MMIX LCG, Maxwell–Boltzmann, Berendsen/Andersen/exact-OU-Langevin, steepest descent, FIRE, **standard C11 64x64->128 multiply** |
 | `src/quantum.c` | 547 | Slater screening and orbital energies, hydrogenic radial profiles, Clementi–Raimondi exponents, real spherical harmonics |
-| `src/kcsa_filter.c` | 897 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit), **backbone + side-chain dihedral torsions** |
-| `src/qm_born.c` | 112 | Born ionic self-energy, Latimer–Pitzer–Slansky radii, Pauling free-ion polarizabilities |
-| `src/qm_fluctuation.c` | 752 | variance/entropy machinery, KcsA shell strain, site-integrity gate, **ion axis constraint for fluctuation sampling** |
+| `src/kcsa_filter.c` | 926 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit), **backbone + side-chain dihedral torsions** |
+| `src/qm_born.c` | 128 | Born ionic self-energy, Latimer–Pitzer–Slansky radii, Pauling free-ion polarizabilities |
+| `src/qm_fluctuation.c` | 774 | variance/entropy machinery, KcsA shell strain, site-integrity gate, **ion axis constraint for fluctuation sampling** |
 | `src/aminoacids.c` | 513 | glycine/alanine/dipeptide/polyalanine builders |
-| `src/datastream.c` | 374 | schema-1 writer, self-contained FIPS 180-4 SHA-256, seal verifier (fseeko/ftello, record-tree source-hash, \r/bracket hygiene) |
+| `src/datastream.c` | 440 | schema-1 writer, self-contained FIPS 180-4 SHA-256, seal verifier (fseeko/ftello, record-tree source-hash, \r/bracket hygiene) |
 | `src/periodic_table.c` | 294 | H–Kr element data, UFF ε/σ, Madelung electron configurations |
 | `src/tui_view.c` | 383 | viewport cell model shared by the ANSI frame and the curses screen |
 | `src/tui_screen.c` | 169 | ncursesw alternate-screen monitor (optional dep, TTY-gated, piped-safe) |
@@ -118,13 +140,14 @@ Current tree: **32 327 lines** (src 24 737 · include 3 727 · tests 3 863).
 | `tests/test_regression.c` | 1815 | the 202-check in-repo oracle suite |
 | `tests/test_external.c` | 932 | the 150-check outside-reference suite |
 | `tests/test_loop.c` | 273 | the 60-check loop-closure + best-layer suite |
-| `src/qm_eht_overlap.c` | 342 | exact STO overlaps: prolate A/B machinery, GL quadrature for p-pi |
-| `src/qm_eht_scf.c` | 620 | Hoffmann EHT + SCC (Jacobi, Lowdin, Mulliken, Mayer, trust mixing) |
+| `src/qm_eht_overlap.c` | 444 | exact STO overlaps: prolate A/B machinery, GL quadrature for p-pi, **and `eht_overlap_ao()` — the single shared global-axis AO overlap kernel** |
+| `src/qm_eht_scf.c` | 668 | Hoffmann EHT + SCC (Jacobi, Lowdin, Mulliken, Mayer, trust mixing) |
 | `tests/test_eht.c` | 331 | the 31-check EHT oracle suite |
+| `tests/test_audit4.c` | 519 | the 43-check fourth-audit suite (one check per defect found and fixed) |
 | `include/qm_eht.h` | 107 | EHT API + E1-E11 abstraction inventory |
 | `include/loop.h` | 55 | loop bridge contract + abstraction inventory |
-| `include/` | 3504 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
-| `tests/` (other) | 335 | datastream, forces, fire suites |
+| `include/` | 3830 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
+| `tests/` (other) | 378 | datastream, forces, fire suites |
 
 ### 3.1 Multicore and cell lists (performance build)
 
@@ -144,6 +167,17 @@ pair enumeration visits only the same and 26 neighbouring cells, reducing the pa
 O(N²) to O(N + N_neighbours). The list is rebuilt automatically by `forces_calculate` when
 `sim->use_cell_list` is set and the atom count exceeds 512 (PBC boxes use the serial path;
 cell-list PBC minimum-image is future work).
+
+**The perf build is isolated from the record build.** It has its own object
+directory (`build-perf/`), its own binaries (`carbonsim-perf`, `s2tui-perf`)
+and its own build-identity strings, which are what the sealed datastream
+records. Before the fourth audit the perf target shared `build/*.o` and the
+record binary names, which produced three separate failures: `make perf`
+after `make` was a **silent no-op** (nothing was recompiled with `-fopenmp`,
+and the "multicore" binary contained no OpenMP code at all), `make clean &&
+make perf && make` **failed to link** the record binary, and a perf run
+**overwrote the tracked record binary**. The record build and the
+performance build can no longer touch each other.
 
 **Thread safety:** every OpenMP region uses per-thread private force accumulators that are
 reduced after the parallel region, so there is no race on `atoms[].force`. Energy sums use
@@ -167,46 +201,133 @@ ranges, and all 49 real spherical harmonics (orthonormal through l = 3).
 Demo 1 includes a per-element computed-vs-NIST ledger instead of a blanket
 accuracy claim.
 
-### Exact two-center STO integrals and Roothaan–Hartree–Fock SCF
-`qm_overlap()` now dispatches to exact two-center Slater-type orbital
-integrals computed via prolate-spheroidal coordinates (Rosen 1931; Roothaan
-1951), validated against brute-force 3D Cartesian grid integration in
-`tests/test_eht.c`. Channels: s–s, s–pσ, p–pσ, p–pπ (2p only). Unsupported
-shells fall back to the documented `exp(−ζR)·ang` heuristic.
+### Exact two-center STO integrals and Roothaan-Hartree-Fock SCF
 
-Built on those integrals: Mataga–Nishimoto two-center Coulomb `γ_ab(R)`
-(→ on-site Hubbard U at R→0, → COULOMB_MD/R at R→∞) and
-Wolfsberg–Helmholtz exchange `β_ab = −K_WH·S·(H_aa+H_bb)/2`. These feed
-`qm_eri_zzdo()`, which builds the two-electron Fock contribution
-`J − ½·K` from a diagonal density matrix under ZDO.
+**One overlap kernel, grid-validated.** `eht_overlap_ao()` in
+`src/qm_eht_overlap.c` computes the overlap of two Slater-type AOs given
+in **global Cartesian axes** - `(n, zeta, l, m)` per AO, with `m = 1, 2, 3`
+for p_x, p_y, p_z - from the exact prolate-spheroidal integrals (Rosen
+1931; Roothaan 1951). It is the single place where the Slater-Koster
+direction cosines and the s-p sigma sign are applied, and both the EHT
+solver and the Roothaan-Hartree-Fock solver assemble their overlap
+matrices with it. Before the fourth audit they each had their own copy,
+and the two copies **disagreed**:
 
-A standalone Roothaan–Hartree–Fock SCF solver (`qm_hf_scf()`) assembles S and
-H_core (exact 1s kinetic + nuclear attraction integrals; EHT-parametrized
-off-diagonal for p-involving pairs), solves F·C = S·C·ε by Loewdin
-orthogonalization + Jacobi eigensolver, fills by Aufbau, and iterates the
-density matrix with damped mixing until convergence. Fail codes are loud:
-−1 bad input, −2 singular overlap, −3 non-convergence. Minimal valence basis:
-H 1s; C/N/O 2s+2px+2py+2pz.
+* the EHT copy carried a spurious minus sign in its "p on the first atom"
+  branch, so the overlap matrix of a symmetric molecule was not symmetric
+  under its own mirror. For a bent H-C-H it produced
+  `S(s_H1, p_x) == S(s_H2, p_x)` where the physics demands
+  `S(s_H1, p_x) == -S(s_H2, p_x)`. The EHT SCC then **failed to converge
+  for H-C-H at all**, and N2 came out with the wrong MO ordering, a
+  HOMO-LUMO gap of 0.0000 eV and a Mayer bond order of 2.053 instead of
+  the textbook 3.000;
+* the RHF copy resolved each ATOM's valence shell instead of each AO's own
+  `(n, l)`, and for C/N/O that shell is 2p - so the s-channel wrapper
+  refused every O-H, C-H and N-H pair and the **2s-1s sigma-bonding
+  channel of water and methane was exactly zero** in the overlap matrix;
+* the RHF copy also never populated the principal quantum number per AO,
+  so the VSIP core diagonal always fell back to the first ionisation
+  potential and the O 2s diagonal came out at -13.598 eV instead of
+  -32.3 eV.
+
+Channels: s-s, s-p sigma, p-p sigma, p-p pi (2p only). The textbook
+closed forms (e^{-zR}(1+zR+(zR)^2/3) for 1s-1s, e^{-p}(1+p+2p^2/5+p^3/15)
+for 2p-2p pi) are pinned in `tests/test_audit4.c` to 1e-12 and 1e-10
+respectively, and the kernel is validated against brute-force 3D Cartesian
+grid integration in `tests/test_eht.c`.
+
+**Two-electron integrals.** The two-centre Coulomb kernel is a
+**Hubbard-screened Coulomb**,
+
+```
+gamma_ab(R) = COULOMB_MD / sqrt( R^2 + (28.8 / Ubar_ab)^2 ),  Ubar_ab = (U_a + U_b)/2
+```
+
+with `U = IE - EA` (the chemical hardness). It is continuous with the
+on-site term (`gamma_aa -> U_a`) and tends to `COULOMB_MD/R` at large R.
+The kernel is **externally validated**: the true two-centre Coulomb integral
+<2p_O | 1/r | 1s_H> for the engine's own valence densities at the water
+O-H distance (0.9572 A) is **5.7156 eV** (grid integration of the actual
+charge densities in atomic units), and the kernel returns 5.7720 eV - a
+**1.0 % deviation**. The bare 1/R Coulomb would be 15.0 eV (+162 %).
+
+> The kernel used to be labelled "Mataga-Nishimoto", and it was not one:
+> Mataga & Nishimoto (1957) and its DFTB descendant interpolate as
+> `1/(R + 0.5/(k_A+k_B))`, and the measured deviations from that form are
+> -35 % at 0.5 A and -13 % at 1 A. Substituting the textbook form would
+> make the model *worse* (+19 % against the oracle), so the kernel was
+> kept and the **label was corrected**. The tree now has ONE screened
+> Coulomb kernel and it is the one with an external check.
+
+The exchange is the Wolfsberg-Helmholtz resonance integral
+`beta_ab = -K_WH * S * (H_aa + H_bb)/2` with `K_WH = 1.75` (Hoffmann
+1963), and `qm_eri_zzdo()` builds the RHF Fock contribution `J - 0.5*K`
+from a diagonal density matrix under ZDO.
+
+**The Roothaan-Hartree-Fock SCF solver** (`qm_hf_scf()`) assembles S from
+the shared kernel and H_core from the Hoffmann VSIP diagonal, solves
+F.C = S.C.eps by Loewdin orthogonalization + a Jacobi eigensolver, fills by
+Aufbau, and iterates the density with damped mixing. Fail codes are loud:
+-1 bad input, -2 singular overlap, -3 non-convergence, and **-4 the
+solution is not bound**. Minimal valence basis: H 1s; C/N/O 2s+2px+2py+2pz.
+
+**Honesty block H1-H5** (in `include/qm.h`): this module is *internally
+consistent and numerically sound* - the overlap matrix is exact, the density
+is normalised, and the finite-difference gradient of a smooth energy
+surface is accurate to 1e-5 eV/A - but it is a **qualitative**
+electronic-structure layer, not a predictive one:
+
+* the core Hamiltonian is the EHT diagonal `H_ii = -VSIP`; the exact
+  one-electron integrals are implemented and grid-validated but cover 1s-1s
+  only and are **not** what this solver uses;
+* the off-diagonal core element is the Wolfsberg-Helmholtz *resonance*
+  integral with `K = 1.75`, a constant calibrated for the EHT
+  band-energy formulation, not for an RHF trace expression;
+* the two-electron term is the ZDO approximation;
+* the consequence is that the H2 curve has its minimum at **R = 1.20 A**
+  against the experimental 0.7414 A, and water in this minimal basis does
+  not produce a bound solution at all;
+* the validated electronic-structure module in this tree is the **EHT one**
+  (Demo 18), which converges, gives the correct H2O Mulliken charges
+  (O -0.54 e) and reports its own negative result rather than hiding it.
+
+The demos say all of this out loud, and the not-bound gate refuses to
+report a solution whose lowest orbital is unbound.
 
 ### Wiring quantum SCF into classical MD (`use_qm_scf`)
 `qm_hf_scf_forces()` computes the SCF electronic energy and its
 finite-difference gradient with respect to atomic positions (same FD pattern
-as `qm_pauli_forces()`: 6·N extra SCF solves per force call). It is exposed
+as `qm_pauli_forces()`: 6*N extra SCF solves per force call). It is exposed
 as an opt-in force term in `forces_calculate()` via `sim->use_qm_scf`:
 
-* **Default off (0):** the record path is completely classical — every
+* **Default off (0):** the record path is completely classical - every
   existing demo and the byte-deterministic record are unaffected.
 * **Opt-in (1):** the SCF energy is added to `potential_energy` and reported
   as `E_qm_scf_total`; finite-difference forces are accumulated onto each
   atom alongside LJ, Coulomb, bonded, angle, dihedral, Pauli, dispersion,
-  and induction terms. Independent of `use_scf` (QEq charge loop) — both
+  and induction terms. Independent of `use_scf` (QEq charge loop) - both
   can be set simultaneously.
-* Supports H/C/N/O atoms within the minimal valence basis (≤128 atoms);
-  larger or unsupported systems return rc=-1 and U=0 silently.
+* Supports H/C/N/O atoms within the minimal valence basis (<=128 atoms);
+  larger or unsupported systems return rc=-1 and U=0.
+* **Fail-closed:** a displaced SCF solve that fails leaves that force
+  component at zero and says so. It used to leave the energy at 0.0 - a
+  *finite* number - which the finite difference consumed as a real energy
+  and turned into a force of order E/2h, about 1.5e6 eV/A. That was an
+  integrator-explosion generator, and it was silent.
 
-Because the SCF is O(nao⁴) per solve and forces need 6·N solves per step,
+Because the SCF is O(nao^4) per solve and forces need 6*N solves per step,
 this is intended for small quantum-MD test systems, not production-scale
 dynamics.
+
+**What the quantum-MD demos actually show.** Demo 13 (H2) works: the H2
+relaxes towards the SCF minimum and the force falls from 19 to 1.6 eV/A.
+Demo 14 (H2O) does **not**: the SCF is not bound for water in this basis,
+so the demo says so, reports the quantum-MD claim as UNRESOLVED, and runs
+the classical trajectory as the reference. (Before the audit the same demo
+ran the classical trajectory while *printing* a quantum-MD table, and the
+water exploded: the identical trajectory without the quantum term is stable
+at 250-330 K for 500 steps, and with it the temperature reached the 2000 K
+cap at step 300.)
 
 ### Classical molecular dynamics
 * Velocity Verlet (symplectic) with **Berendsen** weak-coupling (steering;
@@ -222,7 +343,8 @@ dynamics.
   them and a 22-check agreement suite remain in-tree.
 * Temperature uses the correct `3N − 3` degrees of freedom, with further
   constrained-DOF accounting. Two RNGs: the historical Knuth-MMIX LCG
-  (default — keeps the record byte-stable) and PCG64.
+  (default — keeps the record byte-stable) and the **reference PCG64**
+  (O'Neill 2014, XSL-RR 128/64 output) — see §6.1.
 * Minimization: steepest descent (monotonic, clash relief) and FIRE
   (smooth-basin polishing), with a per-atom displacement cap and a
   size-relative divergence floor.
@@ -240,12 +362,19 @@ QEq ≤ 128, first-order polar ≤ 256.
 Hoffmann-1963 Extended Hückel with self-consistent charge (Demo 18,
 `qm_eht.h`): exact prolate-spheroidal STO overlaps (grid-validated, not
 the `qm_overlap` heuristic), VSIP Hamiltonian with Wolfsberg-Helmholtz
-coupling, Löwdin-orthogonalized SCF, Ohno-interpolated Hubbard gammas
-(U from in-tree Mulliken J), Mulliken charges, Mayer bond orders,
-HOMO–LUMO gaps. Single-zeta minimal basis (H/C/N/O), ≤ 64 AOs, fail
-closed. An opt-in BO switch scales harmonic bonds by an overlap-gated
-Mayer interpolant, so bonds weaken and let go instead of pulling to
-infinity (E6–E12 inventory in `qm_eht.h`).
+coupling, Löwdin-orthogonalized SCF, **Hubbard-screened Coulomb gammas**
+(the U values come from the in-tree Mulliken J; the screening constant and
+the hardness were both wrong before the fourth audit — the old kernel
+screened with the mean ionisation potential and returned 10.09 eV for the
+water O–H pair against a grid oracle of 5.7156 eV, a 76 % error; the
+current kernel returns 5.7720 eV, a 1.0 % error), Mulliken charges, Mayer
+bond orders, HOMO–LUMO gaps computed from the **occupations the solver
+actually used** (the previous index-based formula reported the splitting
+*inside* a degenerate pair, and N₂ came out with a gap of 0.0000 eV).
+Single-zeta minimal basis (H/C/N/O), ≤ 64 AOs, fail closed. An opt-in BO
+switch scales harmonic bonds by an overlap-gated Mayer interpolant, so
+bonds weaken and let go instead of pulling to infinity (E6–E12 inventory
+in `qm_eht.h`).
 
 ### Biopolymer condensation chemistry
 Real chemistry, not decoration: leaving groups are genuinely removed following
@@ -472,12 +601,13 @@ contract: stdout is DATA, stderr is diagnostics.
 
 ---
 
-## 5. The demos (14)
+## 5. The demos (20)
 
 Run `./carbonsim` for the record, or `test demo <n>` inside `s2tui` for the
 fast live smoke check.
 
-Demo numbers skip 13–16 (never assigned; reserved). 12b is the real-filter twin of 12, 17 is the duplex, 18 is EHT.
+12b is the real-filter twin of 12, 17 is the duplex, 18 is EHT, and 13–16
+are the quantum-layer demos added in v9R4.
 
 | # | Demo | Current headline |
 |---|---|---|
@@ -497,6 +627,10 @@ Demo numbers skip 13–16 (never assigned; reserved). 12b is the real-filter twi
 | 12c | KcsA ionic layer | Born self-energy vs the measured table; filter contact mismatch; entropic term's status |
 | 17 | DNA duplex | G–C / A–T stack with B-DNA rise and twist; G–C BREATHING / A–T HELD |
 | 18 | EHT semiempirical SCF | H2 band dissociation, H2O Mulliken + gap, BO switch dissolves the wall |
+| 13 | H₂ quantum MD | the Roothaan–Hartree–Fock layer drives an H₂ trajectory; the force falls 19 → 1.6 eV/Å as the molecule relaxes to the SCF minimum |
+| 14 | H₂O quantum MD | **UNRESOLVED** — the SCF is not bound for water in this minimal basis, so the demo says so and runs the classical reference instead of printing a quantum-MD table it cannot support |
+| 15 | H₂ dissociation curve | the SCF curve **has** an interior minimum (R = 1.20 Å against the experimental 0.7414 Å) after the missing nuclear–nuclear repulsion was added; the deviation is printed, not hidden |
+| 16 | H₂ geometry optimization | the SCF-force optimiser converges to the SCF minimum and the deviation from the experimental bond length is printed |
 
 ---
 
@@ -763,12 +897,17 @@ makefile                one command builds every executable (-Werror, -ffp-contr
 NOTE: `build/*.o` + `carbonsim` are TRACKED per repo custom, so every verifier
 (`make clean` first) leaves `git status` showing rebuilt objects. Review only
 `git diff output.txt CURRENT_BASELINE_SHA.txt kcsa.cvmds` for record moves.
+The tracked objects embed the absolute build path in their DWARF, so they
+are not byte-reproducible across machines even though the RECORD is.
 readme.md               this file
 release_note_v9R4.md    the release's corrections and rationale (history)
 DATASTREAM_SPEC.md      the .cvmds format, schema 1
 src/, include/, tests/  the engine and its suites
 audit/                  independent oracles, C harnesses, external references,
                         pre-fix engine copies (make audit / make audit-revert)
+.github/workflows/ci.yml   the CI chain: build, gates, verifier, audit, ASan
+                         record reproducibility, the OpenMP build, and the
+                         record-staleness check
 472-MGB/                S2->MPE display bridge. NOT part of this repo's history:
                         it is versioned independently at
                         github.com/Shicheng-Zhang-0003/MPE-Magi-Bridge

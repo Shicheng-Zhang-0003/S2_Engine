@@ -944,3 +944,246 @@ work.
 seven suites, all green; `verify_scripts.sh` passes. The record's stdout
 diff against part 3 is the new bracket line printed beside the 1000:1
 reference and nothing else — no physics in the record moved.
+
+---
+
+## 11. Fourth audit pass (2026-10-21) — a full mathematical, programming and operational re-audit
+
+### 11.0 What this pass was
+
+A second full audit of the whole tree, run in one sweep rather than
+piecemeal: four independent reviewers worked in parallel over the quantum
+layer (`src/qm.c`), the EHT/quantum modules (`src/qm_eht_*.c`,
+`src/quantum.c`, `src/qm_born.c`, `src/qm_fluctuation.c`), the record
+program and chemistry code (`src/main.c`, `src/tui.c`, `src/sim.c`,
+`src/kcsa_filter.c`, `src/nucleobases.c`, `src/aminoacids.c`,
+`src/datastream.c`, `src/loop.c`, `src/neuron.c`, `src/periodic_table.c`),
+and the operational pipeline (`makefile`, `run`, `verify_scripts.sh`,
+`s01_verify_record.sh`, `audit/run_audit.sh`, the seven test suites).
+
+Every finding was then re-derived from a primary source before it was
+acted on. That discipline cut both ways, and both outcomes matter:
+
+* the finding that the EHT SCC gamma was "not the Ohno interpolation" was
+  **right**, and the label was wrong — but replacing the kernel with the
+  textbook Ohno form would have made the model **worse** (+19 % against a
+  grid oracle, where the existing kernel is within 1.0 %). The kernel was
+  kept, the label was corrected, and the accuracy was pinned;
+* the finding that the reference PCG64 was "not reference pcg64" was
+  **right** — and the fix was to implement the real thing and check it
+  against the upstream `pcg-c` expected-output file rather than against
+  itself.
+
+### 11.1 The physics defects
+
+**P1 — the EHT overlap matrix was not symmetric under the molecular
+mirror** *(CRITICAL, `src/qm_eht_scf.c`)*. The s–pσ branch carried a
+spurious minus sign in its "p on the first atom" case, so
+`S(s_H1, p_x) == S(s_H2, p_x)` where a mirror-symmetric molecule demands
+`S(s_H1, p_x) == −S(s_H2, p_x)`. Measured consequences: the EHT SCC did
+**not converge at all** for a bent H–C–H (rc = −3), and N₂ came out with
+the σ_g(2p_z) above the π_g(2p) instead of below it, a HOMO–LUMO gap of
+**0.0000 eV**, and a Mayer bond order of **2.053** instead of the
+textbook 3.000. Fixed by replacing both overlap assemblers with a single
+shared kernel, `eht_overlap_ao()` in `src/qm_eht_overlap.c`, which
+applies the Slater–Koster direction cosines and the s–pσ sign in one
+place and is grid-validated.
+
+**P2 — the Roothaan–HF overlap matrix was missing the 2s–1s channel**
+*(CRITICAL, `src/qm.c`)*. The matrix was assembled from each ATOM's
+valence shell, and for C/N/O that shell is 2p — so the s-channel wrapper
+refused every O–H, C–H and N–H pair and the dominant σ-bonding channel of
+water and methane was **exactly zero**.
+
+**P3 — the VSIP core diagonal was never used** *(MAJOR, `src/qm.c`)*.
+`ao_n[]` was never populated, so `eht_vsip(Z, n, l)` matched no table row,
+the fallback fired on every AO, and `H_ii` was the first ionisation
+potential for every orbital: the O 2s diagonal came out at −13.598 eV
+instead of −32.3 eV, a 19 eV error on the deepest orbital.
+
+**P4 — the SCF density was passed with the wrong stride** *(CRITICAL,
+`src/qm.c`)*. `(double *)P` flattened a 64-wide array, and
+`qm_eri_zzdo()` indexed it with stride `n_ao`. For H₂ (nao = 2) it read
+`P[0][0]` correctly and `P[1][1]` from an off-diagonal element. The whole
+two-electron Fock contribution was built on garbage populations, and the
+resulting Fock matrix came out **asymmetric for a symmetric molecule**.
+
+**P5 — the eigenvalue sort overwrote its own source** *(CRITICAL,
+`src/qm.c`)*. `eps[i] = eps[idx[i]]` destroyed the array while it was
+still being read: the raw Jacobi output `(46.19, −13.97) eV` came back as
+`(−13.97, −13.97)`, i.e. the LUMO replaced by a duplicate of the HOMO.
+
+**P6 — the nuclear–nuclear repulsion was missing** *(MAJOR, `src/qm.c`)*.
+Without `Σ_{A<B} Z_A Z_B / R_AB` the electronic energy of H₂ falls
+monotonically as the atoms approach, so the "bond" had **no minimum** and
+the dissociation limit was not the sum of the atomic energies. With the
+term restored, the SCF H₂ curve has an interior minimum at **R = 1.20 Å**
+(experimental 0.7414 Å) — the shape is right, the depth and the position
+are not, and the demo says so.
+
+**P7 — the finite-difference SCF force driver was fail-open** *(MAJOR,
+`src/qm.c`)*. A failed displaced solve left the energy at 0.0, which is a
+*finite* number, so the difference quotient consumed it as a real energy
+and produced a force of order E/2h ≈ 1.5 × 10⁶ eV/Å. Silent, and an
+integrator-explosion generator.
+
+**P8 — the coupled-dipole operator carried a spurious Coulomb factor**
+*(MAJOR, `src/qm.c`)*. The engine's own conventions (field in V/Å, α in
+Å³, μ = αE/COULOMB_MD) make the COULOMB_MD cancel in the coupling
+block; the code multiplied it in as well. The dipoles were 3.6× too
+large, could anti-align with the field, and the induced-dipole energy
+could come out **positive** — which a variational solution cannot do.
+
+**P9 — the Born induction energy was 111× too large** *(MAJOR,
+`src/qm_born.c`, `src/main.c`)*. Two independent errors: the function
+omitted the 1/(4πε₀) factor (it returned e²·Å, not eV), and the "cage
+field" constant was the **potential** of a unit charge at 2.78 Å
+(5.18 V) rather than the **field** (1.863 V/Å). The printed induction
+energies are now −0.006253 eV (K⁺) and −0.001356 eV (Na⁺) instead of
+−0.6960 eV and −0.1509 eV.
+
+**P10 — the ZDO screened-Coulomb kernel was 76 % off** *(MAJOR,
+`src/qm.c`)*. It screened with the mean ionisation potential, giving
+10.09 eV for the water O–H pair against a grid oracle of **5.7156 eV**.
+Unified with the EHT module's Hubbard-screened kernel, which gives
+5.7720 eV — a 1.0 % deviation.
+
+**P11 — the "Mataga–Nishimoto" label was false** *(MINOR, `src/qm.c`,
+`src/qm_eht_scf.c`)*. The implemented kernel is a Gaussian-screened
+Coulomb, not the MN interpolation, and the "reproduces MN within 1 %"
+claim was false (measured: −35 % at 0.5 Å). The label and the claim were
+corrected; the kernel was kept because the textbook substitution is
+worse.
+
+**P12 — the paired fluctuation energy was taken at two different
+geometries** *(MAJOR, `src/qm_fluctuation.c`)*. `integrator_step` ends
+with the forces evaluated at the post-drift coordinates, so `e_live` had
+the ion off-axis while the counterfactual had it on-axis. The artefact
+contributed 5–18 % of the reported variance — more than the K⁺-vs-Na⁺
+variance difference the whole selectivity argument rested on.
+
+**P13 — the KcsA hydroxyl angle was 70.5°** *(MAJOR,
+`src/kcsa_filter.c`)*. The cone was built around the C→O axis, so
+∠C–O–H came out at 180° − 109.5° = **70.5°** instead of 109.5° — on
+Thr75 OG1, the *innermost* filter ligand.
+
+**P14 — the one-electron integrals were wrong** *(MAJOR, `src/qm.c`)*.
+The prolate exponent split was `ζ_aR/2, ζ_bR/2` instead of
+`(ζ_a+ζ_b)R/2, (ζ_a−ζ_b)R/2`, so the kinetic integral had the **wrong
+sign** (the operator is positive semidefinite) and the nuclear
+attraction was independent of R. The attraction also carried a factor-2
+unit error. The functions were dead code, but they are exported API.
+
+**P15 — the EHT HOMO–LUMO gap was index-based** *(MAJOR,
+`src/qm_eht_scf.c`)*. `eps[nhomo+1] − eps[nhomo]` lands *inside* a
+degenerate pair when one straddles the Fermi level, so the reported
+"gap" was the splitting within the block. The gap and the band energy
+are now built from the occupations the solver actually used.
+
+### 11.2 The programming defects
+
+* `forces_calculate()` allocated its cell-list work buffers **twice** and
+  leaked the first set on every call (432 kB per call at N = 1000 with 18
+  threads);
+* the cell-list pair path ignored the degenerate-cutoff rule and the
+  angle-list exclusion, so the two pair paths could disagree about the
+  same system;
+* the cell-list grid was built with unchecked `int` products, so a
+  user-settable small cutoff could overflow into a **heap out-of-bounds
+  write**; the grid origin was discarded, so `sim_cell_index_atom()`
+  returned −1 for every atom of any system not near the origin; the
+  rebuild leaked the previous arrays; and a cell count was truncated
+  rather than ceiled;
+* `pt_by_symbol(NULL)` passed NULL to `strcmp` — undefined behaviour,
+  and a segfault under ASan;
+* `ds_verify_file(NULL)` passed NULL to `fopen` — undefined behaviour
+  (crashes on musl and macOS);
+* a NaN or an infinity could be sealed into a signed datastream, and the
+  file verified "clean";
+* `strftime`'s return value was unchecked, so a failure left an
+  uninitialised buffer in the sealed header; `fclose`'s return value was
+  ignored, so a short write at close was swallowed; `gmtime` (not
+  `gmtime_r`) was used under an OpenMP build;
+* `pt_electron_config_n` reported `total_electrons = 128` while placing
+  118;
+* the temperature-cap warning was written to stderr in **batch** mode —
+  69 lines in the record run, which made the empty-stderr gate, and
+  therefore `./run`'s promotion, impossible to satisfy;
+* `parse_ranges` truncated a validated `long` to `int`, so
+  `cut -c 4294967296` selected every position;
+* `cmd_load` sized its simulation past `MAX_ATOMS`/`MAX_BONDS`, so a
+  maximum-size save file could not be loaded;
+* the Hodgkin–Huxley `stable_ratio` used its Taylor branch only below
+  x = 1e−6, exactly where the direct branch's cancellation is worst
+  (the relative error jumped 500× at the threshold);
+* the SCF's work arrays were plain function-statics — a data race under
+  the OpenMP build.
+
+### 11.3 The operational defects
+
+* **the tracked record did not correspond to HEAD.** The October commits
+  that added demos 13–16 all say "all 491 gates green" and all ran
+  `make test` only; the *record* gate was never run, and `output.txt` had
+  drifted away from the source. The record has been regenerated and the
+  staleness check is now a CI step.
+* `verify_scripts.sh` tested `fail` **before** the TUI checks, so a red
+  TUI check still printed "VERIFY PASSED" and exited 0; it had no
+  self-location, so `make clean` inside it ran against the *caller's*
+  directory (demonstrated by deleting an unrelated project's files); and
+  its "charge unit e present" check counted the key name without ever
+  looking at the unit field.
+* `./run --accept` copied an **unsealed** `kcsa.cvmds` after warning
+  about it, promoted it silently when the verifier binary was missing,
+  and used `cp` in place, so an interruption mid-copy left a truncated
+  record. It also never checked that the ledger and the record agreed.
+* `make perf` shared the record's objects and binary names: `make perf`
+  after `make` was a **silent no-op** with no OpenMP code in the
+  "multicore" binary, `make clean && make perf && make` failed to link
+  the record, and a perf run overwrote the tracked record binary. The
+  perf build now has its own object directory, its own binaries, and its
+  own build-identity strings (the sealed datastream used to record the
+  *record* build's flags for a perf artifact).
+* three of the eight gates had no `FAIL`-line fallback, so a suite could
+  print FAIL and the gate would still pass; `test_regression`'s stderr
+  was not captured, so its own fallback was blind;
+* `s01_verify_record.sh` overrode `CFLAGS` and so dropped the
+  build-identity defines ("build-compiler: unknown" in the sealed
+  artifact), did not pin `-ffp-contract=off` in the one build that most
+  needed it, left UBSan recoverable, inherited ambient
+  `ASAN_OPTIONS`/`UBSAN_OPTIONS` unfiltered, and overwrote the tracked
+  `kcsa.cvmds` by running the engine in the caller's directory;
+* **there was no CI at all.** `.github/workflows/ci.yml` now runs the whole
+  chain, ending with
+  `git diff --exit-code -- output.txt CURRENT_BASELINE_SHA.txt kcsa.cvmds`.
+
+### 11.4 The RNG is now the real thing
+
+The generator labelled PCG64 was an invention: the reference 128-bit
+multiplier with a 64-bit increment, a made-up output permutation and
+non-reference seeding, so no published vector could check it — and the
+readme claimed in one place that it was "PCG64 (O'Neill 2014) … canonical
+128-bit multiply + XSL-RR permutation" and in another that it was "NOT
+reference pcg64". It is now the **reference** `pcg64` (XSL-RR 128/64,
+`pcg_variants.h`), and the engine's stream for a given seed reproduces the
+upstream `pcg-c` expected-output file byte for byte:
+
+```
+pcg64_srandom_r(&rng, 42, 54) ->
+  86b1da1d72062b68 1304aa46c9853d39 a3670e9e0dd50358
+  f9090e529a7dae00 c85b9fd837996f2c 606121f8e3919196
+```
+
+The same six values appear in the Rust `rand_pcg` crate's published test
+(an independent port). `tests/test_audit4.c` pins them.
+
+### 11.5 Gates
+
+`test_audit4` is the eighth suite: **43** checks, one per defect above,
+each built on an independent oracle — the upstream published PCG64
+vectors, the textbook overlap closed forms, the mirror symmetry of a bent
+H–C–H, a brute-force 3D grid integration of the actual valence charge
+densities, the L'Hôpital limits of the Hodgkin–Huxley rate functions, and
+the geometric symmetry of a hydroxyl. `test_external` grew from 150 to
+153. The tree now pins **537 checks across eight suites**, all green, and
+the CI chain runs them plus the audit, the ASan/UBSan record
+reproducibility harness, the OpenMP build, and the record-staleness check.
