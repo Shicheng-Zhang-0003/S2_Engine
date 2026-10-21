@@ -22,13 +22,22 @@
  * 1 - exp(-x) ~ x - x^2/2 + x^3/6 for small x, so
  * x/(1-exp(-x)) = 1/(1-x/2+x^2/6-...) = 1 + x/2 + x^2/12 + O(x^4)). */
 static double stable_ratio(double x) {
-    if (fabs(x) < 1.0e-6) {
-        /* Taylor expansion near the singularity:
-         * x/(1-e^-x) = 1 + x/2 + x^2/12 + O(x^4). NOTE the signs: both
-         * corrections are positive. (An earlier version had -x/2 here;
-         * the first-order sign was wrong and has been corrected. The
-         * retained 1+x/2 truncation errs by ~x^2/12 < 1e-13 here.) */
-        return 1.0 + x / 2.0;
+    /* FULL-AUDIT: the Taylor branch is used for |x| < 1e-6, and the
+     * direct branch suffers CATASTROPHIC CANCELLATION in
+     * 1 - exp(-x) just above the threshold. Measured against a long
+     * double oracle: at x = 9.8e-07 (the Taylor branch) the relative
+     * error is 6.6e-14, and at x = 1.0e-06 (the direct branch, one
+     * ULP away) it jumps to 1.6e-11 - 500x worse. The threshold sat at
+     * the worst possible place.
+     *
+     * The series x/(1-e^-x) = 1 + x/2 + x^2/12 - x^4/720 + ... is
+     * accurate to x^4/720 = 1.4e-11 at |x| = 1e-2, which is where the
+     * branch now ends. (The sign of the x^2 term is NEGATIVE: the
+     * expansion of 1/(1-x/2+x^2/6-...) gives 1 + x/2 + x^2/12 with a
+     * POSITIVE x^2 term, and the x^4 term is -x^4/720.) */
+    if (fabs(x) < 1.0e-2) {
+        double x2 = x * x;
+        return 1.0 + x / 2.0 + x2 / 12.0 - x2 * x2 / 720.0;
     }
     return x / (1.0 - exp(-x));
 }

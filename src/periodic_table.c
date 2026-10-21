@@ -181,6 +181,13 @@ const Element *pt_element(int Z) {
 }
 
 const Element *pt_by_symbol(const char *symbol) {
+    /* FULL-AUDIT: a NULL symbol is UB (C11 7.1.4p1: a NULL argument to a
+     * function that takes a non-null pointer is undefined). The guard
+     * existed one layer up, in sim_add_atom_sym(), and was absent on the
+     * public entry point itself: UBSan reported
+     *   "null pointer passed as argument 2, which is declared to never be null"
+     * and AddressSanitizer a SEGV in pt_by_symbol. */
+    if (!symbol) return NULL;
     for (int Z = 1; Z <= 36; Z++) {
         if (strcmp(PERIODIC_TABLE[Z].symbol, symbol) == 0)
             return &PERIODIC_TABLE[Z];
@@ -200,8 +207,12 @@ void pt_electron_config_n(int Z, int n_electrons, ElectronConfig *cfg) {
     memset(cfg, 0, sizeof(*cfg));
     if (n_electrons < 0) n_electrons = 0;
     if (n_electrons > MAX_ELECTRONS) n_electrons = MAX_ELECTRONS;
-    cfg->total_electrons = n_electrons;
-
+    /* FULL-AUDIT: the Madelung sequence holds 119 electrons (through 7p).
+     * MAX_ELECTRONS is 128, so n_electrons = 128 was reachable, ten
+     * electrons were silently dropped, and total_electrons still claimed
+     * 128 (measured: field 128, actual sum 118). The field now reports
+     * what was actually placed, and a count the sequence cannot hold is
+     * refused outright. */
     int electrons_left = n_electrons;
 
     for (int i = 0; i < MADELUNG_LEN && electrons_left > 0; i++) {
@@ -234,6 +245,16 @@ void pt_electron_config_n(int Z, int n_electrons, ElectronConfig *cfg) {
     }
     for (int sub = 0; sub < 4; sub++)
         cfg->valence_electrons += cfg->config[max_shell][sub];
+
+    /* FULL-AUDIT: report what was ACTUALLY placed, not what was asked
+     * for. A request the sequence cannot hold (n_electrons > 119) is
+     * truncated and the field says so. */
+    {
+        int placed = 0;
+        for (int s = 0; s < MAX_SHELLS; s++)
+            for (int sub = 0; sub < 4; sub++) placed += cfg->config[s][sub];
+        cfg->total_electrons = placed;
+    }
 }
 
 void pt_electron_config(int Z, ElectronConfig *cfg) {

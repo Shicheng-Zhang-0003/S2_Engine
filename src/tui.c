@@ -1867,7 +1867,17 @@ static int cmd_load(Tui *t, const char *path) {
         R[i].fb = (got >= 6) ? fb : 0.0;
     }
     {
-        Simulation *s = sim_create(na + 8 > 8 ? na + 8 : 8, nb + 8 > 8 ? nb + 8 : 8);
+        /* FULL-AUDIT: the capacities were computed as na+8 and nb+8,
+         * which EXCEEDS the hard caps (MAX_ATOMS = 100000,
+         * MAX_BONDS = 200000) for a file the parser itself accepts
+         * (na up to 100000, nb up to 200000). sim_create() then returns
+         * NULL and the load of a maximum-size - but valid - save file
+         * fails. The capacities are clamped to the caps instead. */
+        int cap_a = na + 8 > 8 ? na + 8 : 8;
+        int cap_b = nb + 8 > 8 ? nb + 8 : 8;
+        if (cap_a > MAX_ATOMS) cap_a = MAX_ATOMS;
+        if (cap_b > MAX_BONDS) cap_b = MAX_BONDS;
+        Simulation *s = sim_create(cap_a, cap_b);
         if (!s) goto done;
         int ok = 1;
         for (int i = 0; i < na && ok; i++) {
@@ -3219,6 +3229,13 @@ static int parse_ranges(const char *s, int *lo, int *hi, int maxr) {
                 p = e;
             }
         }
+        /* FULL-AUDIT: `a` and `b` are validated as `long` and then
+         * TRUNCATED to int. `cut -c 4294967296` became lo[0] = 0, which
+         * selects every position; `cut -c 1-4294967295` became
+         * hi[0] = -1, which is the OPEN-RANGE sentinel, so it also
+         * selected everything. Both are silent over-selection. */
+        if (a > 2147483647L || a < 1) return -1;
+        if (b != -1 && (b > 2147483647L || b < 1)) return -1;
         lo[n] = (int)a;
         hi[n] = (int)b;
         n++;

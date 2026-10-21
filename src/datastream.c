@@ -4,6 +4,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <math.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <time.h>
@@ -195,7 +196,6 @@ static void ds_append(DSWriter *w, const char *fmt, ...) {
 DSWriter *ds_open(const char *path, const char *demo) {
     DSWriter *w = (DSWriter *)calloc(1, sizeof(DSWriter));
     time_t now;
-    struct tm *tmv;
     char stamp[32];
     if (!w) return NULL;
     if (!path || !demo || !*path || !*demo) { free(w); return NULL; }
@@ -216,9 +216,21 @@ DSWriter *ds_open(const char *path, const char *demo) {
             if (end != sde && v >= 0) now = (time_t)v;
         }
     }
-    tmv = gmtime(&now);
-    if (!tmv) { free(w); return NULL; }
-    strftime(stamp, sizeof stamp, "%Y-%m-%dT%H:%M:%SZ", tmv);
+    /* FULL-AUDIT: gmtime() returns a pointer to a static buffer, which
+     * is a data race under the OpenMP performance build. gmtime_r is
+     * the reentrant form and writes into a caller-owned struct. */
+    {
+        struct tm tmbuf;
+        if (!gmtime_r(&now, &tmbuf)) { free(w); return NULL; }
+        if (!strftime(stamp, sizeof stamp, "%Y-%m-%dT%H:%M:%SZ", &tmbuf)) {
+            free(w);
+            return NULL;
+        }
+    }
+    /* FULL-AUDIT: strftime returns 0 on failure and does NOT
+     * NUL-terminate, so a failure left `stamp` uninitialised and it
+     * was written into the SEALED header. The check is above, inside
+     * the gmtime_r block. */
     ds_append(w, "[header]\n");
     ds_append(w, "schema: 1\n");
     ds_append(w, "demo: %s\n", w->demo);
@@ -285,6 +297,16 @@ void ds_add_claim(DSWriter *w, const char *key, double value,
         w->failed = 1;
         return;
     }
+    /* FULL-AUDIT: a non-finite value must never enter the payload. A
+     * "nan" or "inf" claim was sealed inside a SHA-256-signed file and
+     * the file verified CLEAN, so a consumer reading the claim got a
+     * non-finite quantity with no signal that it was one. The writer now
+     * fails closed: the whole file is abandoned rather than sealed with
+     * a non-finite number in it. */
+    if (!isfinite(value)) {
+        w->failed = 1;
+        return;
+    }
     if (w->n_claims++ == 0)
         ds_append(w, "\n[claims]\n"
                      "# key value unit provenance\n");
@@ -309,7 +331,17 @@ int ds_close(DSWriter *w) {
         if (!f || fwrite(w->buf, 1, w->len, f) != w->len) {
             rc = -1;
             if (f) { fclose(f); remove(w->path); }
-        } else fclose(f);
+        } else if (fclose(f) != 0) {
+            /* FULL-AUDIT: a short write that only materialises at
+             * fclose() (ENOSPC on a buffered stream) was swallowed:
+             * ds_close returned 0 for a truncated file. The seal was
+             * computed over the full buffer, so the truncated file
+             * would fail ds_verify_file() - but the WRITER reported
+             * success. Now the close error is honoured and the partial
+             * file is removed. */
+            rc = -1;
+            remove(w->path);
+        }
     }
     free(w->buf);
     free(w);
