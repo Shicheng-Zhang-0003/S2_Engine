@@ -121,6 +121,10 @@ int qm_series_stats(const double *series_eV, int n, QmSeries *out);
  * because Na+ compresses the filter harder and its binding energy swings
  * wider.
  */
+/* Returns (var_a - var_b)/2, or NaN if either variance is not finite
+ * (FULL-AUDIT: a non-finite input used to be silently converted to a
+ * clean 0.0 eV, which is the one answer this term must never give by
+ * accident). Callers MUST check isfinite() before using the result. */
 double qm_fluctuation_term_eV(double var_a_eV2, double var_b_eV2);
 
 /*

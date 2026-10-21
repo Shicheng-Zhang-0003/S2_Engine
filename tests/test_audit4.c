@@ -28,6 +28,7 @@
 #include "periodic_table.h"
 #include "datastream.h"
 #include "kcsa_filter.h"
+#include "qm_fluctuation.h"
 #include "neuron.h"
 
 #ifndef M_PI
@@ -499,6 +500,148 @@ static void test_kcsa_hydroxyl_angle(void) {
     sim_destroy(sim);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+ * 13. The KcsA layer, verified end to end from the deposited geometry.
+ *
+ * These are not the demo's own numbers compared with themselves: the
+ * coordination numbers and the contact distances are RE-DERIVED here
+ * from the atom list, and the thermodynamic numbers are compared with
+ * independently computed references.
+ * ═══════════════════════════════════════════════════════════════════════ */
+static void test_kcsa_end_to_end(void) {
+    grp("KcsA: the deposited filter, the ionic layer, and the hydrogens");
+    Simulation *sim = sim_create(KCSA_FILTER_ATOMS * 4 + 26 * 4 + 8,
+                                 KCSA_FILTER_BONDS * 4 + 26 * 4 + 16);
+    if (!sim) { ok("simulation allocation", 0, "sim_create failed"); return; }
+    int f = kcsa_build_filter(sim, vec3(0, 0, 0), 4);
+    ok("the deposited 1K4C filter builds", f >= 0, "rc >= 0");
+    if (f < 0) { sim_destroy(sim); return; }
+    ok("the filter is 164 atoms (4 x 41)", sim->num_atoms == 164, "164");
+    {
+        double q = 0.0;
+        for (int i = 0; i < sim->num_atoms; i++) q += sim->atoms[i].partial_charge;
+        okabs("the filter is neutral", q, 0.0, 1e-9);
+    }
+    /* the coordination number and the mean contact, re-derived here */
+    {
+        Vec3 sites[4];
+        int ns = kcsa_ion_sites(4, sites);
+        ok("four ion sites are defined", ns == 4, "4");
+        static const double mean_ref[4] = {2.932, 2.777, 2.773, 2.912};
+        for (int s = 0; s < ns && s < 4; s++) {
+            int cn = 0;
+            double sum = 0.0;
+            for (int i = 0; i < sim->num_atoms; i++) {
+                if (sim->atoms[i].Z != 8) continue;
+                double r = vec3_dist(sim->atoms[i].position, sites[s]);
+                if (r < 3.2) { cn++; sum += r; }
+            }
+            double mean = (cn > 0) ? sum / cn : 0.0;
+            char d[160];
+            snprintf(d, sizeof d, "site %d: CN=%d <ion-O>=%.4f A", s + 1, cn, mean);
+            ok("every site is 8-coordinate", cn == 8, d);
+            okrel(d, mean, mean_ref[s], 2e-3);
+        }
+    }
+    /* the ionic layer */
+    okrel("K+ Shannon VIII radius", kcsa_cation_radius(19), 1.51, 1e-9);
+    okrel("Na+ Shannon VIII radius", kcsa_cation_radius(11), 1.18, 1e-9);
+    ok("an unlisted ion has NO radius (fails closed)",
+       kcsa_cation_radius(26) == 0.0, "0 for Z=26");
+    okrel("the K+ preferred contact (Shannon + 1.40)",
+          kcsa_cation_radius(19) + 1.40, 2.910, 1e-9);
+    okrel("the Na+ contact mismatch", 2.777 - (kcsa_cation_radius(11) + 1.40),
+          0.197, 2e-3);
+    okrel("Born self-energy, Na+", qm_born_self_energy_kJmol(11, 78.5),
+          -381.0, 1e-3);
+    okrel("Born differential dG(Na-K)",
+          qm_born_hydration_differential_kJmol(11, 19, 78.5), -51.3, 1e-3);
+    okrel("the measured TATB differential dG(Na-K)",
+          kcsa_hydration_free_energy_kJmol(11) - kcsa_hydration_free_energy_kJmol(19),
+          -70.0, 1e-3);
+    okrel("the Born deficit",
+          qm_born_hydration_differential_kJmol(11, 19, 78.5)
+          - (kcsa_hydration_free_energy_kJmol(11)
+             - kcsa_hydration_free_energy_kJmol(19)), 18.7, 1e-3);
+    {
+        const double contact = 2.78;
+        const double field = COULOMB_MD / (contact * contact);
+        okrel("the cage field is the FIELD at the contact distance",
+              field, 1.86321172, 1e-8);
+        okrel("the screened induction energy, K+",
+              qm_born_induction_eV(qm_ion_alpha_free(19), field, 4.0),
+              -0.0062531771, 1e-8);
+        okrel("the screened induction energy, Na+",
+              qm_born_induction_eV(qm_ion_alpha_free(11), field, 4.0),
+              -0.0013561107, 1e-8);
+    }
+    /* the fluctuation term must refuse a non-finite variance */
+    ok("a non-finite variance is REFUSED, not silently zeroed",
+       !isfinite(qm_fluctuation_term_eV(INFINITY, 0.1)) &&
+       !isfinite(qm_fluctuation_term_eV(0.1, INFINITY)),
+       "the term is not a finite number");
+    /* the hydrogens: the 70.5 -> 109.5 fix, and the neutrality */
+    if (kcsa_add_hydrogens(sim, f, 4) < 0) {
+        ok("hydrogen completion", 0, "kcsa_add_hydrogens failed");
+    } else {
+        double q = 0.0;
+        for (int i = 0; i < sim->num_atoms; i++) q += sim->atoms[i].partial_charge;
+        okabs("the hydrogen-completed filter is still neutral", q, 0.0, 1e-9);
+        int noh = 0, bad = 0;
+        double worst = 0.0;
+        for (int i = 0; i < sim->num_atoms; i++) {
+            if (sim->atoms[i].Z != 8) continue;
+            for (int p = 0; p < sim->atoms[i].num_bonds; p++) {
+                int c = sim->atoms[i].bond_partners[p];
+                if (c < 0 || c >= sim->num_atoms || sim->atoms[c].Z != 6) continue;
+                for (int q2 = 0; q2 < sim->atoms[i].num_bonds; q2++) {
+                    int h = sim->atoms[i].bond_partners[q2];
+                    if (h < 0 || h >= sim->num_atoms || sim->atoms[h].Z != 1) continue;
+                    Vec3 oc = vec3_sub(sim->atoms[c].position, sim->atoms[i].position);
+                    Vec3 oh = vec3_sub(sim->atoms[h].position, sim->atoms[i].position);
+                    double a = acos(vec3_dot(vec3_normalize(oc),
+                                            vec3_normalize(oh))) * 180.0 / M_PI;
+                    noh++;
+                    double dev = fabs(a - 109.5);
+                    if (dev > worst) worst = dev;
+                    if (dev > 2.0) bad++;
+                }
+            }
+        }
+        char d[160];
+        snprintf(d, sizeof d, "%d hydroxyls, worst deviation %.3f deg", noh, worst);
+        ok("every hydroxyl is 109.5 +/- 2 deg", bad == 0 && noh > 0, d);
+        /* The angle list must come from the DEPOSITED GEOMETRY, not from
+         * the element-keyed table. The precise test is not "no angle
+         * equals 109.47 deg" (a real tetrahedral carbon in a protein
+         * legitimately has a C-H-C angle near 110 deg) - it is that every
+         * listed theta0 reproduces the angle the deposited coordinates
+         * actually make. */
+        {
+            int n = sim->num_angles, bad = 0;
+            double worst = 0.0;
+            for (int a = 0; a < n; a++) {
+                const Angle *an = &sim->angles[a];
+                if (an->atom_a < 0 || an->atom_b < 0 || an->atom_c < 0) { bad++; continue; }
+                if (an->atom_a >= sim->num_atoms || an->atom_b >= sim->num_atoms ||
+                    an->atom_c >= sim->num_atoms) { bad++; continue; }
+                double th = vec3_angle(
+                    vec3_sub(sim->atoms[an->atom_a].position, sim->atoms[an->atom_b].position),
+                    vec3_sub(sim->atoms[an->atom_c].position, sim->atoms[an->atom_b].position));
+                double d = fabs(th - an->theta0);
+                if (d > worst) worst = d;
+                if (d > 1e-6) bad++;
+            }
+            char d[160];
+            snprintf(d, sizeof d, "%d angles, worst |theta0 - theta_geometry| = %.2e rad",
+                     n, worst);
+            ok("every listed angle reproduces the deposited geometry",
+               bad == 0 && n > 0, d);
+        }
+    }
+    sim_destroy(sim);
+}
+
 int main(void) {
     test_pcg64_reference();
     test_eht_mirror_symmetry();
@@ -512,6 +655,7 @@ int main(void) {
     test_periodic_table_guards();
     test_neuron_singularities();
     test_kcsa_hydroxyl_angle();
+    test_kcsa_end_to_end();
     printf("\n══════════════════════════════════════════════════════════════\n");
     printf("  TOTAL %d passed, %d failed\n", g_pass, g_fail);
     printf("══════════════════════════════════════════════════════════════\n");

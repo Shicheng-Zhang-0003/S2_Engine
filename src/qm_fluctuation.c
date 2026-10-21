@@ -91,7 +91,13 @@ int qm_series_stats(const double *series_eV, int n, QmSeries *out) {
 }
 
 double qm_fluctuation_term_eV(double var_a_eV2, double var_b_eV2) {
-    if (!isfinite(var_a_eV2) || !isfinite(var_b_eV2)) return 0.0;
+    /* FULL-AUDIT: a non-finite input used to be converted to a CLEAN
+     * ZERO, so an overflow in the variance propagated into the free
+     * energy as a tidy 0.0 eV - indistinguishable from "the two
+     * fluctuations are identical", which is the one thing this term
+     * must never say by accident. The honest answer is "not a number",
+     * and the caller checks isfinite() before it is used. */
+    if (!isfinite(var_a_eV2) || !isfinite(var_b_eV2)) return NAN;
     return 0.5 * (var_a_eV2 - var_b_eV2);
 }
 

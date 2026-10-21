@@ -29,7 +29,7 @@ every line command works, only the alternate-screen reports unavailable).
 |---|---|
 | `make` / `make -j$(nproc)` | build everything: `carbonsim`, `s2tui`, and all eight test binaries (serial record build, byte-deterministic) |
 | `make perf` | build everything with **OpenMP multicore** (`-fopenmp -DS2_OPENMP -march=native`) — cell-list O(N) pair search + parallel O(N²) kernels across all cores. The perf build has its **own object directory (`build-perf/`) and its own binaries (`carbonsim-perf`, `s2tui-perf`)**, so it can never contaminate the record build. Performance runs only; **never for the record** (thread scheduling changes FP summation order, so digests differ from the serial record). |
-| `./carbonsim` | run the 20-demo record sequence (**~7 minutes**; the polar-WHAM leg dominates); stdout is the byte-deterministic record |
+| `./carbonsim` | run the 20-demo record sequence (**~11 minutes**; the polar-WHAM leg dominates); stdout is the byte-deterministic record |
 | `./run` | clean build behind a warning gate, run to `runs/<timestamp>.txt`, print old/new digests side by side |
 | `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt` + `kcsa.cvmds` (staged atomically: each artefact is written to a temporary name and renamed into place, and the ledger is written last); refuses to promote unless stderr is empty, `make test` is green, **and** the staged `kcsa.cvmds` seal verifies |
 | `make test` | build and run the eight unit gates only (19/22/7/202/153/60/31/43) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |

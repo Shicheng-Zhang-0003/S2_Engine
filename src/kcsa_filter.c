@@ -959,6 +959,22 @@ int kcsa_add_hydrogens(Simulation *sim, int filter_first, int n_subunits) {
             }
         }
     }
-    sim_rebuild_angles(sim);
+    /* FULL-AUDIT: this used to call sim_rebuild_angles(), which builds
+     * the angle list from the ELEMENT-KEYED table. For any untabulated
+     * angle that table falls back to a generic 109.47 deg tetrahedral
+     * value, and a peptide is PLANAR - its amide angles are near 120 deg
+     * - so the hydrogens were given angles that inject tens of eV of
+     * artificial strain into a deposited structure. It also directly
+     * contradicted this file's own documented rationale, twenty lines
+     * above kcsa_build_filter:
+     *
+     *   "NO sim_rebuild_angles here, deliberately. ... rebuilding angles
+     *    onto a DEPOSITED peptide injects tens of eV of artificial
+     *    strain that has nothing to do with the ion."
+     *
+     * The geometric variant sets theta0 from the atoms' ACTUAL Cartesian
+     * positions, so the deposited geometry is the reference and no
+     * strain is injected - which is what this function needs. */
+    sim_rebuild_angles_geometric(sim, 4.770);
     return total;
 }

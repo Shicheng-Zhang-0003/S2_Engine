@@ -4452,18 +4452,25 @@ static void demo_kcsa_ionic(void) {
     printf("  deposited filter as a breathing peptide with the ion inside and\n");
     printf("  measures the variance of the ion's binding energy over an\n");
     printf("  explicit Langevin NVT trajectory.\n");
-    printf("  It does NOT converge, and the reason is structural: the engine\n");
-    printf("  has no side-chain torsion terms, and four of the eight filter\n");
-    printf("  oxygens belong to Thr75's side chain. Without torsions the\n");
-    printf("  hydroxyl leaves the shell, the coordination number falls from\n");
-    printf("  8 to 3-5, and the O-O diagonals close from the crystallographic\n");
-    printf("  ~4.5-5.5 A to ~3.5 A. Measured at every temperature from 50 K to\n");
-    printf("  300 K and every C-alpha restraint stiffness from 0.5 to 16\n");
-    printf("  eV/A^2. No thermostat and no restraint recovers it, because the\n");
-    printf("  missing term is the physics and not the parameters.\n");
+    printf("  The machinery is in place and it holds the 8-fold site: the\n");
+    printf("  backbone (phi/psi/omega) and side-chain (chi1) dihedrals\n");
+    printf("  were added (kcsa_add_dihedrals), the ion is held on the pore\n");
+    printf("  axis, and the coordination number stays at 8 over the\n");
+    printf("  sampling window.\n");
+    printf("  It STILL does not converge, and the reason is now PARAMETERS,\n");
+    printf("  not a missing term: the dihedral force constants, the C-alpha\n");
+    printf("  tether stiffness and the sampling length have not been tuned,\n");
+    printf("  so the binding-energy variance is not yet stable across\n");
+    printf("  temperatures and stiffnesses. (Before the torsions existed the\n");
+    printf("  failure was structural: the Thr75 hydroxyl left the shell,\n");
+    printf("  the coordination number fell from 8 to 3-5, and the O-O\n");
+    printf("  diagonals closed from the crystallographic ~4.5-5.5 A to\n");
+    printf("  ~3.5 A - measured at every temperature from 50 K to 300 K and\n");
+    printf("  every C-alpha stiffness from 0.5 to 16 eV/A^2.)\n");
     printf("  So the entropic leg is reported UNRESOLVED rather than filled in.\n");
-    printf("  Closing it needs a real protein force field and explicit\n");
-    printf("  solvent, not a smaller timestep.\n");
+    printf("  Closing it needs the dihedral parameters tuned and validated,\n");
+    printf("  and a real protein force field with explicit solvent - not a\n");
+    printf("  smaller timestep.\n");
     set_verdict(13, "Born dG(Na-K) %.0f kJ/mol, mismatch Na %.2f A",
                 io.born_diff, io.mismatch_na);
 }

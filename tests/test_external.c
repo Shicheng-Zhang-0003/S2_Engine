@@ -749,8 +749,17 @@ static void test_fluctuation_external(void) {
            qm_fluctuation_term_eV(0.40, 0.10) > 0.0, "A swings wider");
         ok("identical variances => exactly zero",
            qm_fluctuation_term_eV(0.25, 0.25) == 0.0, "symmetric");
-        ok("non-finite variance refused",
-           qm_fluctuation_term_eV(INFINITY, 0.1) == 0.0, "returns 0, not NaN");
+        /* FULL-AUDIT: this used to pin the FAIL-OPEN behaviour ("returns
+         * 0, not NaN"). A non-finite variance means the measurement
+         * overflowed; returning a clean 0.0 eV made it indistinguishable
+         * from "the two fluctuations are identical", which is the one
+         * answer this term must never give by accident. It now returns
+         * NaN and the caller must check. */
+        ok("non-finite variance is REFUSED, not silently zeroed",
+           !isfinite(qm_fluctuation_term_eV(INFINITY, 0.1)) &&
+           !isfinite(qm_fluctuation_term_eV(0.1, INFINITY)) &&
+           !isfinite(qm_fluctuation_term_eV(NAN, 0.1)),
+           "the term is not a finite number");
     }
 }
 
