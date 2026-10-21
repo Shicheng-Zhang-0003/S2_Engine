@@ -1,0 +1,88 @@
+# CI for the S2 engine.
+#
+# FULL-AUDIT: this repository had NO CI at all - the readme said "CI must
+# run make test && ./verify_scripts.sh && ./s01_verify_record.sh" and
+# nothing enforced it. The consequence was measured: the Oct-2026 commits
+# that added demos 13-16 all carry the message "all 491 gates green",
+# and every one of them ran `make test` only. The RECORD gate - the one
+# that would have caught the stale record - was never run, so the tracked
+# output.txt drifted away from HEAD while every commit message claimed
+# a green tree.
+#
+# The last step is therefore the important one: it asserts that the
+# tracked record is the record the current source produces.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  record:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The engine seals the commit id and the tree state into
+          # kcsa.cvmds, so a shallow clone cannot reproduce the tracked
+          # artifact.
+          fetch-depth: 0
+
+      - name: install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncursesw5-dev python3
+
+      - name: build (serial record build, warning-free)
+        run: |
+          make clean
+          make -j"$(nproc)"
+          if grep -q 'warning:' build/*.log 2>/dev/null; then
+            echo "build produced warnings"; exit 1
+          fi
+
+      - name: unit gates
+        run: make test
+
+      - name: record + spec verifier
+        run: ./verify_scripts.sh
+
+      - name: audit evidence
+        run: make audit
+
+      - name: ASan/UBSan record reproducibility
+        run: ./s01_verify_record.sh
+
+      - name: the tracked record matches the source
+        run: |
+          # The record and its sealed sidecar are the deliverables. If
+          # the source changed, the record MUST change with it - and the
+          # change must be reviewed, not discovered later.
+          git diff --exit-code -- output.txt CURRENT_BASELINE_SHA.txt kcsa.cvmds
+
+  perf:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libncursesw5-dev python3
+      - name: OpenMP multicore build
+        run: |
+          make -j"$(nproc)" perf
+      - name: multicore gates
+        run: |
+          for t in test_datastream test_forces test_fire test_loop \
+                   test_eht test_external test_regression; do
+            printf '%-18s ' "$t"
+            if ./build-perf/"$t" > "perf_$t.log" 2>&1; then
+              echo "OK"
+            else
+              echo "FAILED"; cat "perf_$t.log"; exit 1
+            fi
+          done
