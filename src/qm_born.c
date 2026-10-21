@@ -109,5 +109,21 @@ double qm_born_induction_eV(double alpha_A3, double field_e_per_A,
      * is the macroscopic one. Screening the energy rather than the field
      * would square the factor; see the header. */
     double e_macro = field_e_per_A / eps_r;
-    return -0.5 * alpha_A3 * e_macro * e_macro;
+    /* FULL-AUDIT: the missing factor is 1/(4*pi*eps0), i.e.
+     * 1/COULOMB_MD in the engine's units.
+     *
+     * The engine's units: the field is E [V/A] (the potential of a unit
+     * charge at 1 A is 14.3996 V, so the field there is 14.3996 V/A),
+     * the polarizability is a VOLUME alpha [A^3], and the induced dipole
+     * is mu = alpha E / COULOMB_MD [e.A]. The polarization energy is
+     * U = -1/2 mu.E, hence
+     *
+     *     U [eV] = -1/2 * alpha [A^3] * E [V/A]^2 / COULOMB_MD
+     *
+     * The old code omitted the division by COULOMB_MD and so returned
+     * e^2.A, not eV: a value 14.3996x too small when read as an energy.
+     * (The same omission made the "unit charge at 1 A is 14.3996 e/A"
+     * statement in the header wrong - 14.3996 V/A is the FIELD at 1 A;
+     * the potential there is 14.3996 V.) */
+    return -0.5 * alpha_A3 * e_macro * e_macro / COULOMB_MD;
 }

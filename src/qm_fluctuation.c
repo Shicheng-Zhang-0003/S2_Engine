@@ -414,6 +414,28 @@ static int kcsa_series_run(int ion_Z, Vec3 site, double temp_K,
         sim->atoms[ion].velocity.x = 0.0;
         sim->atoms[ion].velocity.y = 0.0;
         sim->atoms[ion].velocity.z = 0.0;
+        /* FULL-AUDIT: the paired energy difference MUST be taken at the
+         * SAME coordinates on both sides.
+         *
+         * integrator_step() ends with forces_calculate() at the POST-DRIFT
+         * coordinates, so sim->potential_energy is the energy with the
+         * cation OFF-AXIS; the ion is then teleported back onto the axis
+         * and the counterfactual is evaluated ON-AXIS. The difference
+         * therefore contained a spurious term equal to the ion's own
+         * off-axis energy displacement - precisely the "rattling ion"
+         * signal the module claims to isolate - and the module's central
+         * methodological claim ("the difference is that conformation's ion
+         * binding energy, exactly") was false.
+         *
+         * Measured: the artefact contributed a variance of 0.0130 eV^2
+         * (K+) and 0.0446 eV^2 (Na+) against reported variances of 0.268
+         * and 0.253 eV^2 - 5 % to 18 % of the reported number, and larger
+         * than the K+-vs-Na+ variance DIFFERENCE (0.015 eV^2) on which
+         * the whole selectivity argument would rest.
+         *
+         * The fix is one extra force evaluation: re-evaluate the energy
+         * at the reset (on-axis) coordinates before reading it. */
+        forces_calculate(sim);
         double e_live = sim->potential_energy;
 
         Atom *a = &sim->atoms[ion];

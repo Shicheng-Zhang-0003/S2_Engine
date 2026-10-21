@@ -158,10 +158,20 @@ double qm_ion_alpha_free(int Z);
 
 /*
  * Ionic polarization (induced-dipole) energy -1/2 alpha E^2 in eV, from a
- * free-ion polarizability in A^3 and an electric field magnitude in e/A
- * (the engine's native Coulomb units: 14.3996 e/A is the field of a unit
- * charge at 1 A). The 1/2 is the self-consistency factor — the dipole is
+ * free-ion polarizability in A^3 and an electric field magnitude in V/A
+ * (the engine's native Coulomb units: the field of a unit charge at 1 A
+ * is 14.3996 V/A - the POTENTIAL there is 14.3996 V, and the field is
+ * COULOMB_MD/r^2). The 1/2 is the self-consistency factor - the dipole is
  * built by the field it responds to, so the work done is half of alpha E^2.
+ *
+ * The conversion to eV carries the 1/(4*pi*eps0) factor, i.e. a division
+ * by COULOMB_MD, because alpha is a polarizability VOLUME:
+ *
+ *     mu [e.A] = alpha [A^3] * E [V/A] / COULOMB_MD
+ *     U  [eV]  = -1/2 * alpha * E^2 / COULOMB_MD
+ *
+ * Full audit: the factor was missing, so the function returned e^2.A
+ * rather than eV - a value 14.3996x too small when read as an energy.
  *
  * `eps_r` SCREENS THE FIELD and is not optional. Alpha is tabulated for a
  * free ion in vacuum, so the field it responds to is the macroscopic one,
