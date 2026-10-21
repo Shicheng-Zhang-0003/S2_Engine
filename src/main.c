@@ -3773,7 +3773,15 @@ static void demo_kcsa_filter(void) {
              * Prefer the git commit when available, else a record-tree token. */
             {
                 char sh[64] = "";
-                FILE *gp = popen("git rev-parse HEAD 2>/dev/null", "r");
+                /* FULL-AUDIT: `git status` honours core.fsmonitor from
+                 * the repository configuration, so running the engine
+                 * inside an untrusted checkout can execute a configured
+                 * command with the user's privileges. The same applies
+                 * to hooks. The config is overridden for these two
+                 * read-only queries. */
+                FILE *gp = popen("git -c core.fsmonitor=false "
+                                 "-c core.hooksPath=/dev/null "
+                                 "rev-parse HEAD 2>/dev/null", "r");
                 if (gp) {
                     if (fgets(sh, sizeof sh, gp)) {
                         size_t L = strlen(sh);
@@ -3783,7 +3791,9 @@ static void demo_kcsa_filter(void) {
                             /* FULL-AUDIT O10: a dirty tree is not the commit.
                              * Suffix -dirty when `git status` is non-empty. */
                             int dirty = 0;
-                            FILE *gs = popen("git status --porcelain 2>/dev/null", "r");
+                            FILE *gs = popen("git -c core.fsmonitor=false "
+                                             "-c core.hooksPath=/dev/null "
+                                             "status --porcelain 2>/dev/null", "r");
                             if (gs) {
                                 char lb[256];
                                 if (fgets(lb, sizeof lb, gs)) dirty = 1;
@@ -4404,7 +4414,8 @@ static void demo_kcsa_ionic(void) {
         printf("  Strains differ by %.1f%%, so in THIS engine that geometric\n",
                100.0 * fabs(io.strain_na - io.strain_k) / io.strain_k);
         printf("  mismatch does not convert into a binding-energy difference.\n");
-        printf("  Reason: the ion-O wall is %.2f kcal/mol, about four orders\n", 0.05);
+        printf("  Reason: the ion-O wall is %.2f kcal/mol, about four orders\n",
+               KCSA_ION_O_EPS_KCAL);
         printf("  of magnitude below the Coulomb pull at 2.8 A, so nothing here\n");
         printf("  rewards a cation for having the right radius.\n");
     } else {

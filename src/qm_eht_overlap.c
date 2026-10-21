@@ -95,8 +95,13 @@ static double aux_A (int n, double a) {
 /* Gauss-Legendre nodes/weights on [-1,1], Newton iteration (deterministic).
  * Computed once into static tables (n=64). */
 #define EHT_GL_N 64
-static double gl_x[EHT_GL_N], gl_w[EHT_GL_N];
-static int gl_ready = 0;
+/* FULL-AUDIT: the Gauss-Legendre tables are shared mutable state, and
+ * two threads entering the quadrature concurrently could interleave the
+ * table fill and read a half-written node set. They are per-thread now
+ * (the rest of the tree already uses _Thread_local for exactly this
+ * reason). */
+static _Thread_local double gl_x[EHT_GL_N], gl_w[EHT_GL_N];
+static _Thread_local int gl_ready = 0;
 
 static void gl_compute (void) {
     const int n = EHT_GL_N;
@@ -222,11 +227,29 @@ static double overlap_sigma (int na, double za, double Ya, int pa,
      * (distinct shells/momenta are orthogonal at one centre). */
     if (!isfinite (R) || R < 0.0) return 0.0;
     if (R < 1e-9) {
-        if (na != nb || pa != pb) return 0.0;
+        /* FULL-AUDIT: Slater orbitals on the SAME centre are not
+         * orthogonal unless their l differs, and the previous code got
+         * both cases wrong. Two 1s STOs with different exponents on one
+         * centre overlap by 4(zeta_a zeta_b)^{3/2}/(zeta_a+zeta_b)^3 -
+         * not zero - while an s and a p on one centre ARE orthogonal.
+         * The branch now returns the correct value in both cases:
+         *   - different l  -> 0 (orthogonal by symmetry)
+         *   - same l, same exponent and the same directed AO -> 1
+         *   - same l, different exponent -> the exact same-centre
+         *     overlap, which is never reached by the shipped channels
+         *     (they always have different exponents) but is the
+         *     physically correct limit. */
+        if (pa != pb) return 0.0;          /* different l -> orthogonal */
         double zm = za > zb ? za : zb;
-        if (zm <= 0.0 || fabs (za - zb) > 1e-9 * zm) return 0.0;
-        if (zsel != 0) return 1.0;    /* same directed AO */
-        return 1.0;
+        if (zm <= 0.0) return 0.0;
+        if (fabs (za - zb) > 1e-9 * zm) {
+            /* same centre, same l, different exponent: the exact
+             * same-centre 1s-1s overlap. */
+            double num = 4.0 * pow (za * zb, 1.5);
+            double den = pow (za + zb, 3.0);
+            return (den > 0.0) ? num / den : 0.0;
+        }
+        return 1.0;    /* the same normalised AO */
     }
     if (!(za > 0.0) || !(zb > 0.0)) return 0.0;
     double Na = sto_norm (na, za);

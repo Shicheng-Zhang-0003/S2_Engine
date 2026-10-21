@@ -25,8 +25,16 @@
  * there put every effective LJ well 12.2% too far out (carbon: minimum
  * at 4.32 Å instead of 3.85 Å).
  *
- * Every σ below is therefore UFF_x1 / 2^(1/6), computed rather than
- * retyped, so the two cannot drift apart again. Worked examples:
+ * Every σ below is therefore UFF_x1 / 2^(1/6). FULL-AUDIT: the comment
+ * used to claim the values were "computed rather than retyped, so the
+ * two cannot drift apart again" - they are not, they are literals, and
+ * the stated drift protection did not exist. The table carries the x1
+ * values in the comment above each row so a reader can check the
+ * division by hand, and the invariant IS enforced - by tests/
+ * test_external.c, which re-derives σ = x1 / 2^(1/6) for all 36
+ * elements against an independent transcription of Rappé Table I. The
+ * protection is a gate, not a comment, and now the comment says so.
+ * Worked examples:
  *   H  2.886 / 1.12246 = 2.57113   (UFF σ_H  = 2.571)
  *   C  3.851 / 1.12246 = 3.43085   (UFF σ_C3 = 3.431)
  *   K  3.812 / 1.12246 = 3.39611   (UFF σ_K  = 3.396)

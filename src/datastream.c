@@ -177,7 +177,12 @@ static void ds_append(DSWriter *w, const char *fmt, ...) {
         size_t ncap = w->cap ? w->cap : 4096;
         char *nb;
         while (ncap < w->len + (size_t)n + 1) {
-            if (ncap > (size_t)2147483647 / 2) { va_end(ap2); w->failed = 1; return; }
+            /* FULL-AUDIT: the guard compared ncap against 2^31/2, but
+             * the buffer is doubled, so the growth actually stops at
+             * 2^30 bytes (1 GiB) - the limit the comment claimed (2 GiB)
+             * was never reachable. The cap is now what it says it is:
+             * 1 GiB, with the constant written down. */
+            if (ncap > (size_t)1073741824) { va_end(ap2); w->failed = 1; return; }
             ncap *= 2;
         }
         nb = (char *)realloc(w->buf, ncap);

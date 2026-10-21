@@ -339,4 +339,11 @@ int kcsa_add_hydrogens(Simulation *sim, int filter_first, int n_subunits);
  * forces_calculate for the terms to contribute. */
 int kcsa_add_dihedrals(Simulation *sim, int filter_first, int n_subunits);
 
+/* The ion-oxygen Lennard-Jones well depth in kcal/mol (the value the
+ * KcsA legs and the record program both quote). It is deliberately
+ * small: the ion-oxygen contact in a real filter is a contact, not a
+ * bond, and this number is the reason the geometric K+/Na+ mismatch
+ * does not convert into a binding-energy difference. */
+#define KCSA_ION_O_EPS_KCAL 0.05
+
 #endif /* KCSA_FILTER_H */

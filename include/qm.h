@@ -222,9 +222,19 @@ double qm_eri_exchange(const Simulation *sim, int ia, int ib);
 
 /* ZDO two-electron Fock contribution: F_2e[mu][nu] = J_munu − 0.5·K_munu.
  * P is n_ao×n_ao density matrix; atom_of_ao[k] → atom index of AO k.
+ *
+ * S_overlap is the n_ao×n_ao overlap matrix. It is used to form the
+ * MULLIKEN population of each atom, q_A = Σ_{μ on A} (P S)_μμ, which is
+ * the standard definition and the one the rest of the file uses. In a
+ * non-orthogonal basis it differs substantially from the bare AO
+ * diagonal Σ P_μμ (for H₂ at 0.74 Å: 0.999 against 0.571), so a
+ * caller that can supply S must. Pass NULL to fall back to the AO
+ * diagonal.
+ *
  * Returns 0 on success, -1 on bad input. */
 int qm_eri_zzdo(const Simulation *sim, const double *P, int n_ao,
-                const int *atom_of_ao, double *F_2e);
+                const int *atom_of_ao, double *F_2e,
+                const double *S_overlap);
 
 /* ── One-electron integrals for s-type STOs ─────────────────────────────
  *

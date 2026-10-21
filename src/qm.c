@@ -822,7 +822,8 @@ double qm_eri_exchange(const Simulation *sim, int ia, int ib) {
  *
  * atom_of_ao[k] maps AO index k → atom index. Returns 0 on success. */
 int qm_eri_zzdo(const Simulation *sim, const double *P, int n_ao,
-                const int *atom_of_ao, double *F_2e) {
+                const int *atom_of_ao, double *F_2e,
+                const double *S_overlap) {
     if (!sim || !P || !atom_of_ao || !F_2e || n_ao < 1) return -1;
     int N = sim->num_atoms;
 
@@ -834,13 +835,34 @@ int qm_eri_zzdo(const Simulation *sim, const double *P, int n_ao,
     size_t n2 = (size_t)n_ao * (size_t)n_ao;
     for (size_t i = 0; i < n2; i++) F_2e[i] = 0.0;
 
-    /* Precompute per-atom diagonal population q_A = Σ_{μ on A} P_μμ. */
+    /* FULL-AUDIT F18: the per-atom population must be the MULLIKEN
+     * population, q_A = Σ_{μ on A} (P S)_μμ, not the bare AO diagonal
+     * Σ P_μμ. In a non-orthogonal AO basis the two differ - for H2 at
+     * R = 0.74 A the AO diagonal gives 0.571 per atom and the Mulliken
+     * form 0.999, a 75 % difference - and the file's own Mulliken-charge
+     * code (at the end of qm_hf_scf) already uses the correct one, so
+     * two different definitions of "the population of atom A" were
+     * entering the same model. The Mulliken form is the standard one.
+     *
+     * The overlap matrix is therefore an argument. A caller that has
+     * none passes NULL, and the function then falls back to the AO
+     * diagonal. */
     double *q_atom = (double *)calloc((size_t)N, sizeof(double));
     if (!q_atom) return -1;
     for (int mu = 0; mu < n_ao; mu++) {
         int A = atom_of_ao[mu];
         if (A < 0 || A >= N) continue;
-        q_atom[A] += P[mu * n_ao + mu];
+        if (S_overlap) {
+            double psm = 0.0;
+            for (int nu = 0; nu < n_ao; nu++) {
+                int B = atom_of_ao[nu];
+                if (B < 0 || B >= N) continue;
+                psm += P[mu * n_ao + nu] * S_overlap[nu * n_ao + mu];
+            }
+            q_atom[A] += psm;
+        } else {
+            q_atom[A] += P[mu * n_ao + mu];
+        }
     }
 
     /* For each AO pair (mu, nu) on atoms (A, B):
@@ -1294,11 +1316,14 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
              * came out ASYMMETRIC for a symmetric molecule. */
             double F_2e[SCF_MAX_AOS * SCF_MAX_AOS];
             double Pflat[SCF_MAX_AOS * SCF_MAX_AOS];
+            double Sflat[SCF_MAX_AOS * SCF_MAX_AOS];
             for (int i = 0; i < nao; i++)
-                for (int j = 0; j < nao; j++)
+                for (int j = 0; j < nao; j++) {
                     Pflat[i * nao + j] = P[i][j];
+                    Sflat[i * nao + j] = S[i][j];
+                }
             if (qm_eri_zzdo(sim, Pflat, nao, ao_atom,
-                            (double *)F_2e) != 0) return -1;
+                            (double *)F_2e, Sflat) != 0) return -1;
             for (int i = 0; i < nao; i++)
                 for (int j = 0; j < nao; j++)
                     F[i][j] += F_2e[i * nao + j];

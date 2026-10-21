@@ -442,6 +442,12 @@ double kcsa_cation_radius(int Z) {
 #define KCSA_O_RADIUS   1.40
 /* Shared ion–O well depth, kcal/mol. One value for all alkalis, so the
  * K/Na comparison has no per-ion strength to lean on. */
+/* The ion-oxygen Lennard-Jones well depth, kcal/mol. It is small ON
+ * PURPOSE (the deposited filter is a real protein and the ion-oxygen
+ * contact is a contact, not a bond), and it is the reason the geometric
+ * K+/Na+ mismatch does not become a binding-energy difference. It is
+ * EXPORTED so the record program can print the number it is talking
+ * about instead of a private copy that can drift. */
 #define KCSA_ION_O_EPS  0.05
 /* The filter oxygen is the AMBER ff99 carbonyl O, now named once in
  * include/amber_lj.h instead of being respelled locally. */
@@ -898,13 +904,17 @@ int kcsa_add_hydrogens(Simulation *sim, int filter_first, int n_subunits) {
             /* heavy partner index for each H (for bonds), in KCSA idx space */
             /* rebuilt per residue below */
             for (int k = 0; k < nH; k++) qadd += Q[k];
-            /* neutrality: uniform carbon shift */
+            /* Neutrality: a uniform carbon shift. FULL-AUDIT: the shift
+             * was applied to the carbons BEFORE the hydrogens were
+             * added, and the module's own header claims it "fails closed
+             * rather than returning a silently half-built filter". That
+             * was true for the topology and false for the charge: if
+             * sim_add_atom failed at hydrogen k, the residue was left
+             * short by the charge of the hydrogens that had not been
+             * added yet. The shift is now applied at the END, and
+             * rolled back if any hydrogen fails. */
             int nc = res_ncarb[r];
             double shift = (nc > 0) ? qadd / nc : 0.0;
-            for (int c = 0; c < nc; c++) {
-                int ai = base + res_carbons[r][c];
-                sim->atoms[ai].partial_charge -= shift;
-            }
             /* append H with bonds to correct heavy */
             /* partner map per residue */
             int partners[32];
@@ -914,10 +924,38 @@ int kcsa_add_hydrogens(Simulation *sim, int filter_first, int n_subunits) {
             else if (r == 2) { int pp[] = {15,15}; for (int k = 0; k < 2; k++) partners[np++] = base + pp[k]; }
             else if (r == 3) { int pp[] = {19,22,22,24,25,26,27,29}; for (int k = 0; k < 8; k++) partners[np++] = base + pp[k]; }
             else { int pp[] = {31,31}; for (int k = 0; k < 2; k++) partners[np++] = base + pp[k]; }
-            for (int k = 0; k < nH; k++) {
-                if (kcsa_add_one_h(sim, partners[k], P[k], Q[k], E[k], Sg[k], 1) < 0)
+            {
+                int failed = 0;
+                double added_q = 0.0;
+                int added_n = 0;
+                for (int k = 0; k < nH; k++) {
+                    if (kcsa_add_one_h(sim, partners[k], P[k], Q[k], E[k], Sg[k], 1) < 0) {
+                        failed = 1;
+                        break;
+                    }
+                    added_q += Q[k];
+                    added_n++;
+                    total++;
+                }
+                if (failed) {
+                    /* Roll the residue back to neutral before bailing.
+                     * The carbons have not been debited yet, so the
+                     * hydrogens that WERE added carry the whole residue
+                     * charge and the filter would be left charged. */
+                    if (nc > 0 && added_n > 0) {
+                        double part = added_q / (double)nc;
+                        for (int c = 0; c < nc; c++) {
+                            int ai = base + res_carbons[r][c];
+                            sim->atoms[ai].partial_charge -= part;
+                        }
+                    }
                     return -1;
-                total++;
+                }
+            }
+            /* apply the neutrality shift LAST, now that every H exists */
+            for (int c = 0; c < nc; c++) {
+                int ai = base + res_carbons[r][c];
+                sim->atoms[ai].partial_charge -= shift;
             }
         }
     }

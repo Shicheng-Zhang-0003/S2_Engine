@@ -617,6 +617,32 @@ double qm_eht_bond_factor (const qm_eht_t *e, const Simulation *sim,
     /* zeta per side from the solved basis (first valence AO of atom). */
     double za = -1.0, zb = -1.0;
     int na = 1, nb = 1, la = 0, lb = 0;
+    double za_p = -1.0, zb_p = -1.0;
+    int na_p = 1, nb_p = 1, la_p = 0, lb_p = 0;
+    /* FULL-AUDIT: the p-sigma branch of this function was UNREACHABLE.
+     * The zeta and the (n, l) of each side were taken from the FIRST
+     * valence AO of the atom, and for C/N/O that is the 2s (l = 0), so
+     * the test `la == 1 || lb == 1` was never true and the switch
+     * always used the s-s channel.
+     *
+     * The selection now prefers the atom's p AO and falls back to its s
+     * AO when it has none (hydrogen), so the p channel is reachable
+     * AND the s-s channel still works for H. */
+    for (int m = 0; m < e->n_ao; m++) {
+        if (e->ao_atom[m] == ia && e->ao_l[m] == 1 && za_p < 0.0) {
+            za_p = eht_zeta (a->Z, e->ao_n[m], e->ao_l[m],
+                             &a->electron_config);
+            na_p = e->ao_n[m];
+            la_p = e->ao_l[m];
+        }
+        if (e->ao_atom[m] == ib && e->ao_l[m] == 1 && zb_p < 0.0) {
+            zb_p = eht_zeta (b->Z, e->ao_n[m], e->ao_l[m],
+                             &b->electron_config);
+            nb_p = e->ao_n[m];
+            lb_p = e->ao_l[m];
+        }
+    }
+    /* no p AO on that atom: use its first (s) AO */
     for (int m = 0; m < e->n_ao; m++) {
         if (e->ao_atom[m] == ia && za < 0.0) {
             za = eht_zeta (a->Z, e->ao_n[m], e->ao_l[m],
@@ -631,6 +657,9 @@ double qm_eht_bond_factor (const qm_eht_t *e, const Simulation *sim,
             lb = e->ao_l[m];
         }
     }
+    /* the p AO wins when the atom has one */
+    if (za_p > 0.0) { za = za_p; na = na_p; la = la_p; }
+    if (zb_p > 0.0) { zb = zb_p; nb = nb_p; lb = lb_p; }
     if (!(za > 0.0) || !(zb > 0.0)) return 1.0;
     /* max |sigma channel| at R and at reference (s/H, p directed). */
     double s_cur = 0.0, s_ref = 0.0, t;
