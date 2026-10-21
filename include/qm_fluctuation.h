@@ -154,14 +154,27 @@ typedef struct {
  * A run whose mean coordination has fallen below
  * QM_KCSA_SITE_MIN_CN was not a measurement of the site — it was a
  * measurement of a cage that came apart under its own thermal bath, and
- * its binding energies describe that. The flag is returned so the caller
- * can fail closed instead of printing a number that looks like KcsA.
+ * its binding energies describe that.
  *
- * This fires readily. The filter's only positional restraint is a C-alpha
- * harmonic, and at 300 K with 1 fs steps the oxygen shell drifts inward
- * onto the ion rather than holding its crystallographic geometry; see the
- * restraint-stiffness scan the record prints. That is a property of this
- * engine's reduced protein model, and it is reported, not hidden.
+ * FULL-AUDIT: the gate used to be a flag with no consumer, so a run in
+ * which the cage came apart still handed back a binding-energy variance
+ * that a caller could quote as the fluctuation term of a held site. It
+ * now ENFORCES: qm_kcsa_binding_series() returns -1 when the site was
+ * not maintained, and writes no usable numbers (out->ok is cleared and
+ * the statistics in `out` describe the collapse, so a caller can report
+ * it).
+ *
+ * This fires readily, and that is measured rather than asserted: the
+ * mean coordination falls from the deposited 8 to 4.4-5.6 and the O-O
+ * diagonals close from the crystallographic 4.5-5.5 A to 3.7-4.1 A, at
+ * every temperature (50-300 K), equilibration length (100-2000 steps)
+ * and tether stiffness (0.5-8 eV/A^2) tested, with a filter strain of
+ * 6-9 eV. The backbone and side-chain torsions are built and the ion is
+ * held on the pore axis, but neither stops the ion's Coulomb pull (5.2 eV
+ * per charge pair at 2.78 A) from closing the shell against a generic
+ * angle stiffness and a generic dihedral force constant. That is a
+ * property of this engine's reduced protein model, and it is reported,
+ * not hidden.
  */
 #define QM_KCSA_SITE_MIN_CN 7
 

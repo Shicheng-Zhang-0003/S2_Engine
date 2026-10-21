@@ -3,11 +3,11 @@ schema: 1
 demo: kcsa
 build-compiler: gcc 13.3.0
 build-flags: -O3 -g -Wall -Wextra -Werror -ffp-contract=off -std=c11 -Iinclude
-wallclock: 2026-10-21T14:49:53Z
+wallclock: 2026-10-21T19:43:34Z
 rng-seed: 7
 version-internal: v9R4
 version-external: V0.9RC4
-source-hash: record-tree-f033fc3d6d1981ee69bfc3797aea970ab266d058-dirty
+source-hash: record-tree-1b29ab8aaaff5fe06e35b7171a67e94d23164c79-dirty
 build-flags-note: record build must not carry -march=native
 cage-geometry: LEGACY demo-12 constructed cage: 3d-2.70-2.83-xy-derived-zsep-3.084
 real-filter-geometry: demo 12b: PDB 1K4C chain C TVGYG, C4-symmetric, CN=8 at all four sites
@@ -163,4 +163,4 @@ kcsa.entropic.coco_target 7.2999999999999998 kcal/mol Dixit-Asthagiri2009-dU-COC
 kcsa.entropic.computed 0 kcal/mol UNRESOLVED-no-sidechain-torsions
 
 [end]
-payload-sha256: 1762f1af3c876bc131a2e6fb625d513c33e486a0312c47f622d2dd39776f1cc0
+payload-sha256: effba0d7b23b8817efb91bf538b145d9eb54ecc8e621e1cbac3fce359c4c27b1

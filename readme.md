@@ -32,7 +32,7 @@ every line command works, only the alternate-screen reports unavailable).
 | `./carbonsim` | run the 20-demo record sequence (**~11 minutes**; the polar-WHAM leg dominates); stdout is the byte-deterministic record |
 | `./run` | clean build behind a warning gate, run to `runs/<timestamp>.txt`, print old/new digests side by side |
 | `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt` + `kcsa.cvmds` (staged atomically: each artefact is written to a temporary name and renamed into place, and the ledger is written last); refuses to promote unless stderr is empty, `make test` is green, **and** the staged `kcsa.cvmds` seal verifies |
-| `make test` | build and run the eight unit gates only (19/22/7/202/153/60/31/43) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
+| `make test` | build and run the eight unit gates only (19/22/7/202/153/60/31/76) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
 | `make tui` | build just the interactive terminal (`./s2tui`) |
 | `./verify_scripts.sh` | read-only record + spec verifier: baseline digest, `kcsa.cvmds` seal, key/unit compliance, every suite |
 | `./s01_verify_record.sh` | builds normally and under ASan/UBSan, asserts both reproduce the recorded digest with empty stderr |
@@ -57,14 +57,14 @@ commit time so `kcsa.cvmds` seals identically across repeated runs).
 | `test_external` | 150 | values from outside this repository (NIST CODATA, parm99.dat, FIPS, PDB 1K4C, Latimer–Pitzer–Slansky Born radii, Pauling free-ion polarizabilities) + HO-eps unit pin |
 | `test_loop` | 60 | bio/QC/QM loop closure + best-layer: Nernst, kT, Marcus/Shannon/LJ/Coulomb, BJ/penetration, Langevin, flat-bottom, tethers, H-complete ions-hold |
 | `test_eht` | 31 | exact overlaps vs 3D-grid STO oracles, Jacobi vs 2x2 forms, H2/H2O SCF laws, fail-loud gates |
-| `test_audit4` | 43 | the fourth audit: reference PCG64 vs the upstream expected-output file, EHT mirror symmetry, textbook overlap closed forms, Born induction units, one-electron integral limits, SCF invariants, dipole-coupling scale, cell-list origin, datastream non-finite refusal, L'Hôpital limits, KcsA hydroxyl angle |
+| `test_audit4` | 76 | the fourth audit: reference PCG64 vs the upstream expected-output file, EHT mirror symmetry, textbook overlap closed forms, Born induction units, one-electron integral limits, SCF invariants, dipole-coupling scale, cell-list origin, datastream non-finite refusal, L'Hôpital limits, the whole KcsA chain re-derived from the deposited geometry, and the site-integrity gate |
 
 plus a warning-free clean build (serial and `make perf`), empty stderr,
 byte-identical stdout across repeated runs (serial record only), an intact
 `kcsa.cvmds` seal, and the OpenMP build passing all eight gates with
 numerically consistent results (within FP reassociation tolerance).
 
-**537 checks in eight gates.** `make test` fails if any suite's exit code
+**570 checks in eight gates.** `make test` fails if any suite's exit code
 is non-zero **or** if any suite prints a `FAIL` line — both conditions are
 checked for every suite, not just some of them.
 
@@ -513,20 +513,39 @@ crystallographic ~4.5–5.5 Å to ~3.5 Å — measured at every temperature from
 thermostat and no restraint recovered it, because the missing term was the
 physics and not the parameters.
 
-This release adds the missing protein physics: `kcsa_add_dihedrals()` builds
-backbone (phi/psi/omega) and side-chain (chi1) torsions restrained toward the
-deposited geometry, and the fluctuation measurement now holds the ion on the
-pore axis at the deposited site (the symmetric-cage equilibrium is unstable —
-any radial displacement draws the cation toward the nearest oxygen because the
-ion-O LJ wall of 0.05 kcal/mol is four orders of magnitude too weak to balance
-the Coulomb 1/r pull). With torsions + axis constraint, the filter holds its
-8-fold coordination and the binding-energy variance can be measured. Full
-convergence of the fluctuation term (CN = 8 held for the full sampling window,
-stable variance across temperatures and stiffnesses) requires parameter tuning
-of the dihedral force constants, tether stiffness, and sampling length — that
-tuning is the remaining step before the fluctuation term can produce a
-quantitative selectivity number. The leg is reported **UNRESOLVED** until that
-tuning is complete.
+The machinery for it is in place: `kcsa_add_dihedrals()` builds backbone
+(phi/psi/omega) and side-chain (chi1) torsions restrained toward the deposited
+geometry, and the fluctuation measurement holds the ion on the pore axis at
+the deposited site (the symmetric-cage equilibrium is unstable — any radial
+displacement draws the cation toward the nearest oxygen because the ion-O LJ
+wall of 0.05 kcal/mol is four orders of magnitude too weak to balance the
+Coulomb 1/r pull).
+
+**And the site is still lost.** This was measured, not assumed, and the
+fourth audit corrected a claim in this document that said otherwise:
+
+| trajectory time | mean CN | mean O–O |
+|---|---|---|
+| 10–50 fs | **8.000** | 4.17–4.28 Å |
+| 70 fs | 7.600 | 4.28 Å |
+| 100 fs | 6.233 | 4.19 Å |
+| 200 fs | 4.000 | 3.28 Å |
+
+against a deposited coordination of 8 and crystallographic O–O diagonals of
+4.5–5.5 Å. The filter strain energy in the collapsed state is 6–9 eV, so
+what the sampler would measure is the variance of a **collapsing cage**, not
+the breathing fluctuation the entropic term needs. Stiffening the angle term
+does not fix it (CN 3.2 at 1.0 eV/rad², 2.7 at 2.2 eV/rad² — worse), so this
+is not a missing-stiffness parameter but the limit of the reduced protein
+model: holding a real 8-coordinate selectivity filter needs a real protein
+force field and explicit solvent.
+
+The consequence is enforced in code, not just in prose: the **site-integrity
+gate now refuses** to return a binding-energy variance for a site that was
+not maintained (`qm_kcsa_binding_series()` returns −1 and clears `ok`), so
+the variance of a collapsed cage can never be quoted as the entropic term.
+The leg is reported **UNRESOLVED**, and the record says which of the two
+reasons is in force.
 
 ### Datastream
 A text, self-describing, line-oriented format (`DATASTREAM_SPEC.md`, schema 1)
@@ -804,15 +823,20 @@ Stated plainly, because the numbers above cannot be read correctly without them.
 * **No quantitative KcsA selectivity free energy.** The real filter is rigid,
   the legs disagree, and the umbrella `±` is a three-seed spread, not a
   standard error. Read every K⁺/Na⁺ number as "in this reduced model".
-* **The KcsA entropic term is implemented but does not yet converge.** The
-  machinery to measure `Δ(βσ²/2)` exists and is gated, and side-chain + backbone
-  dihedral torsions (`kcsa_add_dihedrals`) plus an ion axis constraint have been
-  added to hold the filter's 8-fold site under Langevin dynamics. Full
-  convergence — CN = 8 held for the full sampling window with a stable variance
-  across temperatures and stiffnesses — requires parameter tuning of the
-  dihedral force constants, tether stiffness, and sampling length. Demo 12c
-  reports this as UNRESOLVED with the evidence. It is *not* filled with a
-  plausible number.
+* **The KcsA entropic term is implemented but does not converge, and the
+  site does not survive long enough to sample.** The machinery to measure
+  `Δ(βσ²/2)` exists, with side-chain + backbone dihedral torsions
+  (`kcsa_add_dihedrals`) and an ion axis constraint. Measured: the 8-fold
+  site holds for the first ~50 fs (CN = 8.000) and then the ion's Coulomb
+  pull closes the shell — CN 6.2 at 100 fs, CN 4.0 with O–O at 3.28 Å at
+  200 fs — at every temperature (50–300 K), equilibration length
+  (100–2000 steps) and tether stiffness (0.5–8 eV/Å²) tested. Stiffening
+  the angle term makes it worse, not better. The sampler would therefore be
+  measuring the variance of a **collapsing** cage, so the site-integrity gate
+  now **refuses** to return a variance for a site that was not maintained
+  (`qm_kcsa_binding_series()` returns −1 and clears `ok`). Demo 12c reports
+  this as UNRESOLVED with the evidence. It is *not* filled with a plausible
+  number, and it cannot be filled with one by accident either.
 * **Shell strain does not discriminate in this model.** The geometric contact
   mismatch is real (K⁺ −0.133 Å, Na⁺ +0.197 Å against their preferred
   distances) but the ion–oxygen Lennard-Jones wall is ~4 orders of magnitude

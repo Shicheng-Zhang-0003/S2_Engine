@@ -1185,25 +1185,28 @@ Sum minus experimental dG: -0.5469 eV
   deposited filter as a breathing peptide with the ion inside and
   measures the variance of the ion's binding energy over an
   explicit Langevin NVT trajectory.
-  The machinery is in place and it holds the 8-fold site: the
-  backbone (phi/psi/omega) and side-chain (chi1) dihedrals
-  were added (kcsa_add_dihedrals), the ion is held on the pore
-  axis, and the coordination number stays at 8 over the
-  sampling window.
-  It STILL does not converge, and the reason is now PARAMETERS,
-  not a missing term: the dihedral force constants, the C-alpha
-  tether stiffness and the sampling length have not been tuned,
-  so the binding-energy variance is not yet stable across
-  temperatures and stiffnesses. (Before the torsions existed the
-  failure was structural: the Thr75 hydroxyl left the shell,
-  the coordination number fell from 8 to 3-5, and the O-O
-  diagonals closed from the crystallographic ~4.5-5.5 A to
-  ~3.5 A - measured at every temperature from 50 K to 300 K and
-  every C-alpha stiffness from 0.5 to 16 eV/A^2.)
-  So the entropic leg is reported UNRESOLVED rather than filled in.
-  Closing it needs the dihedral parameters tuned and validated,
-  and a real protein force field with explicit solvent - not a
-  smaller timestep.
+  The machinery is in place - the backbone (phi/psi/omega) and
+  side-chain (chi1) dihedrals were added, and the ion is held on
+  the pore axis - and the site is STILL lost. Measured, not
+  assumed: the 8-fold site holds for the first ~50 fs of the
+  trajectory (CN = 8.000, <O-O> = 4.17-4.28 A) and then the
+  ion's Coulomb pull closes the shell - by 100 fs CN = 6.2, by
+  200 fs CN = 4.0 with <O-O> = 3.28 A, against the
+  crystallographic 4.5-5.5 A. The filter strain energy in the
+  collapsed state is 6-9 eV, so what the sampler would measure
+  is the variance of a COLLAPSING cage, not the breathing
+  fluctuation the entropic term needs.
+  Stiffening the angle term does not fix it (CN 3.2 at 1.0
+  eV/rad^2, 2.7 at 2.2), so this is not a missing-stiffness
+  parameter but the limit of this reduced protein model: holding
+  a real 8-coordinate selectivity filter needs a real protein
+  force field and explicit solvent.
+  The site-integrity gate now REFUSES to return a variance for a
+  collapsed site, so the entropic leg is reported UNRESOLVED
+  rather than filled in. (Before the torsions existed the failure
+  was the same collapse seen for a different reason: the Thr75
+  hydroxyl left the shell and the O-O diagonals closed from the
+  crystallographic ~4.5-5.5 A to ~3.5 A.)
 
 ╔══════════════════════════════════════════════════════╗
 ║  DEMO 17: DNA duplex - minimal G-C and A-T base pair stack║

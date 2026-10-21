@@ -276,14 +276,28 @@ static int kcsa_series_run(int ion_Z, Vec3 site, double temp_K,
     int f = kcsa_build_filter(sim, vec3(0, 0, 0), 4);
     if (f < 0) { sim_destroy(sim); return -1; }
 
-    /* The flexible-filter leg of the record already establishes that this
-     * configuration (side-chain hydrogens completed, C-alpha tethers,
-     * Langevin) HOLDS the filter around K+ — CN 8 -> 8 over 1 ps — and
-     * that the same protocol collapses the empty filter, which is the
-     * 1K4D inactivated state and not an artifact. That result is the
-     * licence to measure a variance here: without it the "strain" being
-     * measured would be the collapse of the model. Reused, not
-     * rediscovered. */
+    /* FULL-AUDIT: this comment used to assert that the flexible-filter
+     * leg of the record already establishes that this configuration
+     * (side-chain hydrogens completed, C-alpha tethers, Langevin) HOLDS
+     * the filter around K+ - CN 8 -> 8 over 1 ps - and that the same
+     * protocol collapses the empty filter.
+     *
+     * There is no such leg in the record, and the claim does not survive
+     * measurement: with the protocol below the site is NOT held. The
+     * mean coordination falls from the deposited 8 to 4.4-5.6 and the
+     * O-O diagonals close from the crystallographic 4.5-5.5 A to
+     * 3.7-4.1 A, at every temperature (50-300 K), equilibration length
+     * (100-2000 steps) and tether stiffness (0.5-8 eV/A^2) tested, with
+     * a filter strain of 6-9 eV. The backbone and side-chain torsions
+     * ARE built (kcsa_add_dihedrals) and the ion IS held on the pore
+     * axis, but neither is enough to stop the ion's Coulomb pull
+     * (5.2 eV per charge pair at 2.78 A) from closing the shell against
+     * a generic angle stiffness and a generic dihedral force constant.
+     *
+     * That is why the site-integrity gate below now REFUSES to return a
+     * variance: the variance of a collapsing cage is not the breathing
+     * fluctuation the entropic term needs, and it must never be quoted
+     * as one. */
     if (kcsa_add_hydrogens(sim, f, 4) < 0) { sim_destroy(sim); return -1; }
 
     sim->use_lj = 1; sim->use_coulomb = 1; sim->cutoff = 30.0;
@@ -495,6 +509,27 @@ static int kcsa_series_run(int ion_Z, Vec3 site, double temp_K,
     if (ref_filter_mean) *ref_filter_mean = mean_filter;
 
     sim_destroy(sim);
+
+    /* FULL-AUDIT: the site-integrity gate used to be a FLAG with no
+     * consumer, so a run in which the cage came apart still returned a
+     * binding-energy variance, and the caller could quote it as the
+     * fluctuation term of a held KcsA site. It is measured NOT to be
+     * held: the mean coordination falls from the deposited 8 to ~4.7 and
+     * the O-O diagonals close from the crystallographic 4.5-5.5 A to
+     * ~3.96 A, at every temperature (50-300 K), equilibration length
+     * (100-2000 steps) and tether stiffness (0.5-8 eV/A^2) tested, with
+     * a filter strain of 6-9 eV. The variance of a COLLAPSING cage is
+     * not the breathing fluctuation the entropic term needs.
+     *
+     * The gate now ENFORCES: a run whose site was not maintained returns
+     * -1 and writes no usable numbers, so a collapsed cage cannot be
+     * mistaken for a measured one. The statistics are still returned in
+     * `out` (with ok = 0) so a caller can REPORT the collapse rather
+     * than hide it. */
+    if (!out->site_maintained) {
+        out->ok = 0;
+        return -1;
+    }
     return 0;
 }
 

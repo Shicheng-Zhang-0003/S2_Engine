@@ -642,6 +642,38 @@ static void test_kcsa_end_to_end(void) {
     sim_destroy(sim);
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+ * 14. The KcsA site-integrity gate must ENFORCE, not merely report.
+ *
+ * The flexible-filter leg was measured to LOSE the 8-fold site: it holds
+ * for the first ~50 fs and then the ion's Coulomb pull closes the shell
+ * (CN 6.2 at 100 fs, CN 4.0 with O-O at 3.28 A at 200 fs), at every
+ * temperature, equilibration length and tether stiffness tested. The
+ * gate used to be a flag with no consumer, so a run over a collapsed
+ * cage still handed back a binding-energy variance that a caller could
+ * quote as the entropic term of a held site.
+ * ═══════════════════════════════════════════════════════════════════════ */
+static void test_kcsa_site_gate_enforces(void) {
+    grp("KcsA: the site-integrity gate refuses a collapsed site");
+    Vec3 sites[4];
+    if (kcsa_ion_sites(4, sites) < 2) { ok("ion sites", 0, "none"); return; }
+    QmKcsaSeries ss;
+    /* The sampler's own protocol: 100 equilibration steps, 200 samples. */
+    int rc = qm_kcsa_binding_series(19, sites[1], 300.0, 100, 200, 1u, 0.5,
+                                    NULL, NULL, 0, &ss);
+    ok("a run whose site collapsed is REFUSED", rc == -1, "rc -1");
+    ok("the refused run is marked not-ok", ss.ok == 0, "ok == 0");
+    ok("the refused run reports that the site was not maintained",
+       ss.site_maintained == 0, "site_maintained == 0");
+    ok("the refused run still reports the collapse it measured",
+       ss.cn_mean > 0.0 && ss.cn_mean < 8.0,
+       "cn_mean is below the deposited 8");
+    /* The variance must not be usable: it is the variance of a collapse. */
+    ok("the refused run's variance is not offered as a measurement",
+       ss.var_bind_eV2 > 0.0,
+       "the statistics describe the collapse for the caller to report");
+}
+
 int main(void) {
     test_pcg64_reference();
     test_eht_mirror_symmetry();
@@ -656,6 +688,7 @@ int main(void) {
     test_neuron_singularities();
     test_kcsa_hydroxyl_angle();
     test_kcsa_end_to_end();
+    test_kcsa_site_gate_enforces();
     printf("\n══════════════════════════════════════════════════════════════\n");
     printf("  TOTAL %d passed, %d failed\n", g_pass, g_fail);
     printf("══════════════════════════════════════════════════════════════\n");
