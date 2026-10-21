@@ -1117,7 +1117,34 @@ are now built from the occupations the solver actually used.
   x = 1e−6, exactly where the direct branch's cancellation is worst
   (the relative error jumped 500× at the threshold);
 * the SCF's work arrays were plain function-statics — a data race under
-  the OpenMP build.
+  the OpenMP build;
+* **`kcsa_add_hydrogens` ended with `sim_rebuild_angles()`**, whose generic
+  109.47° tetrahedral fallback was being injected into a *planar* peptide
+  — tens of eV of artificial strain in a deposited structure, and a direct
+  contradiction of the same file's documented rationale twenty lines
+  above ("NO sim_rebuild_angles here, deliberately"). It now uses the
+  geometric rebuild: all 464 angles reproduce the deposited coordinates
+  to 0.0 rad;
+* **the KcsA site-integrity gate was a flag with no consumer**, so a run
+  in which the cage came apart still returned a binding-energy variance
+  that a caller could quote as the entropic term of a held site. It now
+  *enforces*: `qm_kcsa_binding_series()` returns −1 and clears `ok`;
+* **the fluctuation term converted a non-finite variance into a clean
+  0.0 eV** — indistinguishable from "the two fluctuations are identical",
+  the one answer it must never give by accident. It now returns NaN and
+  the caller must check;
+* **the documentation's claim that the dihedral torsions "hold the
+  filter's 8-fold site" was false**, and had never been reproduced.
+  Measured: the site holds for the first ~50 fs (CN = 8.000, O–O =
+  4.17–4.28 Å) and then the ion's Coulomb pull closes the shell — CN 6.2
+  at 100 fs, CN 4.0 with O–O at 3.28 Å at 200 fs, against the
+  crystallographic 4.5–5.5 Å — at every temperature (50–300 K),
+  equilibration length (100–2000 steps) and tether stiffness
+  (0.5–8 eV/Å²) tested, with a filter strain of 6–9 eV. Stiffening the
+  angle term makes it *worse* (CN 3.2 at 1.0 eV/rad², 2.7 at 2.2). The
+  readme and demo 12c now state the measured collapse instead of the
+  claim, and the gate makes sure the variance of a collapsed cage can
+  never be quoted.
 
 ### 11.3 The operational defects
 
@@ -1184,6 +1211,6 @@ vectors, the textbook overlap closed forms, the mirror symmetry of a bent
 H–C–H, a brute-force 3D grid integration of the actual valence charge
 densities, the L'Hôpital limits of the Hodgkin–Huxley rate functions, and
 the geometric symmetry of a hydroxyl. `test_external` grew from 150 to
-153. The tree now pins **537 checks across eight suites**, all green, and
+153. The tree now pins **570 checks across eight suites**, all green, and
 the CI chain runs them plus the audit, the ASan/UBSan record
 reproducibility harness, the OpenMP build, and the record-staleness check.
