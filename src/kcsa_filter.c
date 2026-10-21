@@ -291,6 +291,15 @@ int kcsa_coord_stats(const Simulation *sim, int filter_first,
     if (n_subunits < 1 || n_subunits > 4) n_subunits = 4;
     if (!(cutoff > 0.0) || !isfinite(cutoff)) return -1;
     int n = 0; double sum = 0.0;
+    /* FULL-AUDIT: the filter window must lie inside the atom array.
+     * `filter_first < 0` was checked, but the UPPER bound was not, so a
+     * filter_first near the end of the array read past the end of
+     * atoms[] (measured: filter_first = num_atoms - 5 with 164 atoms
+     * read atoms[159..287]). */
+    if (filter_first < 0 ||
+        (size_t)filter_first + (size_t)n_subunits * KCSA_FILTER_ATOMS >
+            (size_t)sim->num_atoms)
+        return -1;
     for (int s = 0; s < n_subunits; s++) {
         int base = filter_first + s * KCSA_FILTER_ATOMS;
         for (int i = 0; i < KCSA_FILTER_ATOMS; i++) {
@@ -738,15 +747,35 @@ static Vec3 kcsa_place_aromatic(Vec3 c, Vec3 a, Vec3 b, double len) {
     return vec3_add(c, vec3_scale(vec3_normalize(s), -len));
 }
 
-/* hydroxyl H: 109.5° from C-O, torsion away from pore axis */
+/* hydroxyl H: 109.5° from C-O, torsion away from pore axis.
+ *
+ * FULL-AUDIT: the cone axis must be the O->C direction, and the H must
+ * sit at 109.5° FROM the C-O bond.
+ *
+ * The old code built the cone around `ax = -oc` (the C->O direction) and
+ * then measured the angle as the angle between the O->H direction and
+ * `oc` (O->C). With d = ax*cos(109.5°) + rp*sin(109.5°), the dot
+ * product d.oc = -cos(109.5°) = +0.3338, so the resulting
+ * angle C-O-H was 180° - 109.5° = 70.5°, not 109.5°. Measured on the
+ * real filter: Thr75 OG1 and Tyr78 OH both came out at 70.500 deg.
+ *
+ * Thr75's hydroxyl is on the INNERMOST filter ligand, so this pointed
+ * the H back toward the CB carbon instead of out of the cage - a real
+ * geometric error on the most important ligand in the model. The rigid
+ * record path does not use this function (the deposited structure
+ * already carries its hydrogens), so no recorded number changes; the
+ * flexible-filter path does, and now gets a real hydroxyl.
+ *
+ * The fix: build the cone around `oc` (O->C) and keep the H at 109.5°
+ * from it. */
 static Vec3 kcsa_place_hydroxyl(Vec3 o, Vec3 c, double len) {
-    Vec3 oc = vec3_normalize(vec3_sub(c, o));
+    Vec3 oc = vec3_normalize(vec3_sub(c, o));   /* O -> C */
     /* radial-out from pore axis in xy */
     Vec3 rad = vec3(o.x, o.y, 0.0);
     if (vec3_norm(rad) < 1e-9) rad = vec3(1, 0, 0);
     rad = vec3_normalize(rad);
-    /* H dir: cone 109.5° around -oc, azimuth toward rad */
-    Vec3 ax = vec3_scale(oc, -1.0);
+    /* H dir: cone 109.5° around the O->C axis, azimuth toward rad */
+    Vec3 ax = oc;
     Vec3 u = kcsa_orth(ax);
     double ang = 109.5 * M_PI / 180.0;
     /* project rad onto plane perpendicular to ax */
