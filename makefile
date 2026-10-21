@@ -11,7 +11,13 @@ CFLAGS_BASE = -O3 -g -Wall -Wextra -Werror -ffp-contract=off -std=c11 -Iinclude
 # back to "unknown" via the #ifndef defaults in datastream.c.
 # Full compiler version (not major-only) for record precision.
 CC_VERSION = $(shell $(CC) -dumpfullversion 2>/dev/null || $(CC) -dumpversion)
-CFLAGS = $(CFLAGS_BASE) -DDS_COMPILER_ID='"$(CC) $(CC_VERSION)"' -DDS_CFLAGS_ID='"$(CFLAGS_BASE)"'
+# The datastream build-identity strings are VARIABLES so that a build
+# variant (the OpenMP perf build) can record ITS OWN flags.
+# FULL-AUDIT: the perf build used to seal the RECORD build's flags into
+# kcsa.cvmds, so the sealed provenance of a perf artifact was a lie.
+DS_COMPILER_ID ?= $(CC) $(CC_VERSION)
+DS_CFLAGS_ID  ?= $(CFLAGS_BASE)
+CFLAGS = $(CFLAGS_BASE) -DDS_COMPILER_ID='"$(DS_COMPILER_ID)"' -DDS_CFLAGS_ID='"$(DS_CFLAGS_ID)"'
 # PERIODIC_TABLE ground_config initializer flood, which s03-s05
 # eliminated at the source (fully explicit {{{0}}, 0, 0}). Keeping
 # it would only hide a future regression of the same class.
@@ -36,18 +42,52 @@ CFLAGS = $(CFLAGS_BASE) -DDS_COMPILER_ID='"$(CC) $(CC_VERSION)"' -DDS_CFLAGS_ID=
 OPENMP_CFLAGS = -fopenmp -DS2_OPENMP -O3 -march=native
 OPENMP_LIBS   = -fopenmp
 
-perf: CFLAGS = $(CFLAGS_BASE) $(OPENMP_CFLAGS) -DDS_COMPILER_ID='"$(CC) $(CC_VERSION)"' -DDS_CFLAGS_ID='"$(CFLAGS_BASE)"'
-perf: LDFLAGS = $(OPENMP_LIBS)
-perf: all
+# FULL-AUDIT: the perf build used the SAME build/*.o and the SAME binary
+# names as the record build. Two consequences, both measured:
+#   - `make clean && make perf && make` did NOT rebuild the record
+#     objects (they were up to date) and the link then FAILED with
+#     "undefined reference to GOMP_parallel";
+#   - `make && make perf` was a SILENT NO-OP: nothing was recompiled
+#     with -fopenmp, and the resulting binary was byte-identical to the
+#     record binary and contained NO OpenMP code - while the target
+#     printed "OpenMP multicore build complete".
+#   - the perf build OVERWROTE the tracked record binary, so a perf run
+#     silently replaced the artefact the record gate verifies.
+# The perf build is now a RECURSIVE make with its own object directory
+# and its own binary names, so it can never contaminate the record
+# build. Command-line variable assignments (not target-specific ones) are
+# used, because the pattern rule's target directory is expanded when the
+# makefile is read.
+PERF_OBJ_DIR = build-perf
+PERF_BIN     = carbonsim-perf
+PERF_TUI_BIN = s2tui-perf
+PERF_CFLAGS  = $(CFLAGS_BASE) $(OPENMP_CFLAGS) -DDS_COMPILER_ID='"$(CC) $(CC_VERSION)"' -DDS_CFLAGS_ID='"$(CFLAGS_BASE) $(OPENMP_CFLAGS)"'
+PERF_LDFLAGS = $(OPENMP_LIBS)
+.PHONY: perf
+perf:
+	@rm -rf $(PERF_OBJ_DIR) $(PERF_BIN) $(PERF_TUI_BIN)
+	$(MAKE) OBJ_DIR=$(PERF_OBJ_DIR) BIN=$(PERF_BIN) TUI_BIN=$(PERF_TUI_BIN) \
+	        CFLAGS_BASE="$(CFLAGS_BASE) $(OPENMP_CFLAGS)" \
+	        DS_COMPILER_ID="$(CC) $(CC_VERSION)" \
+	        DS_CFLAGS_ID="$(CFLAGS_BASE) $(OPENMP_CFLAGS)" \
+	        LDFLAGS="$(PERF_LDFLAGS)" all
 	@echo "=== OpenMP multicore build complete (perf target) ==="
-	@echo "  CFLAGS: $(CFLAGS)"
-	@echo "  LDFLAGS: $(LDFLAGS)"
-	@echo "  Run ./carbonsim for the multicore record, or the test binaries for parallel gates."
+	@echo "  CFLAGS: $(PERF_CFLAGS)"
+	@echo "  LDFLAGS: $(PERF_LDFLAGS)"
+	@echo "  Binaries: ./$(PERF_BIN) and ./$(PERF_TUI_BIN) (the record"
+	@echo "  binaries carbonsim / s2tui are untouched)."
+	@echo "  Run ./$(PERF_BIN) for the multicore record, or the test"
+	@echo "  binaries in $(PERF_OBJ_DIR) for the parallel gates."
+	@echo "  NEVER promote a perf run to the record: thread scheduling"
+	@echo "  changes the floating-point summation order."
 
 # Dependency generation flags
 DEPFLAGS = -MMD -MP -MF $(OBJ_DIR)/$*.d
 
 SRC_DIR = src
+# OBJ_DIR is a per-target variable so `make perf` can use its own
+# directory (see the perf target below). Every recipe refers to $(OBJ_DIR)
+# rather than a literal `build`.
 OBJ_DIR = build
 BIN     = carbonsim
 TUI_BIN = s2tui
@@ -64,7 +104,8 @@ TUI_OBJS = $(ENG_OBJS) $(OBJ_DIR)/tui.o $(OBJ_DIR)/tui_view.o $(OBJ_DIR)/tui_scr
 DEPS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.d, $(SRCS))
 
 .PHONY: all clean run selftest selftest-forces selftest-fire selftest-regression \
-        selftest-external selftest-loop selftest-eht test deps audit audit-revert tui
+        selftest-external selftest-loop selftest-eht selftest-audit4 \
+        test deps audit audit-revert tui perf
 
 # One command builds every executable: the batch record binary, the live
 # TUI, and all six test binaries — `make` / `make -j$(nproc)` is enough,
@@ -72,7 +113,8 @@ DEPS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.d, $(SRCS))
 # targets below remain as aliases (verify_scripts.sh calls them).
 TEST_BINS = $(OBJ_DIR)/test_datastream $(OBJ_DIR)/test_forces \
             $(OBJ_DIR)/test_fire $(OBJ_DIR)/test_regression \
-            $(OBJ_DIR)/test_external $(OBJ_DIR)/test_loop $(OBJ_DIR)/test_eht
+            $(OBJ_DIR)/test_external $(OBJ_DIR)/test_loop $(OBJ_DIR)/test_eht \
+            $(OBJ_DIR)/test_audit4
 # FULL-AUDIT O16: seal checker (calls ds_verify_file; not a gate itself).
 VERIFY_BINS = $(OBJ_DIR)/verify_cvmds
 
@@ -141,8 +183,12 @@ selftest: $(OBJ_DIR)/test_datastream
 # Test compilation uses TEST_DEPFLAGS for correct dependency paths
 TEST_DEPFLAGS = -MMD -MP -MF $(OBJ_DIR)/$(*F).d
 
+# DS_TEST_OUT_DIR tells the datastream suite where to write its scratch
+# files. FULL-AUDIT: the suite hardcoded "build/", so it failed whenever
+# the build directory did not exist (the OpenMP performance build writes
+# to build-perf/).
 $(OBJ_DIR)/test_datastream.o: $(TEST_DIR)/test_datastream.c
-	$(CC) $(CFLAGS) $(TEST_DEPFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) -DDS_TEST_OUT_DIR='"$(OBJ_DIR)"' $(TEST_DEPFLAGS) -c -o $@ $<
 
 # forces selftest (audit P2): analytic dihedral vs FD oracle. Links the
 # engine objects (minus main) since forces_dihedral lives in forces.o.
@@ -206,6 +252,22 @@ $(OBJ_DIR)/test_loop.o: $(TEST_DIR)/test_loop.c
 # dissolution, SCC convergence, rotation invariance). Seventh gate.
 selftest-eht: $(OBJ_DIR)/test_eht
 
+# EIGHTH GATE: the fourth-audit regression suite. One check per defect
+# found and fixed by the 2026-10 full mathematical / programming /
+# operational audit, each built on an INDEPENDENT oracle: the upstream
+# pcg-random expected-output file for the reference PCG64, the textbook
+# closed forms for the STO overlaps, the mirror symmetry of a bent
+# H-C-H, a grid-integrated two-centre Coulomb integral for the Born
+# induction energy, and the L'Hopital limits of the Hodgkin-Huxley rate
+# functions.
+selftest-audit4: $(OBJ_DIR)/test_audit4
+
+$(OBJ_DIR)/test_audit4: $(OBJ_DIR) $(OBJ_DIR)/test_audit4.o $(ENG_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_audit4.o $(ENG_OBJS) -lm
+
+$(OBJ_DIR)/test_audit4.o: $(TEST_DIR)/test_audit4.c
+	$(CC) $(CFLAGS) -DDS_TEST_OUT_DIR='"$(OBJ_DIR)"' $(TEST_DEPFLAGS) -c -o $@ $<
+
 $(OBJ_DIR)/test_eht: $(OBJ_DIR) $(OBJ_DIR)/test_eht.o $(ENG_OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJ_DIR)/test_eht.o $(ENG_OBJS) -lm
 
@@ -221,13 +283,19 @@ $(OBJ_DIR)/test_eht.o: $(TEST_DIR)/test_eht.c
 # The log is now written to a file so the binary's own exit status reaches
 # make unmasked, and the FAIL lines are grepped as well so the gate fails even
 # if a future change to the suite decouples its exit code from its verdicts.
-test: selftest selftest-forces selftest-fire selftest-regression selftest-external selftest-loop selftest-eht
+test: selftest selftest-forces selftest-fire selftest-regression selftest-external selftest-loop selftest-eht selftest-audit4
 	@./$(OBJ_DIR)/test_datastream   > $(OBJ_DIR)/datastream.log 2>&1; \
-	  dc=$$?; if [ $$dc -ne 0 ]; then echo "  datastream   FAILED (rc=$$dc)"; cat $(OBJ_DIR)/datastream.log; exit 1; else echo "  datastream   OK"; fi
+	  dc=$$?; if [ $$dc -ne 0 ] || grep -q '^  FAIL' $(OBJ_DIR)/datastream.log; then \
+	    echo "  datastream   FAILED (rc=$$dc)"; cat $(OBJ_DIR)/datastream.log; exit 1; \
+	  else echo "  datastream   OK"; fi
 	@./$(OBJ_DIR)/test_forces      > $(OBJ_DIR)/forces.log 2>&1; \
-	  fc=$$?; if [ $$fc -ne 0 ]; then echo "  forces       FAILED (rc=$$fc)"; cat $(OBJ_DIR)/forces.log; exit 1; else echo "  forces       OK"; fi
+	  fc=$$?; if [ $$fc -ne 0 ] || grep -q '^  FAIL' $(OBJ_DIR)/forces.log; then \
+	    echo "  forces       FAILED (rc=$$fc)"; cat $(OBJ_DIR)/forces.log; exit 1; \
+	  else echo "  forces       OK"; fi
 	@./$(OBJ_DIR)/test_fire        > $(OBJ_DIR)/fire.log 2>&1; \
-	  fic=$$?; if [ $$fic -ne 0 ]; then echo "  fire         FAILED (rc=$$fic)"; cat $(OBJ_DIR)/fire.log; exit 1; else echo "  fire         OK"; fi
+	  fic=$$?; if [ $$fic -ne 0 ] || grep -q '^  FAIL' $(OBJ_DIR)/fire.log; then \
+	    echo "  fire         FAILED (rc=$$fic)"; cat $(OBJ_DIR)/fire.log; exit 1; \
+	  else echo "  fire         OK"; fi
 	@./$(OBJ_DIR)/test_loop        > $(OBJ_DIR)/loop.log 2>&1; \
 	  lc=$$?; tail -3 $(OBJ_DIR)/loop.log; \
 	  if [ $$lc -ne 0 ] || grep -q '^  FAIL' $(OBJ_DIR)/loop.log; then \
@@ -252,7 +320,15 @@ test: selftest selftest-forces selftest-fire selftest-regression selftest-extern
 	  else \
 	    echo "  external     OK ($$(grep -c '^  PASS' $(OBJ_DIR)/external.log) vs outside references)"; \
 	  fi
-	@./$(OBJ_DIR)/test_regression  > $(OBJ_DIR)/regression.log; \
+	@./$(OBJ_DIR)/test_audit4      > $(OBJ_DIR)/audit4.log 2>&1; \
+	  a4=$$?; tail -3 $(OBJ_DIR)/audit4.log; \
+	  if [ $$a4 -ne 0 ] || grep -q '^  FAIL' $(OBJ_DIR)/audit4.log; then \
+	    echo "  audit4       FAILED (rc=$$a4)"; grep '^  FAIL' $(OBJ_DIR)/audit4.log | head -20; \
+	    exit 1; \
+	  else \
+	    echo "  audit4       OK ($$(grep -c '^  PASS' $(OBJ_DIR)/audit4.log) fourth-audit checks)"; \
+	  fi
+	@./$(OBJ_DIR)/test_regression  > $(OBJ_DIR)/regression.log 2>&1; \
 	  rc=$$?; tail -3 $(OBJ_DIR)/regression.log; \
 	  if [ $$rc -ne 0 ] || grep -q '^  FAIL' $(OBJ_DIR)/regression.log; then \
 	    echo "  regression  FAILED (rc=$$rc)"; grep '^  FAIL' $(OBJ_DIR)/regression.log | head -20; \
@@ -271,7 +347,7 @@ audit-revert:
 	@./audit/run_audit.sh --revert
 
 clean:
-	rm -rf $(OBJ_DIR) $(BIN) $(TUI_BIN) audit/build
+	rm -rf $(OBJ_DIR) $(PERF_OBJ_DIR) $(BIN) $(TUI_BIN) $(PERF_BIN) $(PERF_TUI_BIN) audit/build
 
 # Print dependency info for debugging
 deps:
