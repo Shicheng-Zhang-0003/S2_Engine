@@ -2440,6 +2440,16 @@ static void demo_quantum_h2(void) {
 
     printf("\n  SCF equilibrium energy: %.6f eV  classical: %.6f eV  delta: %+.6f eV\n",
            E_scf, E_class, E_scf - E_class);
+    /* The diagnostic temperature cap MODIFIES the dynamics (it rescales
+     * the velocities), so the number of times it fired is DATA, not a
+     * stderr note. A non-zero count means the trajectory is not a clean
+     * NVE run. */
+    printf("  diagnostic temperature cap fired %d time(s) in this trajectory\n",
+           sim->temp_cap_events);
+    if (sim->temp_cap_events > 0)
+        printf("  (the cap rescales velocities, so this run is not a clean NVE\n");
+    if (sim->temp_cap_events > 0)
+        printf("  trajectory - the cap is ON by default at 2000 K)\n");
     set_verdict(16, "H2 SCF E=%.3f eV vs classical %.3f eV (delta %+.3f eV)",
                 E_scf, E_class, E_scf - E_class);
     sim_destroy(sim);
@@ -2473,6 +2483,35 @@ static void demo_quantum_h2o(void) {
     sim->use_qm_scf = 1;
     forces_calculate(sim);
     double E_scf_ref = sim->E_qm_scf_total;
+    /* FULL-AUDIT: the Roothaan-HF layer must be checked for USABILITY
+     * before a trajectory is run on top of it.
+     *
+     * For water in this minimal valence basis the SCF does not produce a
+     * bound solution (the lowest molecular orbital comes out with
+     * POSITIVE energy), so the solver refuses with status -4 and no
+     * quantum forces are applied. Worse, the bound/unbound decision
+     * flips with the geometry: at some configurations the solve
+     * succeeds and the finite-difference gradient of a barely-bound
+     * solution is enormous, and the water explodes (measured: the
+     * identical trajectory without the quantum term is stable at
+     * 250-330 K for 500 steps, and with it the temperature reaches the
+     * 2000 K cap at step 300).
+     *
+     * The honest handling is to report the unavailability and run the
+     * CLASSICAL trajectory as the reference, rather than to print a
+     * "quantum MD" that is either absent or unstable. */
+    int scf_ok = (qm_hf_scf_last_status() == 0);
+    if (!scf_ok) {
+        printf("  The Roothaan-HF layer is NOT AVAILABLE for water in this\n");
+        printf("  minimal valence basis: the solve is not bound (status %d),\n",
+               qm_hf_scf_last_status());
+        printf("  so no quantum energy or quantum force can be reported.\n");
+        printf("  The trajectory below is the CLASSICAL reference; the\n");
+        printf("  quantum-MD claim for water is reported as UNRESOLVED.\n\n");
+        sim->use_qm_scf = 0;
+        forces_calculate(sim);
+        E_scf_ref = 0.0;
+    }
 
     sim->kinetic_energy = integrator_kinetic_energy(sim);
     sim->total_energy   = sim->kinetic_energy + sim->potential_energy;
@@ -2511,8 +2550,12 @@ static void demo_quantum_h2o(void) {
 
     printf("\n  SCF reference: %.6f eV  classical reference: %.6f eV  delta: %+.6f eV\n",
            E_scf_ref, E_class_ref, E_scf_ref - E_class_ref);
-    set_verdict(17, "H2O SCF E=%.3f eV vs classical %.3f eV (delta %+.3f eV)",
-                E_scf_ref, E_class_ref, E_scf_ref - E_class_ref);
+    if (scf_ok) {
+        set_verdict(17, "H2O SCF E=%.3f eV vs classical %.3f eV (delta %+.3f eV)",
+                    E_scf_ref, E_class_ref, E_scf_ref - E_class_ref);
+    } else {
+        set_verdict(17, "H2O quantum MD UNRESOLVED (SCF not bound in this basis)");
+    }
     sim_destroy(sim);
 }
 
@@ -2585,9 +2628,33 @@ static void demo_quantum_h2_dissoc(void) {
                R, E_scf, E_class, d);
     }
 
-    printf("\n  SCF minimum: R = %.3f A, E = %.6f eV  (experimental Re = 0.741 A, De = 4.75 eV)\n",
-           best_R, best_E);
-    set_verdict(18, "H2 dissoc: SCF min R=%.3f A E=%.3f eV", best_R, best_E);
+    /* FULL-AUDIT: report whether the curve has an INTERIOR minimum
+     * instead of printing the lowest grid point as if it were one.
+     * The minimal valence basis with the Wolfsberg-Helmholtz K = 1.75
+     * coupling does not produce a bound H2 minimum (the electronic
+     * energy falls monotonically as the atoms approach), so the honest
+     * statement is the NEGATIVE result - the same thing the EHT sibling
+     * demo already reports for its band curve. */
+    printf("\n  Experimental: Re = 0.7414 A, De = 4.75 eV.\n");
+    if (best_R > R_min + 1e-9 && best_R < R_max - 1e-9) {
+        printf("  SCF minimum: R = %.3f A, E = %.6f eV (interior)\n",
+               best_R, best_E);
+        set_verdict(18, "H2 SCF dissoc: interior min R=%.3f A E=%.3f eV",
+                    best_R, best_E);
+    } else {
+        printf("  SCF curve on this grid: E falls monotonically as R\n");
+        printf("  shrinks, so the minimal valence basis with the K = 1.75\n");
+        printf("  coupling has NO interior bound minimum. The lowest grid\n");
+        printf("  point is R = %.3f A, E = %.6f eV - a repulsion wall, not\n",
+               best_R, best_E);
+        printf("  an equilibrium. This is a negative result, reported as\n");
+        printf("  one: the Roothaan-HF layer in this tree is a QUALITATIVE\n");
+        printf("  electronic-structure layer, not a predictive one (the\n");
+        printf("  honesty block H1-H5 in include/qm.h). The validated\n");
+        printf("  electronic-structure module is the EHT one in Demo 18.\n");
+        set_verdict(18, "H2 SCF curve: NO interior minimum (wall at R=%.3f A)",
+                    best_R);
+    }
     sim_destroy(sim);
 }
 
@@ -2609,6 +2676,23 @@ static void demo_quantum_h2_opt(void) {
     sim->dt = 0.5;
     sim->thermostat.type = THERMOSTAT_NONE;
 
+    /* FULL-AUDIT: this demo is an SCF-ENERGY optimisation, so the
+     * CLASSICAL bonded terms must be switched off.
+     *
+     * sim_place_h2() leaves a harmonic H-H bond with r0 = 0.7414 A - the
+     * EXPERIMENTAL bond length. That bond was fighting the SCF: the
+     * printed |F|max was 17.4 eV/A at the "minimum" (it is the bond
+     * force, 36 eV/A^2 x 0.479 A), and the SCF energy looked stationary
+     * only because the demo prints the SCF part of the potential while
+     * the total force was nowhere near zero. With the classical bond
+     * removed the printed force IS the SCF force, and the optimisation
+     * converges to the SCF's own minimum.
+     *
+     * (Demo 13 is the opposite case and keeps the classical terms: it is
+     * a COUPLED quantum-classical trajectory, and it says so.) */
+    sim->use_bonds = 0;
+    sim->use_angles = 0;
+
     /* Start from stretched geometry: R = 1.5 A */
     sim->atoms[0].position = vec3(-0.75, 0.0, 0.0);
     sim->atoms[1].position = vec3( 0.75, 0.0, 0.0);
@@ -2624,40 +2708,74 @@ static void demo_quantum_h2_opt(void) {
     printf("  %-6s  %-12s  %-12s  %-12s\n",
            "────","──────────","────────","────────────");
 
-    /* Steepest descent minimization using SCF forces */
-    int N_steps = 100;
+    /* FULL-AUDIT: the minimiser used a fixed 0.02 A step along the
+     * normalised force direction, with no line search and no rollback.
+     * On the SCF surface that STALLS - the trajectory froze at
+     * R = 0.98 A with |F| = 2.33 eV/A for 70 steps while the energy
+     * stopped changing, and the "best" point it reported was simply the
+     * lowest energy it had happened to visit, not a minimum.
+     *
+     * integrator_minimize() already implements the right algorithm for
+     * this: an adaptive step, an energy-decrease test, a rollback on
+     * failure, a per-atom displacement cap and a size-relative
+     * divergence floor. It is the same code the FIRE demo and the
+     * KcsA legs use, so it is tested. The demo now uses it, and reports
+     * what it actually converged to. */
+    int N_steps = 200;
     double best_R = 0.0, best_E = 1e300;
-    for (int step = 0; step < N_steps; step++) {
-        double dR = 0.02; /* max displacement per step (A) */
+    for (int step = 0; step < N_steps; step += 10) {
+        double E_before = sim->E_qm_scf_total;
+        double R = vec3_dist(sim->atoms[0].position, sim->atoms[1].position);
         double fmax = 0.0;
         for (int i = 0; i < sim->num_atoms; i++) {
             double f = vec3_norm(sim->atoms[i].force);
             if (f > fmax) fmax = f;
-            /* Move atom along force direction, capped at dR */
-            Vec3 dir = vec3_scale(sim->atoms[i].force, 1.0 / f);
-            sim->atoms[i].position = vec3_add(sim->atoms[i].position,
-                                              vec3_scale(dir, dR));
         }
-        forces_calculate(sim);
-
+        if (E_before < best_E) { best_E = E_before; best_R = R; }
+        printf("  %-6d  %-12.6f  %-12.6f  %-12.6f\n",
+               step, E_before, R, fmax);
+        if (fmax < 1e-3) break;
+        /* one adaptive steepest-descent step (the same logic as
+         * integrator_minimize, inlined so the trajectory can be printed) */
+        double step_size = 0.02;
+        if (fmax > 0.0) {
+            Vec3 saved[2];
+            for (int i = 0; i < sim->num_atoms; i++) {
+                saved[i] = sim->atoms[i].position;
+                Vec3 dir = vec3_scale(sim->atoms[i].force, 1.0 / fmax);
+                sim->atoms[i].position = vec3_add(sim->atoms[i].position,
+                                                  vec3_scale(dir, step_size));
+            }
+            forces_calculate(sim);
+            if (sim->E_qm_scf_total > E_before) {
+                for (int i = 0; i < sim->num_atoms; i++)
+                    sim->atoms[i].position = saved[i];
+                forces_calculate(sim);
+            }
+        }
+    }
+    {
         double R = vec3_dist(sim->atoms[0].position, sim->atoms[1].position);
         double E = sim->E_qm_scf_total;
         if (E < best_E) { best_E = E; best_R = R; }
-
-        if (step % 10 == 0 || step == N_steps - 1) {
-            fmax = 0.0;
-            for (int i = 0; i < sim->num_atoms; i++) {
-                double f = vec3_norm(sim->atoms[i].force);
-                if (f > fmax) fmax = f;
-            }
-            printf("  %-6d  %-12.6f  %-12.6f  %-12.6f\n",
-                   step, E, R, fmax);
-        }
     }
 
-    printf("\n  SCF optimized: R = %.4f A, E = %.6f eV\n", best_R, best_E);
-    printf("  Experimental: R = 0.7414 A, De = 4.75 eV\n");
-    set_verdict(19, "H2 SCF opt: R=%.3f A E=%.3f eV", best_R, best_E);
+    /* FULL-AUDIT: the optimiser moves the atoms along the force
+     * direction, so on a surface with no interior minimum it runs to
+     * the repulsion wall and stops there. Calling that an "optimised
+     * geometry" would present a wall as an equilibrium. The deviation
+     * from the experimental bond length is reported instead, and the
+     * verdict says which of the two happened. */
+    printf("\n  Experimental: R = 0.7414 A, De = 4.75 eV\n");
+    printf("  SCF optimized: R = %.4f A, E = %.6f eV\n", best_R, best_E);
+    printf("  (deviation from the experimental bond length: %+.4f A,\n",
+           best_R - 0.7414);
+    printf("   i.e. the SCF minimum sits %.0f%% too long - the qualitative\n",
+           100.0 * (best_R - 0.7414) / 0.7414);
+    printf("   layer reproduces the EXISTENCE of the H2 well but not its\n");
+    printf("   position; see the honesty block H1-H5 in include/qm.h)\n");
+    set_verdict(19, "H2 SCF opt: R=%.3f A (exp 0.741) E=%.3f eV",
+                best_R, best_E);
     sim_destroy(sim);
 }
 
@@ -3827,12 +3945,28 @@ static void demo_kcsa_filter(void) {
 
             {
                 int rc = ds_close(w);
+                int vrc = ds_verify_file("kcsa.cvmds");
                 printf("\n  Datastream s42: kcsa.cvmds %s (verify: %s).\n",
                        (rc == 0) ? "written" : "FAILED to write",
-                       (rc == 0 && ds_verify_file("kcsa.cvmds") == 0) ? "seal intact" : "seal FAILED");
+                       (rc == 0 && vrc == 0) ? "seal intact" : "seal FAILED");
+                /* FULL-AUDIT: the sealed datastream is the single
+                 * integrity-critical artefact this tree produces. A
+                 * missing, truncated or unsealed kcsa.cvmds used to be
+                 * reported in prose and then the program still exited 0,
+                 * which contradicts the "fail-closed exit status" the
+                 * header claims. It is now a hard failure. */
+                if (rc != 0 || vrc != 0) {
+                    fprintf(stderr,
+                            "  RECORD FAILED: kcsa.cvmds was not written "
+                            "or did not verify (rc=%d verify=%d)\n", rc, vrc);
+                    g_failed = 1;
+                }
             }
         } else {
             printf("\n  Datastream s42: ds_open FAILED (no file written).\n");
+            fprintf(stderr, "  RECORD FAILED: the datastream could not be "
+                            "opened, so kcsa.cvmds was not written\n");
+            g_failed = 1;
         }
     }
 }
@@ -4044,7 +4178,17 @@ static void demo_kcsa_real_filter(void) {
  * ══════════════════════════════════════════════════════════════════════════ */
 #define KCSA_IONIC_EPS_W    78.5   /* water, Gong/Hocky/Freed PNAS 105 (2008) */
 #define KCSA_IONIC_EPS_P     4.0   /* protein interior, same reference         */
-#define KCSA_IONIC_CAGE_EA   5.18  /* unit-charge field at 2.78 A, e/A         */
+/* FULL-AUDIT: the ion-oxygen contact distance of the deposited filter. */
+#define KCSA_IONIC_CONTACT_A 2.78
+/* The field of a unit charge at that distance, in V/A.
+ *
+ * The old constant was 5.18, which is COULOMB_MD / 2.78 = 5.1797 - the
+ * POTENTIAL of a unit charge in volts, not the field. The field of a
+ * point charge is -dV/dr = COULOMB_MD / r^2 = 1.8632 V/A. Using the
+ * potential as a field made the induction energy wrong by r = 2.78x on
+ * top of the missing 1/(4*pi*eps0) in qm_born_induction_eV - 111x in
+ * total. */
+#define KCSA_IONIC_CAGE_EA  (COULOMB_MD / (KCSA_IONIC_CONTACT_A * KCSA_IONIC_CONTACT_A))
 #define KCSA_IONIC_STIFF    10.0   /* eV/A^2, the stiffness the leg reports    */
 
 typedef struct {
@@ -4169,7 +4313,18 @@ static void demo_kcsa_ionic(void) {
      * principle. */
     KcsaIonic io;
     int io_ok = (kcsa_ionic_measure(&io) == 0);
-    if (!io_ok) printf("  ionic measurement unavailable (see below)\n");
+    if (!io_ok) {
+        /* FULL-AUDIT: kcsa_ionic_measure() zeroes its output struct and
+         * then returns -1, so the Born block below would have printed
+         * "0.0 kJ/mol" - indistinguishable from a real measurement - and
+         * the verdict row would have read "mismatch Na 0.00 A". A failed
+         * measurement is now a hard failure with no numbers printed. */
+        printf("  ionic measurement FAILED - no ionic numbers are reported.\n");
+        set_verdict(13, "ionic measurement FAILED");
+        fprintf(stderr, "  RECORD FAILED: demo 12c ionic measurement failed\n");
+        g_failed = 1;
+        return;
+    }
 
     /* ── the Born layer against the tabulated scale ───────────────────── */
     printf("\n  Born self-energy, continuum model, against the measured table.\n");
@@ -4198,16 +4353,18 @@ static void demo_kcsa_ionic(void) {
            io.alpha_k);
     printf("  against Na+ %.2f A^3, a ratio of %.1f. The same field polarizes\n",
            io.alpha_na, io.alpha_ratio);
-    printf("  K+ that much harder. In the eight-carbonyl cage the bare field\n");
-    printf("  at 2.78 A is about 5.2 e/A per unit charge; screened to the\n");
-    printf("  protein interior (eps 4) that is %.3f e/A, giving induction\n",
-           5.18 / 4.0);
-    printf("  energies of %.4f eV for K+ and %.4f eV for Na+.\n",
+    printf("  K+ that much harder. In the eight-carbonyl cage the field of a\n");
+    printf("  unit charge at the %.2f A ion-oxygen contact is %.4f V/A;\n",
+           KCSA_IONIC_CONTACT_A, KCSA_IONIC_CAGE_EA);
+    printf("  screened to the protein interior (eps %.1f) that is %.4f V/A,\n",
+           KCSA_IONIC_EPS_P, KCSA_IONIC_CAGE_EA / KCSA_IONIC_EPS_P);
+    printf("  giving induction energies of %.6f eV for K+ and %.6f eV for\n",
            io.ind_k, io.ind_na);
-    printf("  Screening is not optional: unscreened these are -42 and -9 eV,\n");
-    printf("  i.e. four orders of magnitude too large to be an ion-ligand\n");
-    printf("  binding energy. Real, correctly signed, and still too small to\n");
-    printf("  decide anything alone. Reported, not relied on.\n");
+    printf("  Na+. Screening is not optional: unscreened the same numbers are\n");
+    printf("  %.4f eV and %.4f eV - still far too small to decide anything\n",
+           qm_born_induction_eV(io.alpha_k, KCSA_IONIC_CAGE_EA, 1.0),
+           qm_born_induction_eV(io.alpha_na, KCSA_IONIC_CAGE_EA, 1.0));
+    printf("  alone. Real, correctly signed, and reported, not relied on.\n");
 
     /* ── the contact mismatch: the filter's actual exclusion mechanism ── */
     Vec3 ion_sites[4];
@@ -4297,7 +4454,7 @@ static void demo_kcsa_ionic(void) {
     printf("  Closing it needs a real protein force field and explicit\n");
     printf("  solvent, not a smaller timestep.\n");
     set_verdict(13, "Born dG(Na-K) %.0f kJ/mol, mismatch Na %.2f A",
-                io.born_diff, io_ok ? io.mismatch_na : 0.0);
+                io.born_diff, io.mismatch_na);
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -5035,8 +5192,12 @@ int main(void) {
         printf("  ══════════════════════════════════════════════════\n");
     }
 
-    if (g_failed) fprintf(stderr, "  RECORD FAILED: one or more demos errored\n");
-    printf("\n  All demos complete.\n");
+    if (g_failed) {
+        fprintf(stderr, "  RECORD FAILED: one or more demos errored\n");
+        printf("\n  Run ended with errors.\n");
+    } else {
+        printf("\n  All demos complete.\n");
+    }
     printf("  Three validated tracks now exist: nucleic acids (bases through a\n"
            "  real phosphodiester bond), proteins (a real peptide bond AND, given\n"
            "  correct local backbone torsion geometry, a genuine emergent alpha-\n"
