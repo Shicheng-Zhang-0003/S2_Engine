@@ -1328,7 +1328,14 @@ static char *sh_expand(Tui *t, const char *raw, const char *mask, int depth) {
                     int set = (v != NULL);
                     int nonempty = (set && v[0] != '\0');
                     int use_word = (!set || !nonempty);
-                    char tmp[256];
+                    /* FULL-AUDIT: the buffer has to hold the formatted
+                     * line, not just one field: "  <name>: <value>\n"
+                     * with a 63-byte name and a 255-byte value needs up
+                     * to 324 bytes. The 256-byte buffer truncated the
+                     * message; the warning is invisible at -O3 (the
+                     * record build) and appears at -O0 and -O1, which is
+                     * how the sanitizer build found it. */
+                    char tmp[400];
                     /* expand WORD part (allows nested $V/$( )/${}) */
                     char xword[256] = {0};
                     {
