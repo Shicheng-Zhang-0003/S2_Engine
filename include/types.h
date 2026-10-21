@@ -227,6 +227,10 @@ typedef struct {
     int  nx, ny, nz;
     int  ncells;
     double cx, cy, cz;
+    /* Grid origin: the lower corner of the (cutoff-expanded) bounding box
+     * the grid was built over. sim_cell_index() MUST use it - the grid is
+     * not anchored at the coordinate origin. */
+    double ox, oy, oz;
     int  *head;
     int  *list;
     int  *count;
@@ -442,6 +446,11 @@ typedef struct {
      * all Simulation instances and threads; sim A tripping the cap would
      * suppress the edge-triggered note for sim B. Now per-instance. */
     int      temp_capped_latched;
+    /* Number of times the diagnostic temperature cap has fired. The cap
+     * MODIFIES the dynamics (it rescales velocities), so a run whose
+     * count is non-zero is not a clean NVE/NVT trajectory, and the demos
+     * report the count as data rather than hiding it on stderr. */
+    int      temp_cap_events;
 } Simulation;
 
 /* ══════════════════════════════════════════════════════════════════════════

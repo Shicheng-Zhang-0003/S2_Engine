@@ -802,7 +802,12 @@ void forces_calculate(Simulation *sim) {
      * once above 2000 atoms so a TUI spawn-toward-the-cap cannot hang the
      * terminal silently. Physics unchanged; cell lists are future work. */
     if (sim->num_atoms > 2000) {
-        static int warned_scale = 0;
+        /* FULL-AUDIT: the latch was a plain function-static, shared by
+         * every Simulation instance and every thread. One instance
+         * tripping the warning suppressed the note for all the others.
+         * A thread-local keeps the diagnostic per thread without
+         * changing the record (the warning is stderr-only). */
+        static _Thread_local int warned_scale = 0;
         if (!warned_scale) {
             fprintf(stderr, "forces_calculate: WARNING n=%d exceeds O(N^2) comfort (~2000); steps will be slow (no cell lists yet)\n",
                     sim->num_atoms);
@@ -921,20 +926,42 @@ void forces_calculate(Simulation *sim) {
                     sim->num_atoms > 512 &&
                     !(sim->box.periodic[0] || sim->box.periodic[1] || sim->box.periodic[2]);
 
+    /* ═══ CELL-LIST + OPENMP PATH WORK BUFFERS ═══
+     *
+     * FULL-AUDIT: the three buffers are allocated ONCE, here.
+     *
+     * The old code had two consecutive `if (use_cells)` blocks, each
+     * allocating F_priv / E_lj_priv / E_coul_priv. The first block
+     * allocated them, the second block allocated them AGAIN and
+     * overwrote the first set of pointers - so every single
+     * forces_calculate() call in the cell-list path LEAKED
+     * n_threads*N*3 doubles plus two small arrays (432 kB per call
+     * at N = 1000 with 18 threads), and the leak grew without bound
+     * for the lifetime of the process.
+     *
+     * The allocation and its NULL check now live in one scope, so the
+     * check actually guards the use (the second block's allocation had
+     * no NULL check at all, and `&F_priv[tid * N]` on a NULL F_priv is
+     * undefined behaviour). */
+    double (*F_priv)[3] = NULL;
+    double *E_lj_priv = NULL;
+    double *E_coul_priv = NULL;
+    int cell_threads = 1;
     if (use_cells) {
-        /* ═══ CELL-LIST + OPENMP PATH ═══ */
-        int N = sim->num_atoms;
-        int n_threads = 1;
+        int Nc = sim->num_atoms;
+        cell_threads = 1;
 #ifdef _OPENMP
-        n_threads = omp_get_max_threads();
-        if (n_threads < 1) n_threads = 1;
+        cell_threads = omp_get_max_threads();
+        if (cell_threads < 1) cell_threads = 1;
 #endif
-        if (n_threads > 128) n_threads = 128;
-        double (*F_priv)[3] = (double (*)[3])calloc((size_t)n_threads * (size_t)N, sizeof(double) * 3);
-        double *E_lj_priv = (double *)calloc((size_t)n_threads, sizeof(double));
-        double *E_coul_priv = (double *)calloc((size_t)n_threads, sizeof(double));
+        if (cell_threads > 128) cell_threads = 128;
+        F_priv = (double (*)[3])calloc((size_t)cell_threads * (size_t)Nc,
+                                       sizeof(double) * 3);
+        E_lj_priv = (double *)calloc((size_t)cell_threads, sizeof(double));
+        E_coul_priv = (double *)calloc((size_t)cell_threads, sizeof(double));
         if (!F_priv || !E_lj_priv || !E_coul_priv) {
             free(F_priv); free(E_lj_priv); free(E_coul_priv);
+            F_priv = NULL; E_lj_priv = NULL; E_coul_priv = NULL;
             use_cells = 0; /* fall back to serial */
         }
     }
@@ -942,15 +969,7 @@ void forces_calculate(Simulation *sim) {
     if (use_cells) {
         SimCellList *cl = sim->cell_list;
         int N = sim->num_atoms;
-        int n_threads = 1;
-#ifdef _OPENMP
-        n_threads = omp_get_max_threads();
-        if (n_threads < 1) n_threads = 1;
-#endif
-        if (n_threads > 128) n_threads = 128;
-        double (*F_priv)[3] = (double (*)[3])calloc((size_t)n_threads * (size_t)N, sizeof(double) * 3);
-        double *E_lj_priv = (double *)calloc((size_t)n_threads, sizeof(double));
-        double *E_coul_priv = (double *)calloc((size_t)n_threads, sizeof(double));
+        int n_threads = cell_threads;
 
 #ifdef _OPENMP
 #pragma omp parallel if(N > 512) num_threads(n_threads)
@@ -978,7 +997,16 @@ void forces_calculate(Simulation *sim) {
                         Vec3 r_ij = vec3_sub(sim->atoms[j].position,
                                              sim->atoms[i].position);
                         double r2 = vec3_norm2(r_ij);
-                        if (!(r2 > cutoff2) && r2 > 1.0e-10) {
+                        /* FULL-AUDIT: the cell path must apply the SAME cutoff
+                             * rule as the serial path. cutoff_ok is false
+                             * for a degenerate cutoff (<= 0 or NaN), and
+                             * the serial path then disables the pair term
+                             * entirely. The cell path ignored cutoff_ok,
+                             * so with a degenerate cutoff it evaluated
+                             * EVERY pair instead of none - the two paths
+                             * disagreed about the physics of the same
+                             * system. */
+                            if (cutoff_ok && !(r2 > cutoff2) && r2 > 1.0e-10) {
                             int skip = 0;
                             for (int p = 0; p < sim->atoms[i].num_bonds && !skip; p++)
                                 if (sim->atoms[i].bond_partners[p] == j) skip = 1;
@@ -988,6 +1016,21 @@ void forces_calculate(Simulation *sim) {
                                     if (k < 0 || k >= N) continue;
                                     for (int q = 0; q < sim->atoms[k].num_bonds; q++)
                                         if (sim->atoms[k].bond_partners[q] == j) { skip = 1; break; }
+                                }
+                            }
+                            /* FULL-AUDIT: the serial path has a defensive fallback that
+                             * consults the authoritative ANGLE list for 1-3 pairs, because
+                             * the per-atom partner lists can lag a rebuilt topology. The
+                             * cell path had only the partner-list test, so the two paths
+                             * could exclude different pairs and produce different energies
+                             * for the same system. */
+                            if (!skip) {
+                                for (int a = 0; a < sim->num_angles; a++) {
+                                    const Angle *ang = &sim->angles[a];
+                                    if ((ang->atom_a == i && ang->atom_c == j) ||
+                                        (ang->atom_a == j && ang->atom_c == i)) {
+                                        skip = 1; break;
+                                    }
                                 }
                             }
                             if (skip) continue;
@@ -1020,7 +1063,16 @@ void forces_calculate(Simulation *sim) {
                             Vec3 r_ij = vec3_sub(sim->atoms[j].position,
                                                  sim->atoms[i].position);
                             double r2 = vec3_norm2(r_ij);
-                            if (!(r2 > cutoff2) && r2 > 1.0e-10) {
+                            /* FULL-AUDIT: the cell path must apply the SAME cutoff
+                             * rule as the serial path. cutoff_ok is false
+                             * for a degenerate cutoff (<= 0 or NaN), and
+                             * the serial path then disables the pair term
+                             * entirely. The cell path ignored cutoff_ok,
+                             * so with a degenerate cutoff it evaluated
+                             * EVERY pair instead of none - the two paths
+                             * disagreed about the physics of the same
+                             * system. */
+                            if (cutoff_ok && !(r2 > cutoff2) && r2 > 1.0e-10) {
                                 int skip = 0;
                                 for (int p = 0; p < sim->atoms[i].num_bonds && !skip; p++)
                                     if (sim->atoms[i].bond_partners[p] == j) skip = 1;
@@ -1030,6 +1082,21 @@ void forces_calculate(Simulation *sim) {
                                         if (k < 0 || k >= N) continue;
                                         for (int q = 0; q < sim->atoms[k].num_bonds; q++)
                                             if (sim->atoms[k].bond_partners[q] == j) { skip = 1; break; }
+                                    }
+                                }
+                                /* FULL-AUDIT: the serial path has a defensive fallback that
+                                 * consults the authoritative ANGLE list for 1-3 pairs, because
+                                 * the per-atom partner lists can lag a rebuilt topology. The
+                                 * cell path had only the partner-list test, so the two paths
+                                 * could exclude different pairs and produce different energies
+                                 * for the same system. */
+                                if (!skip) {
+                                    for (int a = 0; a < sim->num_angles; a++) {
+                                        const Angle *ang = &sim->angles[a];
+                                        if ((ang->atom_a == i && ang->atom_c == j) ||
+                                            (ang->atom_a == j && ang->atom_c == i)) {
+                                            skip = 1; break;
+                                        }
                                     }
                                 }
                                 if (skip) continue;

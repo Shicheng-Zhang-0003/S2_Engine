@@ -2,6 +2,7 @@
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
+#include <limits.h>
 #include "../include/sim.h"
 #include "../include/periodic_table.h"
 #include "../include/quantum.h"
@@ -148,9 +149,18 @@ static int cell_coord_index(double p, double cell_size, double box_lo) {
 int sim_cell_index(const Simulation *sim, Vec3 p) {
     if (!sim || !sim->cell_list) return -1;
     SimCellList *cl = sim->cell_list;
-    int ci = cell_coord_index(p.x, cl->cx, 0.0);
-    int cj = cell_coord_index(p.y, cl->cy, 0.0);
-    int ck = cell_coord_index(p.z, cl->cz, 0.0);
+    /* FULL-AUDIT: the grid has an ORIGIN (the lower corner of the
+     * bounding box, expanded by one cutoff), and the accessor must use
+     * it. The build discarded the origin entirely - `(void)minx` and
+     * friends - so this function indexed the grid as if it started at
+     * the origin of the coordinate system. Measured on a 6-atom system
+     * at x in [100, 165]: sim_cell_index_atom() returned -1 for EVERY
+     * atom. The accessors are exported in include/sim.h, so this was a
+     * live API returning a wrong answer for every system not sitting
+     * near (0,0,0). */
+    int ci = cell_coord_index(p.x - cl->ox, cl->cx, 0.0);
+    int cj = cell_coord_index(p.y - cl->oy, cl->cy, 0.0);
+    int ck = cell_coord_index(p.z - cl->oz, cl->cz, 0.0);
     if (ci < 0 || ci >= cl->nx || cj < 0 || cj >= cl->ny || ck < 0 || ck >= cl->nz)
         return -1;
     return (ci * cl->ny + cj) * cl->nz + ck;
@@ -204,22 +214,55 @@ int sim_rebuild_cell_list(Simulation *sim) {
         if (p.z < minz) minz = p.z;
         if (p.z > maxz) maxz = p.z;
     }
-    if (!isfinite(minx)) { sim_free_cell_list(sim); sim->cell_list = NULL; return 0; }
+    if (!isfinite(minx)) {
+        /* FULL-AUDIT: this path DESTROYS the cell list and then reports
+         * success (0 == SIM_OK). A caller cannot distinguish "built" from
+         * "destroyed and gone". */
+        sim_free_cell_list(sim);
+        sim->cell_list = NULL;
+        return SIM_ERR_BADPARAM;
+    }
 
     /* Expand by one cutoff so boundary atoms have neighbour cells. */
     minx -= sim->cutoff; maxx += sim->cutoff;
     miny -= sim->cutoff; maxy += sim->cutoff;
     minz -= sim->cutoff; maxz += sim->cutoff;
 
-    /* Cell counts per axis (at least 1). Cell size is exactly cutoff. */
-    int nx = (int)((maxx - minx) / cl->cx);
-    int ny = (int)((maxy - miny) / cl->cy);
-    int nz = (int)((maxz - minz) / cl->cz);
+    /* FULL-AUDIT: the cell counts were computed by TRUNCATION and in
+     * `int`, and ncells = nx*ny*nz was an unchecked int product.
+     *
+     *  - truncation leaves a tail region of width up to one cutoff, which
+     *    is then clamped into the last cell, so that cell is up to 2
+     *    cutoff wide and the documented "cell size = cutoff" invariant
+     *    does not hold;
+     *  - the int product overflows. With a small cutoff and a modest
+     *    extent (cutoff = 1e-4 A, extent 0.1 A in y and z) nx ~ 3e6 and
+     *    ncells ~ 3e12: the product wraps to a small POSITIVE number,
+     *    calloc succeeds with a tiny buffer, and the insert loop then
+     *    writes head[c] with c up to 3e12 - a HEAP OUT-OF-BOUNDS WRITE.
+     *    sim->cutoff is user-settable, so this was reachable.
+     *
+     * The counts are now computed in double with ceil(), the product is
+     * checked in size_t, and an absurd grid is refused loudly. */
+    double spanx = maxx - minx, spany = maxy - miny, spanz = maxz - minz;
+    if (!(spanx >= 0.0) || !(spany >= 0.0) || !(spanz >= 0.0))
+        return SIM_ERR_BADPARAM;
+    long long nx = (long long)ceil(spanx / cl->cx);
+    long long ny = (long long)ceil(spany / cl->cy);
+    long long nz = (long long)ceil(spanz / cl->cz);
     if (nx < 1) nx = 1;
     if (ny < 1) ny = 1;
     if (nz < 1) nz = 1;
-    int ncells = nx * ny * nz;
-    if (ncells < 1) ncells = 1;
+    /* A cell count beyond this cannot be allocated on any sane machine;
+     * refuse rather than overflow. */
+    const long long NCELLS_MAX = 100000000LL;
+    if (nx > NCELLS_MAX / (ny > 0 ? ny : 1) ||
+        (long long)nx * ny > NCELLS_MAX / (nz > 0 ? nz : 1))
+        return SIM_ERR_OVERFLOW;
+    long long ncells_ll = nx * ny * nz;
+    if (ncells_ll < 1) ncells_ll = 1;
+    if (ncells_ll > (long long)INT_MAX) return SIM_ERR_OVERFLOW;
+    int ncells = (int)ncells_ll;
 
     /* Allocate/link cell arrays. */
     int *head = (int *)calloc((size_t)ncells, sizeof(int));
@@ -238,20 +281,33 @@ int sim_rebuild_cell_list(Simulation *sim) {
         int ci = cell_coord_index(p.x - minx, cl->cx, 0.0);
         int cj = cell_coord_index(p.y - miny, cl->cy, 0.0);
         int ck = cell_coord_index(p.z - minz, cl->cz, 0.0);
-        if (ci >= nx) ci = nx - 1;
-        if (cj >= ny) cj = ny - 1;
-        if (ck >= nz) ck = nz - 1;
-        int c = (ci * ny + cj) * nz + ck;
+        if (ci >= (int)nx) ci = (int)nx - 1;
+        if (cj >= (int)ny) cj = (int)ny - 1;
+        if (ck >= (int)nz) ck = (int)nz - 1;
+        if (ci < 0) ci = 0;
+        if (cj < 0) cj = 0;
+        if (ck < 0) ck = 0;
+        long long c = ((long long)ci * ny + cj) * nz + ck;
+        if (c < 0 || c >= ncells_ll) continue;   /* cannot happen; belt and braces */
         list[i] = head[c];
         head[c] = i;
         count[c]++;
     }
 
-    cl->nx = nx; cl->ny = ny; cl->nz = nz; cl->ncells = ncells;
+    /* FULL-AUDIT: the previous head/list/count arrays were LEAKED here
+     * when the rebuild took the "reuse the allocation" path (the cutoff
+     * had not changed, so sim_free_cell_list() was not called) and the
+     * fresh arrays simply overwrote the pointers. ASan measured 208 bytes
+     * leaked per rebuild. */
+    free(cl->head);
+    free(cl->list);
+    free(cl->count);
+
+    cl->nx = (int)nx; cl->ny = (int)ny; cl->nz = (int)nz; cl->ncells = ncells;
     cl->head = head; cl->list = list; cl->count = count;
-    /* Store grid origin for index translation (needed by neighbour walks). */
-    cl->cx = cl->cx; /* cell size already set */
-    (void)minx; (void)miny; (void)minz;
+    /* Store the grid origin: sim_cell_index() needs it, and the neighbour
+     * walks in forces.c index the same grid. */
+    cl->ox = minx; cl->oy = miny; cl->oz = minz;
     return 0;
 }
 
