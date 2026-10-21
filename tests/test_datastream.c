@@ -26,8 +26,21 @@ static void check(int cond, const char *name) {
 
 int main(void) {
     char hex[65];
+#ifdef DS_TEST_OUT_DIR
+    const char *path = DS_TEST_OUT_DIR "/selftest.cvmds";
+#else
     const char *path = "build/selftest.cvmds";
+#endif
+    /* FULL-AUDIT: the output directory was hardcoded to "build/", which
+     * made the suite fail whenever the build directory did not exist
+     * (the OpenMP performance build writes to build-perf/, and a clean
+     * tree has no build/ at all). The directory now comes from the
+     * build, so the suite is location-independent. */
+#ifdef DS_TEST_OUT_DIR
+    const char *tpath = DS_TEST_OUT_DIR "/selftest_tampered.cvmds";
+#else
     const char *tpath = "build/selftest_tampered.cvmds";
+#endif
     DSWriter *w;
     FILE *f;
     char *content;

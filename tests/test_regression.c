@@ -812,7 +812,23 @@ static void test_dipole_solver_equation(void) {
                     double uu = r / A_TH_TEST;
                     double fth = 1.0 - exp(-uu * uu * uu);
                     if (fth == 0.0) continue;
-                    double kij = al[i] * COULOMB_MD * fth / (r * r * r);
+                    /* FULL-AUDIT F6: the coupling block is
+                     *   A_ij = alpha_i f [3 d d^T - I] / r^3
+                     * with NO extra COULOMB_MD. Derivation in the
+                     * engine's own units: the field is E [V/A], the
+                     * polarizability is alpha [A^3], the dipole is
+                     * mu = alpha E / COULOMB_MD [e.A] (the 1/(4*pi*eps0)
+                     * factor), and the field of a dipole is
+                     * E_dip = COULOMB_MD [3(mu.d)d - mu] / r^3. Writing
+                     * mu_i = alpha_i (E0_i + E_dip,i)/COULOMB_MD and
+                     * substituting mu_j back, the COULOMB_MD CANCELS.
+                     * The old test pinned the operator WITH the extra
+                     * factor, i.e. it pinned a 14.4x over-coupled
+                     * operator - and the engine matched it, so the two
+                     * agreed with each other and were both wrong.
+                     * The right-hand side below was already correct
+                     * (mu_i = alpha_i E0_i / COULOMB_MD). */
+                    double kij = al[i] * fth / (r * r * r);
                     Vec3 uj = mu[j];
                     double dot = d.x * uj.x + d.y * uj.y + d.z * uj.z;
                     /* A_ij mu_j = kij [ 3 d (d.mu_j)/r^2 - mu_j ] */

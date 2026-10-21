@@ -882,12 +882,32 @@ static void test_kcsa_ionic_layer(void) {
     okrel("sealed bury K+  (water->eps 4) = +79.24 kJ/mol",
           qm_born_transfer_kJmol(19, 78.5, 4.0), 79.2404, 1e-4);
 
-    /* Screened induction at the cage field, eps 4 — the values demo 12c
-     * prints as -0.6960 and -0.1509 eV. */
-    okrel("sealed induction K+  = -0.69597 eV",
-          qm_born_induction_eV(0.83, 5.18, 4.0), -0.695965375, 1e-9);
-    okrel("sealed induction Na+ = -0.15093 eV",
-          qm_born_induction_eV(0.18, 5.18, 4.0), -0.150932250, 1e-9);
+    /* Screened induction at the cage field, eps 4.
+     *
+     * FULL-AUDIT: the field constant was the POTENTIAL of a unit charge
+     * at the contact distance (COULOMB_MD / 2.78 = 5.18 V) instead of
+     * the FIELD (COULOMB_MD / 2.78^2 = 1.8632 V/A), and
+     * qm_born_induction_eV() was missing the 1/(4*pi*eps0) factor. The
+     * two together made the printed induction energy 111x too large.
+     * The field is now derived from the same contact distance the demo
+     * uses, and the energy is U = -1/2 alpha E^2 / COULOMB_MD. */
+    {
+        const double contact = 2.78;
+        const double field = COULOMB_MD / (contact * contact);
+        /* Reference values computed independently from the CODATA
+         * primaries: C = 8.9875517923e9 * 1.602176634e-19 / 1e-10. */
+        okrel("cage field is the FIELD of a unit charge at 2.78 A",
+              field, 1.8632117228000467, 1e-12);
+        okrel("sealed induction K+  = -0.0062531771 eV",
+              qm_born_induction_eV(0.83, field, 4.0), -0.0062531771207658, 1e-12);
+        okrel("sealed induction Na+ = -0.0013561107 eV",
+              qm_born_induction_eV(0.18, field, 4.0), -0.0013561107008890, 1e-12);
+        /* The unscreened (eps = 1) reference. */
+        okrel("unscreened induction K+  = -0.1000508339 eV",
+              qm_born_induction_eV(0.83, field, 1.0), -0.1000508339322524, 1e-12);
+        okrel("unscreened induction Na+ = -0.0216977712 eV",
+              qm_born_induction_eV(0.18, field, 1.0), -0.0216977712142234, 1e-12);
+    }
 
     /* The shell claims: contact from Shannon + 1.40, achieved and mismatch
      * from the deposited geometry, strain at the recorded stiffness. */
