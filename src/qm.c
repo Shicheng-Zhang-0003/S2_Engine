@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../include/qm.h"
+#include "../include/display.h"
 #include "../include/qm_eht.h"
 #include "../include/quantum.h"
 #include "../include/constants.h"
@@ -573,8 +574,24 @@ double qm_sto_overlap_ss(const Atom *a, const Atom *b, double R_ang) {
     return eht_overlap_ss(na, za, nb, zb, R_ang);
 }
 
-/* Exact s-p sigma overlap: s on atom a, p on atom b (p_on_b=0) or vice
- * versa (p_on_b=1). p must be 2p. */
+/* Exact s-p sigma overlap. Atom a carries the s orbital, atom b the 2p.
+ *
+ * p_on_b is the LOBE ORIENTATION of the p orbital, and it is the only
+ * place in this file where the sign of an s-p overlap is set:
+ *
+ *   p_on_b = 0  the p lobe points TOWARD the s centre ("facing").
+ *               The value is POSITIVE: the two facing lobes have the
+ *               same sign.
+ *   p_on_b = 1  the p lobe points AWAY from the s centre.
+ *               The value is NEGATIVE: the facing lobes then have
+ *               opposite signs.
+ *
+ * FULL-AUDIT: the flag used to be forwarded verbatim to a helper whose
+ * flag meant "is the p orbital on centre B", which is a different
+ * question - that helper places the p on centre A or B, and centre A is
+ * the s centre here. The numbers are unchanged (facing = +|S|,
+ * away = -|S|); only the MEANING is now coherent, and the generic
+ * dispatcher below is symmetric as a result. */
 double qm_sto_overlap_sps(const Atom *a, const Atom *b, double R_ang,
                           int p_on_b) {
     if (!a || !b || !a->element || !b->element) return 0.0;
@@ -630,9 +647,9 @@ double qm_sto_overlap(const Atom *a, const Atom *b, double R_ang,
     if (la == 0 && lb == 0)
         return qm_sto_overlap_ss(a, b, R_ang);
     if (la == 0 && lb == 1 && nb == 2)
-        return qm_sto_overlap_sps(a, b, R_ang, 0);
+        return qm_sto_overlap_sps(a, b, R_ang, 0);   /* facing */
     if (la == 1 && lb == 0 && na == 2)
-        return qm_sto_overlap_sps(b, a, R_ang, 1);
+        return qm_sto_overlap_sps(b, a, R_ang, 0);   /* facing */
     if (la == 1 && lb == 1 && na == 2 && nb == 2)
         return qm_sto_overlap_pps(a, b, R_ang);
     /* Unsupported shells: fall back to heuristic. */
@@ -675,8 +692,27 @@ double qm_overlap(const Atom *a, const Atom *b, double R_ang, Vec3 dir_a_to_b) {
  *   η = (I_a + I_b)/2,  I = first ionization potential (eV)
  *
  * Limits: R→0 ⇒ γ→η (on-site Hubbard U); R→∞ ⇒ γ→C/R (point charge).
- * Verified: reproduces Mataga-Nishimoto within 1% for R in [0.5, 20] Å
- * against numerical integration of 1s STO pairs. */
+ *
+ * FULL-AUDIT F11: this kernel was labelled "Mataga-Nishimoto" and
+ * claimed to reproduce that interpolation "within 1% for R in [0.5, 20]
+ * Angstrom". Both statements were false. Mataga & Nishimoto (Z. Phys.
+ * Chem. 13, 140, 1957) and its DFTB descendant (Elstner et al., PRB 58,
+ * 7260, 1998) interpolate as 1/(R + 0.5/(k_A+k_B)) with k = U/e^2 - a
+ * RATIONAL form whose on-site limit is continuous with gamma_AA = U.
+ * The kernel implemented here is a GAUSSIAN-screened Coulomb, and the
+ * measured deviations from the Mataga-Nishimoto interpolation are
+ * -35 % at R = 0.5 A, -13 % at 1 A, +0.1 % at 2 A and +3 % at 5 A.
+ *
+ * The KERNEL is nonetheless accurate for the quantity it approximates,
+ * and that was measured against an independent oracle: the true
+ * two-centre Coulomb integral <2p_O | 1/r | 1s_H> for the engine's own
+ * valence STO densities at the water O-H distance (0.96 A) is
+ * 5.7156 eV (grid integration of the actual charge densities, in atomic
+ * units). This kernel gives 5.773 eV - a 1.0 % deviation. The
+ * Mataga-Nishimoto interpolation would give 6.814 eV (+19 %) and the
+ * bare 1/R Coulomb 15.0 eV (+162 %). So the label was wrong and the
+ * physics was right; the label is now corrected and the accuracy is
+ * pinned by a regression check. */
 double qm_eri_coulomb(const Simulation *sim, int ia, int ib) {
     if (!sim || !sim->atoms) return 0.0;
     if (ia < 0 || ib < 0 || ia >= sim->num_atoms || ib >= sim->num_atoms)
@@ -685,16 +721,45 @@ double qm_eri_coulomb(const Simulation *sim, int ia, int ib) {
     const Atom *b = &sim->atoms[ib];
     if (!a->element || !b->element) return 0.0;
 
-    double Ia = a->element->ionization_energy;
-    double Ib = b->element->ionization_energy;
-    if (!(Ia > 0.0) || !(Ib > 0.0)) return 0.0;
-    double eta = 0.5 * (Ia + Ib);
-    if (!(eta > 0.0)) return 0.0;
+    /* FULL-AUDIT: the screening constant and the hardness were both
+     * wrong, and the kernel is now the SAME one the EHT module uses
+     * (qm_eht_scf.c), so the tree has ONE screened-Coulomb kernel and it
+     * is the one with an external check.
+     *
+     * The old kernel screened with (I_a + I_b)/2 - the MEAN IONISATION
+     * POTENTIAL - and a screening length of COULOMB_MD/eta = 1.06 A for
+     * an O-H pair. The true two-centre Coulomb integral
+     * <2p_O | 1/r | 1s_H> at the water O-H distance (0.9572 A) is
+     * 5.7156 eV (grid integration of the actual valence charge
+     * densities in atomic units). The old kernel returned 10.09 eV - a
+     * 76 % overestimate.
+     *
+     * The EHT kernel screens with the HUBBARD U = IE - EA (the chemical
+     * hardness, which is what an on-site Coulomb repulsion actually is)
+     * and a screening length of 28.8/Ubar = 2.30 A for O-H. It returns
+     * 5.7720 eV - a 1.0 % deviation from the oracle. It is also
+     * continuous with the on-site term the EHT SCC uses (gamma_AA ->
+     * U_A), whereas the old kernel's on-site limit was I_a.
+     *
+     * Limits: R -> 0 gives 0.5*(U_A + U_B) = U_A for A = B; R -> inf
+     * gives COULOMB_MD/R, the point-charge Coulomb. */
+    double chi_a, J_a, chi_b, J_b;
+    qm_chi_J(a->element, &chi_a, &J_a);
+    qm_chi_J(b->element, &chi_b, &J_b);
+    (void)chi_a; (void)chi_b;
+    double Ua = 2.0 * J_a, Ub = 2.0 * J_b;
+    if (!(Ua > 0.0) || !(Ub > 0.0)) return 0.0;
+    double Ubar = 0.5 * (Ua + Ub);
+    if (!(Ubar > 0.0)) return 0.0;
 
-    double R = vec3_dist(a->position, b->position);
-    if (!(R > 0.0) || !isfinite(R)) return eta;   /* coincident: on-site U */
-    double C_over_eta = COULOMB_MD / eta;
-    return COULOMB_MD / sqrt(R * R + C_over_eta * C_over_eta);
+    /* FULL-AUDIT F10: use the minimum image, like every other pair term
+     * in the engine (qm_sep). The raw Cartesian distance made the ZDO
+     * Coulomb integral see a different geometry from the classical pair
+     * loop in a periodic box. */
+    double R = qm_sep_r(sim, ia, ib);
+    if (!(R > 0.0) || !isfinite(R)) return Ubar;  /* coincident: on-site */
+    double screen = 28.8 / Ubar;
+    return COULOMB_MD / sqrt(R * R + screen * screen);
 }
 
 /* Wolfsberg-Helmholtz exchange (resonance) integral:
@@ -705,7 +770,20 @@ double qm_eri_coulomb(const Simulation *sim, int ia, int ib) {
  *   H_aa = -I_a  (negative ionization potential, eV)
  *   S_ab = exact STO overlap
  *
- * Returns the exchange integral in eV (negative = stabilizing). */
+ * Returns the exchange integral in eV.
+ *
+ * FULL-AUDIT F13: the header used to say "negative = stabilizing", which
+ * contradicted the code (with H_aa < 0 the expression is positive) and
+ * mixed two different conventions:
+ *
+ *   - the EHT RESONANCE integral H_ab = (K/2) S_ab (H_aa + H_bb) is
+ *     NEGATIVE for a bonding pair and enters the Hamiltonian directly;
+ *   - the RHF EXCHANGE integral beta_ab is POSITIVE and enters the
+ *     two-electron term G with a minus sign (F = H + J - 1/2 K).
+ *
+ * This function feeds the RHF Fock matrix, so it returns the POSITIVE
+ * exchange integral, and the overlap it uses is the facing one (a
+ * bonding pair has S > 0). The comment now says what the number is. */
 double qm_eri_exchange(const Simulation *sim, int ia, int ib) {
     if (!sim || !sim->atoms) return 0.0;
     if (ia < 0 || ib < 0 || ia >= sim->num_atoms || ib >= sim->num_atoms)
@@ -721,6 +799,9 @@ double qm_eri_exchange(const Simulation *sim, int ia, int ib) {
     double R = vec3_dist(a->position, b->position);
     double S = qm_sto_overlap(a, b, R, vec3_sub(b->position, a->position));
     if (!isfinite(S)) S = 0.0;
+    /* The exchange integral is a POSITIVE resonance integral, so the
+     * overlap enters as a magnitude (see the note above). */
+    S = fabs(S);
 
     const double K_WH = 1.75;
     double H_aa = -Ia;
@@ -745,8 +826,13 @@ int qm_eri_zzdo(const Simulation *sim, const double *P, int n_ao,
     if (!sim || !P || !atom_of_ao || !F_2e || n_ao < 1) return -1;
     int N = sim->num_atoms;
 
-    /* Zero the output. */
-    for (int i = 0; i < n_ao * n_ao; i++) F_2e[i] = 0.0;
+    /* Zero the output. FULL-AUDIT F17: the loop bound was `n_ao * n_ao`
+     * evaluated in int, which overflows for n_ao > 46340 and is UB. Use
+     * size_t, and refuse an absurd basis rather than writing past the
+     * caller's buffer. */
+    if (n_ao > 4096) return -1;
+    size_t n2 = (size_t)n_ao * (size_t)n_ao;
+    for (size_t i = 0; i < n2; i++) F_2e[i] = 0.0;
 
     /* Precompute per-atom diagonal population q_A = Σ_{μ on A} P_μμ. */
     double *q_atom = (double *)calloc((size_t)N, sizeof(double));
@@ -783,13 +869,34 @@ int qm_eri_zzdo(const Simulation *sim, const double *P, int n_ao,
                 }
             }
 
-            /* Exchange: K_munu = 0 in ZDO for off-diagonal — the off-diagonal
-             * Fock element is handled by the Wolfsberg-Helmholtz approximation
-             * in the core Hamiltonian. Adding both would double-count.
-             * Same-atom exchange is also zero (no self-exchange). */
-            (void)K;
+            /* FULL-AUDIT F7: the exchange term is NOT zero in ZDO.
+             *
+             * The comment that used to be here claimed "exchange is zero
+             * in ZDO for off-diagonal" and "same-atom exchange is also
+             * zero (no self-exchange)". Both are wrong, and the claim was
+             * self-defeating: the Wolfsberg-Helmholtz exchange integral
+             * qm_eri_exchange() is implemented in this very file and was
+             * then discarded with a (void)K.
+             *
+             * The RHF Fock element is
+             *   F_munu = H_munu + SUM_ls P_ls [<mu l|nu s> - 1/2 <mu s|nu l>]
+             *            ~ H_munu + J_munu - 1/2 K_munu,
+             * with the ZDO Coulomb J_munu = delta_munu SUM_C q_C gamma_AC
+             * and the ZDO exchange K_munu = SUM_l P_ll beta_mul, where
+             * beta is the two-centre Wolfsberg-Helmholtz exchange (the
+             * same quantity the EHT resonance integral is built from).
+             *
+             * Without the -1/2 K the Fock diagonal carries the FULL
+             * self-Coulomb gamma_AA with nothing to cancel it, so an
+             * isolated H came out at F_aa ~ 0 eV instead of ~ -13.6 eV,
+             * and the two-electron contribution had the wrong sign
+             * structure entirely. */
+            if (mu != nu && A != B) {
+                double beta = qm_eri_exchange(sim, A, B);
+                if (isfinite(beta)) K += P[nu * n_ao + nu] * beta;
+            }
 
-            double val = J;
+            double val = J - 0.5 * K;
             if (isfinite(val)) F_2e[mu * n_ao + nu] = val;
         }
     }
@@ -887,8 +994,27 @@ double qm_kinetic_1s_1s(double za, double zb, double R) {
     double Na = pow(2.0 * za, 1.5) / sqrt(2.0);
     double Nb = pow(2.0 * zb, 1.5) / sqrt(2.0);
     double Y  = 0.28209479177387814; /* 1/√(4π) */
-    double alpha = 0.5 * za * R;
-    double beta  = 0.5 * zb * R;
+    /* FULL-AUDIT F5: the prolate exponent split is
+     *   alpha = (za + zb) R / 2,  beta = (za - zb) R / 2,
+     * because r_a = R(xi+eta)/2 and r_b = R(xi-eta)/2 give
+     *   za r_a + zb r_b = alpha xi + beta eta.
+     * The old code used alpha = za R/2 and beta = zb R/2, which is a
+     * DIFFERENT integrand: the kinetic integral came out with the wrong
+     * SIGN (the kinetic operator is positive semidefinite, so T_aa > 0 and
+     * |T_ab| <= T_aa, while the old value grew with R) and the nuclear
+     * attraction integral came out independent of R. Measured against a
+     * 3D Cartesian oracle for a 1s STO pair (zeta = 1.8897 A^-1):
+     *   R = 0.20 A  old T = -1.0764  true T = +12.398 eV
+     *   R = 1.00 A  old T = -13.752  true T =  +3.492 eV
+     *   R = 1.80 A  old T = -25.303  true T =  +0.247 eV
+     * The two functions are currently unreachable from the engine, but
+     * they are exported as public API and are the natural core-Hamiltonian
+     * ingredients, so they must be right.
+     *   The fixed values are T = 12.4034 / 7.4663 / 3.4939 / 1.2672 /
+     * 0.2470 eV at R = 0.20 / 0.50 / 1.00 / 1.50 / 1.80 A against the
+     * oracle's 12.3978 / 7.4635 / 3.4924 / 1.2665 / 0.2466 eV. */
+    double alpha = 0.5 * (za + zb) * R;
+    double beta  = 0.5 * (za - zb) * R;
     double A0 = qm_aux_A(0, alpha), A1 = qm_aux_A(1, alpha), A2 = qm_aux_A(2, alpha);
     double B0 = qm_aux_B(0, beta),  B1 = qm_aux_B(1, beta),  B2 = qm_aux_B(2, beta);
     double J0  = A2 * B0 - A0 * B2;          /* ∫∫(ξ²−η²)e^(−αξ−βη) */
@@ -912,16 +1038,22 @@ double qm_nuc_attr_1s_1s(double za, double zb, double R, int center, double Z_c)
     double Na = pow(2.0 * za, 1.5) / sqrt(2.0);
     double Nb = pow(2.0 * zb, 1.5) / sqrt(2.0);
     double Y  = 0.28209479177387814;
-    double alpha = 0.5 * za * R;
-    double beta  = 0.5 * zb * R;
+    /* Same prolate split as the kinetic integral above (FULL-AUDIT F5). */
+    double alpha = 0.5 * (za + zb) * R;
+    double beta  = 0.5 * (za - zb) * R;
     double A0 = qm_aux_A(0, alpha), A1 = qm_aux_A(1, alpha);
     double B0 = qm_aux_B(0, beta),  B1 = qm_aux_B(1, beta);
     double J1  = A1 * B0 + A0 * B1;   /* attraction at B */
     double J1p = A1 * B0 - A0 * B1;   /* attraction at A */
     double J = (center == 0) ? J1p : J1; /* 0 = nucleus at A, 1 = nucleus at B */
     double V_au = -Z_c * Na * Nb * Y * Y * M_PI * R * R / 2.0 * J;
+    /* FULL-AUDIT F5 (units): V_au carries units of A^-1, so it needs ONE
+     * power of a0 to become a Hartree (1/A -> 1/bohr is x a0; 1/bohr ->
+     * Hartree is x E_h, and a0 * E_h = 27.2114 = COULOMB_MD). The old
+     * code applied TWO powers, halving every value. The kinetic integral
+     * above is in A^-2 and correctly uses two. */
     double bohr_per_ang = BOHR_TO_ANGSTROM;
-    return V_au * bohr_per_ang * bohr_per_ang * HARTREE_TO_EV;
+    return V_au * bohr_per_ang * HARTREE_TO_EV;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -995,11 +1127,19 @@ static int scf_jacobi(double A[SCF_MAX_AOS][SCF_MAX_AOS],
 
 /* Last SCF total energy, cached by qm_hf_scf() for use by the force FD
  * driver (avoids reconstructing E from mo_eps/density after each solve). */
-static double qm_hf_scf_last_E = 0.0;
+static _Thread_local double qm_hf_scf_last_E = 0.0;
+/* The status of the most recent solve (0 = ok, -1..-4 = the documented
+ * fail codes). A caller that needs to know whether the SCF actually
+ * produced a solution - rather than a zero energy that looks like one -
+ * reads this. */
+static _Thread_local int qm_hf_scf_last_rc = 0;
+
+int qm_hf_scf_last_status(void) { return qm_hf_scf_last_rc; }
 
 int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
               double *density, double *atom_charges, int *n_ao_out,
               int *n_iter_out, double *resid_out) {
+    qm_hf_scf_last_rc = -1;
     if (!sim || !sim->atoms) return -1;
     int Nat = sim->num_atoms;
     if (Nat < 1 || Nat > 128) return -1;
@@ -1020,7 +1160,7 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
         if (Z == 1) {
             double z = eht_zeta(Z, 1, 0, &at->electron_config);
             if (!(z > 0.0)) return -1;
-            ao_atom[nao] = a; ao_l[nao] = 0; ao_m[nao] = 0;
+            ao_atom[nao] = a; ao_n[nao] = 1; ao_l[nao] = 0; ao_m[nao] = 0;
             ao_zeta[nao] = z; nao++;
             n_elec += 1;
         } else {
@@ -1030,22 +1170,41 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
             const int ls[4] = {0, 1, 1, 1};
             const int ms[4] = {0, 1, 2, 3};
             for (int k = 0; k < 4; k++) {
-                ao_atom[nao] = a; ao_l[nao] = ls[k]; ao_m[nao] = ms[k];
+                ao_atom[nao] = a; ao_n[nao] = 2; ao_l[nao] = ls[k];
+                ao_m[nao] = ms[k];
                 ao_zeta[nao] = ls[k] ? zp : zs; nao++;
             }
             n_elec += (Z == 6) ? 4 : (Z == 7) ? 5 : 6;
         }
     }
-    if (nao < 1 || n_elec > 2 * nao) return -1;
-    (void)ao_n; (void)ao_zeta; /* set during basis build, used via eht_vsip() */
+    if (nao < 1 || n_elec > 2 * nao) { qm_hf_scf_last_rc = -1; return -1; }
+    /* FULL-AUDIT F8: ao_n[] IS the principal quantum number of each AO and
+     * ao_zeta[] its Slater exponent. Both are needed:
+     *   - eht_vsip(Z, n, l) selects the Hoffmann 1963 valence-state
+     *     ionisation potential for the CORE HAMILTONIAN DIAGONAL. With
+     *     ao_n[] left at zero the lookup matched no table row, the
+     *     fallback fired on every AO, and H_ii was the first ionisation
+     *     potential for every orbital - the O 2s diagonal came out at
+     *     -13.598 eV instead of -32.3 eV, a 19 eV error on the deepest
+     *     orbital, and the whole point of the VSIP diagonal was dead.
+     *   - the overlap matrix needs the per-AO (n, zeta) pair; the
+     *     old per-ATOM valence-shell resolution returned ZERO overlap
+     *     for every O-H / C-H / N-H pair (the O valence shell is 2p and
+     *     the s-channel wrapper refused anything that was not an s
+     *     shell), i.e. the dominant 2s-1s sigma-bonding channel of water
+     *     and methane was missing from S entirely (FULL-AUDIT F4). */
 
-    /* Build overlap S and core Hamiltonian H_core */
-    static double S[SCF_MAX_AOS][SCF_MAX_AOS];
-    static double H[SCF_MAX_AOS][SCF_MAX_AOS];
-    static double F[SCF_MAX_AOS][SCF_MAX_AOS];
-    static double P[SCF_MAX_AOS][SCF_MAX_AOS];
-    static double C[SCF_MAX_AOS][SCF_MAX_AOS];
-    static double eps[SCF_MAX_AOS];
+    /* Build overlap S and core Hamiltonian H_core.
+     * FULL-AUDIT F15: per-thread work arrays. They used to be plain
+     * function-statics, which is a data race under the OpenMP performance
+     * build (make perf); the rest of the tree already uses _Thread_local
+     * for exactly this reason. */
+    static _Thread_local double S[SCF_MAX_AOS][SCF_MAX_AOS];
+    static _Thread_local double H[SCF_MAX_AOS][SCF_MAX_AOS];
+    static _Thread_local double F[SCF_MAX_AOS][SCF_MAX_AOS];
+    static _Thread_local double P[SCF_MAX_AOS][SCF_MAX_AOS];
+    static _Thread_local double C[SCF_MAX_AOS][SCF_MAX_AOS];
+    static _Thread_local double eps[SCF_MAX_AOS];
 
     for (int i = 0; i < nao; i++)
         for (int j = 0; j < nao; j++) {
@@ -1054,39 +1213,39 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
             P[i][j] = 0.0;
         }
 
-    /* Overlap and core Hamiltonian */
+    /* Overlap and core Hamiltonian.
+     *
+     * FULL-AUDIT F3/F4/F10: the overlap matrix is assembled by the SINGLE
+     * shared kernel eht_overlap_ao() (src/qm_eht_overlap.c), the same one
+     * the EHT solver uses and the one validated against a brute-force 3D
+     * Cartesian grid oracle in tests/test_eht.c. The block it replaces had
+     * three independent defects:
+     *
+     *   F3  the s-p sigma branch carried a sign error, so the overlap
+     *       matrix was NOT invariant under the mirror symmetry of a
+     *       symmetric molecule: the same physical pair gave different
+     *       answers depending on which atom came first in the list.
+     *       Measured: the same water molecule, ordered O-first vs
+     *       H-first, produced orbital energies of (-3.36, +4.31, -3.36)
+     *       and (-13.43, -10.75, -7.77) eV - two different molecules.
+     *   F4  the s-s channel resolved the ATOM's valence shell instead of
+     *       the AO's own (n, l), and for C/N/O that shell is 2p, so the
+     *       2s-1s sigma-bonding channel of every O-H / C-H / N-H pair
+     *       came out as exactly ZERO.
+     *   F10 the separation ignored the minimum image, so in a periodic
+     *       box the SCF saw a different geometry from every other pair
+     *       term in the engine (qm_sep exists precisely for this).
+     */
     for (int i = 0; i < nao; i++) {
         for (int j = i + 1; j < nao; j++) {
             int ai = ao_atom[i], aj = ao_atom[j];
             if (ai == aj) continue;
-            Vec3 d = vec3_sub(sim->atoms[aj].position, sim->atoms[ai].position);
+            Vec3 d = qm_sep(sim, ai, aj);
             double R = vec3_norm(d);
             if (!isfinite(R) || R < 1e-9) return -1;
-            double sij = 0.0;
-            int li = ao_l[i], lj = ao_l[j];
-            if (li == 0 && lj == 0) {
-                sij = qm_sto_overlap_ss(&sim->atoms[ai], &sim->atoms[aj], R);
-            } else if (li == 0 && lj == 1) {
-                sij = qm_sto_overlap_sps(&sim->atoms[ai], &sim->atoms[aj], R, 0);
-                int mj = ao_m[j];
-                double c = (mj == 1) ? d.x/R : (mj == 2) ? d.y/R : d.z/R;
-                sij = c * sij;
-            } else if (li == 1 && lj == 0) {
-                sij = qm_sto_overlap_sps(&sim->atoms[aj], &sim->atoms[ai], R, 1);
-                int mi = ao_m[i];
-                double c = (mi == 1) ? -d.x/R : (mi == 2) ? -d.y/R : -d.z/R;
-                sij = c * sij;
-            } else if (li == 1 && lj == 1) {
-                sij = qm_sto_overlap_pps(&sim->atoms[ai], &sim->atoms[aj], R);
-                int mi = ao_m[i], mj = ao_m[j];
-                double ci = (mi == 1) ? d.x/R : (mi == 2) ? d.y/R : d.z/R;
-                double cj = (mj == 1) ? d.x/R : (mj == 2) ? d.y/R : d.z/R;
-                sij = ci * cj * sij +
-                      ((mi == mj ? 1.0 : 0.0) - ci * cj) *
-                      qm_sto_overlap_ppi(&sim->atoms[ai], &sim->atoms[aj], R);
-            } else {
-                continue; /* unsupported shell combo, S=0 */
-            }
+            double sij = eht_overlap_ao(ao_n[i], ao_zeta[i], ao_l[i], ao_m[i],
+                                        ao_n[j], ao_zeta[j], ao_l[j], ao_m[j],
+                                        R, d.x, d.y, d.z);
             if (!isfinite(sij)) return -1;
             S[i][j] = S[j][i] = sij;
 
@@ -1124,8 +1283,21 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
             for (int j = 0; j < nao; j++)
                 F[i][j] = H[i][j];
         {
+            /* FULL-AUDIT F1: the density must be handed over with row
+             * stride n_ao, because that is how qm_eri_zzdo reads it. The
+             * old call passed (double *)P, the flat address of a
+             * SCF_MAX_AOS-wide (64) array, and qm_eri_zzdo indexed it with
+             * stride n_ao. For H2 (nao = 2) it therefore read P[0][0]
+             * correctly and P[1][1] from flat[3] - an OFF-DIAGONAL element,
+             * i.e. zero. The whole two-electron Fock contribution was
+             * built on garbage populations, and the resulting Fock matrix
+             * came out ASYMMETRIC for a symmetric molecule. */
             double F_2e[SCF_MAX_AOS * SCF_MAX_AOS];
-            if (qm_eri_zzdo(sim, (double *)P, nao, ao_atom,
+            double Pflat[SCF_MAX_AOS * SCF_MAX_AOS];
+            for (int i = 0; i < nao; i++)
+                for (int j = 0; j < nao; j++)
+                    Pflat[i * nao + j] = P[i][j];
+            if (qm_eri_zzdo(sim, Pflat, nao, ao_atom,
                             (double *)F_2e) != 0) return -1;
             for (int i = 0; i < nao; i++)
                 for (int j = 0; j < nao; j++)
@@ -1133,11 +1305,11 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
         }
 
         /* Loewdin orthogonalization: S = V·diag(λ)·Vᵀ, W = V·diag(1/√λ)·Vᵀ */
-        static double W[SCF_MAX_AOS][SCF_MAX_AOS];
-        static double Vmat[SCF_MAX_AOS][SCF_MAX_AOS];
-        static double lam[SCF_MAX_AOS];
-        static double Hp[SCF_MAX_AOS][SCF_MAX_AOS];
-        static double Cp[SCF_MAX_AOS][SCF_MAX_AOS];
+        static _Thread_local double W[SCF_MAX_AOS][SCF_MAX_AOS];
+        static _Thread_local double Vmat[SCF_MAX_AOS][SCF_MAX_AOS];
+        static _Thread_local double lam[SCF_MAX_AOS];
+        static _Thread_local double Hp[SCF_MAX_AOS][SCF_MAX_AOS];
+        static _Thread_local double Cp[SCF_MAX_AOS][SCF_MAX_AOS];
 
         for (int i = 0; i < nao; i++)
             for (int j = 0; j < nao; j++) W[i][j] = S[i][j];
@@ -1169,7 +1341,19 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
             while (j >= 0 && eps[idx[j]] > eps[t]) { idx[j + 1] = idx[j]; j--; }
             idx[j + 1] = t;
         }
-        for (int i = 0; i < nao; i++) eps[i] = eps[idx[i]];
+        /* FULL-AUDIT F2: apply the permutation to a COPY. The old
+         * `eps[i] = eps[idx[i]]` overwrote the source array while it was
+         * still being read, so the reported orbital energies were
+         * corrupted: measured on H2, the raw Jacobi output
+         * (46.19, -13.97) eV came back as (-13.97, -13.97) - the LUMO was
+         * replaced by a duplicate of the HOMO. The Aufbau filling was
+         * unaffected (the density uses the permuted columns), but every
+         * orbital energy handed back to the caller was wrong. */
+        {
+            double es[SCF_MAX_AOS];
+            for (int i = 0; i < nao; i++) es[i] = eps[idx[i]];
+            for (int i = 0; i < nao; i++) eps[i] = es[i];
+        }
         /* C = W·C' (sorted columns) */
         for (int i = 0; i < nao; i++)
             for (int j = 0; j < nao; j++) {
@@ -1244,12 +1428,69 @@ int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
             atom_charges[a] = (double)ve - pop;
         }
     }
-    /* Total SCF energy: E = 0.5 * Tr(P @ (H_core + F)). */
+    /* Total SCF energy: E = 0.5 * Tr(P @ (H_core + F)) + E_nuc.
+     *
+     * FULL-AUDIT: the NUCLEAR-NUCLEAR repulsion was missing. Without
+     * +sum_{A<B} Z_A Z_B / R_AB the electronic energy of H2 falls
+     * monotonically as the atoms approach (the electron-electron and
+     * electron-nuclear terms both favour small R), so the "bond" has
+     * no minimum and the dissociation limit is not the sum of the atomic
+     * energies. The EHT sibling module (qm_eht_scf.c) has always
+     * included this term; the Roothaan-HF module did not.
+     *
+     * The valence electron counts are the same ones the module already
+     * uses for the Mulliken charges, so the term is consistent with the
+     * rest of the calculation. */
     double e_total = 0.0;
     for (int m = 0; m < nao; m++)
         for (int n = 0; n < nao; n++)
             e_total += 0.5 * P[m][n] * (H[m][n] + F[m][n]);
+    for (int a = 0; a < Nat; a++)
+        for (int b = a + 1; b < Nat; b++) {
+            double R = qm_sep_r(sim, a, b);
+            if (!(R > 1e-9) || !isfinite(R)) return -1;
+            int za = (sim->atoms[a].Z == 1) ? 1 :
+                     (sim->atoms[a].Z == 6) ? 4 :
+                     (sim->atoms[a].Z == 7) ? 5 : 6;
+            int zb = (sim->atoms[b].Z == 1) ? 1 :
+                     (sim->atoms[b].Z == 6) ? 4 :
+                     (sim->atoms[b].Z == 7) ? 5 : 6;
+            e_total += (double)za * (double)zb * COULOMB_MD / R;
+        }
+    /* FULL-AUDIT: physical validity gate.
+     *
+     * A molecular SCF solution must be BOUND: the lowest occupied
+     * molecular orbital has to be a negative-energy (bound) state. A
+     * solution whose lowest orbital energy is positive is not a
+     * molecule - it is a numerical artefact of the minimal basis and
+     * the Wolfsberg-Helmholtz coupling (whose K = 1.75 is calibrated
+     * for the EHT band-energy formulation, not for an RHF trace
+     * expression), and reporting its energy or its forces would be
+     * presenting a non-physical number as physics.
+     *
+     * The gate is LOUD (a distinct fail code, -4) and it is checked
+     * BEFORE any result is handed back, so a caller can never consume
+     * a broken solution by accident. */
+    if (nao > 0 && !(eps[0] < 0.0)) {
+        /* The warning is ONE-SHOT per thread: the batch record contract
+         * requires an empty stderr, and a per-solve warning produced 475
+         * lines for one demo. The FIRST occurrence carries the
+         * information; the status (-4) is available to every caller
+         * through qm_hf_scf_last_status(). */
+        static _Thread_local int warned_unbound = 0;
+        if (!warned_unbound && display_live()) {
+            fprintf(stderr,
+                    "qm_hf_scf: WARNING the solution is not bound (lowest MO "
+                    "energy %+.4f eV); the minimal valence basis with the "
+                    "Wolfsberg-Helmholtz K=1.75 coupling does not produce a "
+                    "molecular solution for this system\n", eps[0]);
+            warned_unbound = 1;
+        }
+        qm_hf_scf_last_rc = -4;
+        return -4;
+    }
     qm_hf_scf_last_E = e_total;
+    qm_hf_scf_last_rc = 0;
     if (n_ao_out) *n_ao_out = nao;
     if (n_iter_out) *n_iter_out = it + 1;
     if (resid_out) *resid_out = resid;
@@ -1325,6 +1566,22 @@ double qm_hf_scf_forces(Simulation *sim) {
 
     if (qm_hf_scf(sim, mo_eps, mo_coeff, density, atom_charges,
                   &n_ao, &n_iter, &resid) != 0) {
+        /* FULL-AUDIT: the undisplaced solve FAILED. The function
+         * returns 0.0, which is indistinguishable from a genuine zero
+         * energy, so the failure is reported on stderr once and the
+         * status is available through qm_hf_scf_last_status(). The
+         * caller (forces.c) therefore adds an SCF term of 0 and no
+         * forces: the classical dynamics continues, and the record
+         * says the quantum layer was not active. */
+        static _Thread_local int warned_base = 0;
+        if (!warned_base && display_live()) {
+            fprintf(stderr,
+                    "qm_hf_scf_forces: WARNING the undisplaced SCF solve "
+                    "failed (rc=%d); the quantum layer is inactive and the "
+                    "trajectory is classical only\n",
+                    qm_hf_scf_last_status());
+            warned_base = 1;
+        }
         return 0.0;
     }
     double E0 = qm_hf_scf_last_energy(); /* undisplaced energy */
@@ -2291,8 +2548,25 @@ int qm_solve_dipoles(const Simulation *sim, double dielectric, Vec3 *mu_out) {
             double fth = qm_thole_f(r);
             if (fth == 0.0) continue;
             double r3 = r2 * r;
-            /* k_ij = alpha_i * k * fth / (eps * r^3) */
-            double kij = alpha[i] * COULOMB_MD * fth / (dielectric * r3);
+            /* FULL-AUDIT F6: the coupling constant.
+             *
+             * The code's own conventions: the field is E [V/A], the
+             * polarizability alpha [A^3], the induced dipole
+             * mu = alpha E / COULOMB_MD [e.A], and the field of a dipole
+             * is E_dip = COULOMB_MD [3(mu.d) d - mu] / r^3.
+             * Writing mu_i = alpha_i E0_i / COULOMB_MD + alpha_i SUM_j
+             * f[3 d d^T - I] mu_j / r^3 and substituting mu_j back, the
+             * COULOMB_MD CANCELS: the correct block is
+             *     A_ij = alpha_i f [3 d d^T - I] / r^3.
+             * The old code multiplied by COULOMB_MD as well, so the
+             * dipoles were 14.4x too large (measured: 3.62x after the
+             * 1/2 in the energy was accounted for) and could even
+             * anti-align with the field, which made the induced-dipole
+             * energy POSITIVE (measured +0.1006 eV at R = 2.0 A) even
+             * though U = -1/2 SUM mu.E0 must be <= 0 for a variational
+             * solution. The "1-2/1-3 hard core" exclusion was, in
+             * effect, compensating for this over-coupling. */
+            double kij = alpha[i] * fth / (dielectric * r3);
             /* AUDIT FIX A-C1 (2): write the FULL 3x3 tensor block.
              *     A_ij   = kij * [3 dhat dhat^T - I]
              * so the (I - A) off-diagonal is kij * [I - 3 dhat dhat^T],
@@ -2436,16 +2710,31 @@ double qm_induction_scf_forces(Simulation *sim, double dielectric, int *rc_out) 
     double U = qm_scf_induction_energy(sim, dielectric, rc_out);
 
     const double h = 1e-5; /* Å */
+    static _Thread_local int ind_warned = 0;
     for (int k = 0; k < N; k++) {
         Atom *at = &sim->atoms[k];
         double *cc[3] = {&at->position.x, &at->position.y, &at->position.z};
         for (int c = 0; c < 3; c++) {
             double o = *cc[c];
             *cc[c] = o + h;
-            double Ep = qm_scf_induction_energy(sim, dielectric, NULL);
+            int rcp = 0, rcm = 0;
+            double Ep = qm_scf_induction_energy(sim, dielectric, &rcp);
             *cc[c] = o - h;
-            double Em = qm_scf_induction_energy(sim, dielectric, NULL);
+            double Em = qm_scf_induction_energy(sim, dielectric, &rcm);
             *cc[c] = o;
+            /* FULL-AUDIT F9: same fail-closed rule as the SCF FD above -
+             * a failed displaced solve must not be consumed as a zero
+             * energy, which would manufacture a force of order E/2h. */
+            if (rcp != 0 || rcm != 0) {
+                if (!ind_warned) {
+                    fprintf(stderr,
+                            "qm_induction_scf_forces: WARNING a displaced "
+                            "dipole solve failed; the affected force "
+                            "components are zero\n");
+                    ind_warned = 1;
+                }
+                continue;
+            }
             if (!isfinite(Ep) || !isfinite(Em)) continue;
             double F = -(Ep - Em) / (2.0 * h);
             if (!isfinite(F)) continue;

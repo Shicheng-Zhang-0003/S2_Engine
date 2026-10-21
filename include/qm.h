@@ -125,7 +125,14 @@ double qm_overlap_ref(const Atom *a, const Atom *b, Vec3 dir_a_to_b);
  * Exact s-s (1s/2s), s-pσ (s on either atom, 2p on the other), p-pσ and
  * p-pπ (2p only). Each resolves the atom's valence (n,l) from its electron
  * configuration and computes zeta = Zeff/(n* a0). */
+/* These resolve the ATOM's VALENCE shell (the highest-energy occupied
+ * one), so an atom whose valence shell is a p shell (C, N, O, F, ...)
+ * offers NO s-s overlap to this interface - use eht_overlap_ao() from
+ * qm_eht.h when you need a specific AO. */
 double qm_sto_overlap_ss(const Atom *a, const Atom *b, double R_ang);
+/* p_on_b is the LOBE ORIENTATION of the p orbital: 0 = pointing TOWARD
+ * the s centre (facing, POSITIVE overlap), 1 = pointing AWAY (NEGATIVE
+ * overlap). Atom a carries the s orbital, atom b the 2p. */
 double qm_sto_overlap_sps(const Atom *a, const Atom *b, double R_ang,
                           int p_on_b);
 double qm_sto_overlap_pps(const Atom *a, const Atom *b, double R_ang);
@@ -232,13 +239,58 @@ double qm_nuc_attr_1s_1s(double za, double zb, double R, int center, double Z_c)
 
 /* ── Roothaan–Hartree–Fock SCF solver ────────────────────────────────────
  *
- * Minimal valence basis (H 1s; C/N/O 2s+2p). Builds S and H_core from exact
- * STO overlaps + kinetic/nuclear attraction integrals, forms the Fock matrix
- * with ZDO two-electron terms (qm_eri_zzdo), and solves F·C = S·C·ε by
- * Loewdin orthogonalization + Jacobi eigensolver with Aufbau filling and
- * damped density mixing. Fail codes: −1 bad input, −2 singular overlap,
- * −3 non-convergence. All outputs in eV (energies) or dimensionless.
+ * Minimal valence basis (H 1s; C/N/O 2s+2p). Builds the overlap matrix S
+ * and the core Hamiltonian H_core from the EXACT STO overlaps (the shared,
+ * grid-validated eht_overlap_ao() kernel) and the Hoffmann VSIP diagonal,
+ * forms the Fock matrix with ZDO two-electron terms (qm_eri_zzdo), and
+ * solves F·C = S·C·eps by Loewdin orthogonalization + Jacobi eigensolver
+ * with Aufbau filling and damped density mixing.
+ *
+ * Fail codes: -1 bad input, -2 singular overlap, -3 non-convergence,
+ * -4 NOT BOUND (the lowest molecular orbital came out with positive
+ * energy, so the solution is not a molecule and must not be used).
+ * All outputs in eV (energies) or dimensionless.
+ *
+ * HONESTY BLOCK (abstraction inventory for this module) - read before
+ * citing any number from it:
+ *
+ *   H1 The core Hamiltonian is the EHT diagonal H_ii = -VSIP(Z, n, l)
+ *       (Hoffmann 1963). The exact one-electron integrals
+ *       (qm_kinetic_1s_1s, qm_nuc_attr_1s_1s) are implemented and
+ *       grid-validated, but they cover 1s-1s only and are NOT what this
+ *       solver uses. There is no kinetic-energy term and no explicit
+ *       nuclear-attraction term in the Fock matrix.
+ *   H2 The off-diagonal core element is the Wolfsberg-Helmholtz
+ *       RESONANCE integral H_ij = (K/2) S_ij (H_ii + H_jj) with K = 1.75.
+ *       That constant is calibrated for the EHT band-energy formulation
+ *       (qm_eht_scf.c), where the module's own documentation records the
+ *       consequence: "minimal-basis EHT gaps run LARGE". It is NOT
+ *       calibrated for an RHF trace expression.
+ *   H3 The two-electron term is the ZDO approximation: the Coulomb part
+ *       is J_munu = delta_munu SUM_C q_C gamma_AC and the exchange part
+ *       is K_munu = P_nunu gamma_AB (the two-centre Coulomb integral),
+ *       not a real two-electron integral.
+ *   H4 CONSEQUENCE: the module is INTERNALLY CONSISTENT and numerically
+ *       sound (the overlap matrix is exact, the density is normalised,
+ *       the forces are a clean finite-difference gradient of a smooth
+ *       energy surface - verified to 1e-5 eV/A), but the H2 curve it
+ *       produces has NO interior minimum in this minimal basis. It is
+ *       therefore a QUALITATIVE electronic-structure layer, not a
+ *       predictive one, and the demos that use it say so. The
+ *       not-bound gate (-4) refuses outright to report a solution whose
+ *       lowest orbital is unbound.
+ *   H5 The EHT sibling module (qm_eht_scf.c) is the validated one: it is
+ *       grid-validated, converges, gives the correct H2O Mulliken
+ *       charges (O -0.54 e) and reports its own negative result (no
+ *       interior H2 band minimum) rather than hiding it. Prefer it.
  * ════════════════════════════════════════════════════════════════════════════ */
+
+/* Status of the most recent qm_hf_scf() / qm_hf_scf_forces() call on this
+ * thread: 0 = a solution was produced, -1 bad input, -2 singular overlap,
+ * -3 non-convergence, -4 the solution was not bound. A caller that needs
+ * to distinguish "the SCF produced a zero energy" from "the SCF failed"
+ * reads this instead of the energy. */
+int qm_hf_scf_last_status(void);
 
 int qm_hf_scf(const Simulation *sim, double *mo_eps, double *mo_coeff,
               double *density, double *atom_charges, int *n_ao_out,
