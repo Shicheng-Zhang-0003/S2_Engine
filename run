@@ -90,6 +90,20 @@ fi
 
 NEW="$(sha "$OUT")"
 OLD="$(sha "$RECORD")"
+# FULL-AUDIT: the ledger and the record were compared side by side and
+# never compared WITH EACH OTHER, so a tree whose output.txt and
+# CURRENT_BASELINE_SHA.txt disagreed (exactly the state a stale record
+# produces) was reported as "recorded record: X / recorded ledger: Y"
+# with no complaint. The two must agree.
+LEDGER_SHA="$(cat "$LEDGER" 2>/dev/null | tr -d ' \n' || echo '(absent)')"
+if [ "$LEDGER_SHA" != "(absent)" ] && [ "$LEDGER_SHA" != "$OLD" ]; then
+  echo "run: REFUSING to run: $LEDGER does not match $RECORD" >&2
+  echo "      ledger : $LEDGER_SHA" >&2
+  echo "      record : $OLD" >&2
+  echo "      the record and its ledger are out of step; promote one of" >&2
+  echo "      them deliberately before recording anything new." >&2
+  exit 1
+fi
 
 echo
 echo "  recorded record : $OLD"
@@ -98,12 +112,14 @@ echo "  recorded ledger  : $(cat "$LEDGER" 2>/dev/null | tr -d ' \n' || echo '(a
 
 if [ -z "$(cat "$ERR")" ] && [ "$OLD" = "$NEW" ]; then
   echo "  verdict          : identical to the record; nothing to promote (stdout)"
-  # FULL-AUDIT O21: the cvmds sidecar still moves (wallclock/source-hash) while
-  # stdout stands still. Refresh it when the staged copy seal-verifies.
+  # FULL-AUDIT: a plain ./run used to REFRESH the tracked kcsa.cvmds even
+  # though stdout stood still, so an unadmitted run left the tracked
+  # artifact modified (git status showed " M kcsa.cvmds"). The sidecar is
+  # now promoted only by --accept, like the record itself.
   if [ -f "$CVMD" ] && [ -x ./build/verify_cvmds ] && ./build/verify_cvmds "$CVMD" >/dev/null 2>&1; then
     if ! cmp -s "$CVMD" kcsa.cvmds; then
-      cp "$CVMD" kcsa.cvmds
-      echo "  sidecar          : kcsa.cvmds refreshed (sealed; stdout unchanged)"
+      echo "  sidecar          : staged kcsa.cvmds differs from the tracked one;"
+      echo "                    it is NOT refreshed by a plain run (use --accept)"
     fi
   fi
   exit 0
@@ -112,16 +128,44 @@ fi
 # FULL-AUDIT O22: promotion requires empty stderr AND a green verifier.
 # An empty stderr alone can still promote red science; warn loudly.
 if [ "$ACCEPT" -eq 1 ] && [ -z "$(cat "$ERR")" ]; then
-  if [ -f "$CVMD" ] && ! ./build/verify_cvmds "$CVMD" >/dev/null 2>&1 && [ -x ./build/verify_cvmds ]; then
-    echo "run: WARNING: staged cvmds seal did not verify; promoting stdout only" >&2
+  # FULL-AUDIT: the staged sidecar is NOT promoted unless its seal
+  # verifies. The old code printed a warning and then copied the file
+  # anyway - so a TAMPERED or TRUNCATED kcsa.cvmds replaced the tracked,
+  # sealed artefact while the log said "promoting stdout only". Worse,
+  # when ./build/verify_cvmds was missing the `!` chain made the whole
+  # condition false, so an unverified file was promoted SILENTLY.
+  # The sidecar is part of the record (stdout + sealed datastream), so
+  # an unverifiable sidecar is a hard refusal.
+  if [ -f "$CVMD" ]; then
+    if [ ! -x ./build/verify_cvmds ]; then
+      echo "run: REFUSING promotion: build/verify_cvmds is missing, so the" >&2
+      echo "      staged kcsa.cvmds seal cannot be checked" >&2
+      exit 1
+    fi
+    if ! ./build/verify_cvmds "$CVMD" >/dev/null 2>&1; then
+      echo "run: REFUSING promotion: the staged kcsa.cvmds seal did not" >&2
+      echo "      verify. The record is stdout PLUS the sealed datastream;" >&2
+      echo "      promoting an unverifiable sidecar would break that." >&2
+      exit 1
+    fi
   fi
   if ! make test >/dev/null 2>&1; then
     echo "run: REFUSING promotion: make test is red (run with empty arg to stage without promoting)" >&2
     exit 1
   fi
-  cp "$OUT" "$RECORD"
-  printf '%s\n' "$NEW" > "$LEDGER"
-  if [ -f "$CVMD" ]; then cp "$CVMD" kcsa.cvmds; fi
+  # FULL-AUDIT: the promotion is ATOMIC. `cp` truncates the destination
+  # before it writes, so an interruption mid-copy left a TRUNCATED
+  # output.txt - the record destroyed, and the ledger disagreeing with
+  # it. Each artefact is now written to a temporary name in the same
+  # directory and renamed into place (rename is atomic within a
+  # filesystem), and the ledger is written LAST so it never advertises
+  # a digest the record does not have.
+  cp "$OUT" "$RECORD.tmp"
+  if [ -f "$CVMD" ]; then cp "$CVMD" kcsa.cvmds.tmp; fi
+  mv -f "$RECORD.tmp" "$RECORD"
+  if [ -f "$CVMD" ]; then mv -f kcsa.cvmds.tmp kcsa.cvmds; fi
+  printf '%s\n' "$NEW" > "$LEDGER.tmp"
+  mv -f "$LEDGER.tmp" "$LEDGER"
   echo "  verdict          : PROMOTED to $RECORD and $LEDGER (+ kcsa.cvmds)"
   echo "                    review 'git diff $RECORD' before committing"
   echo "                    then run ./verify_scripts.sh && ./s01_verify_record.sh"

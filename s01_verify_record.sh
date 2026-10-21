@@ -48,21 +48,56 @@ command -v sha256sum >/dev/null || { echo "FATAL: sha256sum not found"; exit 2; 
 
 rm -rf "$SCRATCH"; mkdir -p "$SCRATCH"
 
-ASAN_FLAGS="-g -O0 -Wall -Wextra -std=c11 -Iinclude -fsanitize=address,undefined"
+# FULL-AUDIT: the sanitizer build was missing several things the record
+# build has, and each omission weakened the gate:
+#   -ffp-contract=off         the record build pins FP contraction; the
+#                              sanitizer build did not, so it was the ONE
+#                              build in the tree that could fuse FMAs
+#                              and change the low-order digits.
+#   -fno-sanitize-recover=undefined
+#                              UBSan diagnostics are RECOVERABLE by
+#                              default: the process continues after
+#                              printing one. The gate only caught them
+#                              because it also asserts stderr is empty -
+#                              a happy accident, not a design.
+#   -fno-omit-frame-pointer   a report that does fire then has a usable
+#                              stack trace.
+#   -Werror                    warnings are gated in the record build
+#                              but not in the sanitizer build.
+# The ASAN_OPTIONS / UBSAN_OPTIONS below are EXPORTED rather than
+# inherited: an ambient ASAN_OPTIONS=log_path=/tmp/x would move the
+# report out of stderr and the "stderr is empty" check would then pass
+# with the error sitting in a file.
+ASAN_FLAGS="-g -O0 -fno-omit-frame-pointer -Wall -Wextra -Werror -std=c11 -Iinclude -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=undefined"
+export ASAN_OPTIONS="detect_leaks=1:halt_on_error=1:abort_on_error=1:detect_stack_use_after_return=1"
+export UBSAN_OPTIONS="halt_on_error=1:print_stacktrace=1"
 
 echo "[1/6] clean + normal build (makefile's own CFLAGS)"
 make -C "$TREE" clean >/dev/null
 make -C "$TREE" >"$SCRATCH/build_normal.log" 2>&1
 
 echo "[2/6] run normal build"
-"$TREE/carbonsim" >"$SCRATCH/output.txt" 2>"$SCRATCH/stderr_normal.txt"
+# FULL-AUDIT: the engine writes kcsa.cvmds relative to the CURRENT
+# directory, so running it from the caller's directory overwrote the
+# TRACKED kcsa.cvmds with a wallclock-stamped one. The runs happen in
+# the scratch directory; the tracked sidecar is restored afterwards.
+( cd "$SCRATCH" && "$TREE/carbonsim" ) >"$SCRATCH/output.txt" 2>"$SCRATCH/stderr_normal.txt"
 
 echo "[3/6] clean + ASan build"
 make -C "$TREE" clean >/dev/null
-make -C "$TREE" CFLAGS="$ASAN_FLAGS" >"$SCRATCH/build_asan.log" 2>&1
+# FULL-AUDIT: overriding CFLAGS on the command line replaced the WHOLE
+# variable, so the datastream build-identity defines (-DDS_COMPILER_ID /
+# -DDS_CFLAGS_ID) were dropped and the sealed kcsa.cvmds produced by the
+# sanitizer build recorded "build-compiler: unknown". The identity is
+# now passed explicitly, so the sanitizer artifact carries usable
+# provenance and the two builds can be compared.
+make -C "$TREE" CFLAGS="$ASAN_FLAGS" \
+     DS_COMPILER_ID="gcc-asan $(gcc -dumpversion)" \
+     DS_CFLAGS_ID="$ASAN_FLAGS" \
+     >"$SCRATCH/build_asan.log" 2>&1
 
 echo "[4/6] run ASan build"
-"$TREE/carbonsim" >"$SCRATCH/output.asan.txt" 2>"$SCRATCH/stderr_asan.txt"
+( cd "$SCRATCH" && "$TREE/carbonsim" ) >"$SCRATCH/output.asan.txt" 2>"$SCRATCH/stderr_asan.txt"
 
 echo "[5/6] restore tracked build (tree dirtied by clean)"
 # Full-audit O6: the final `make clean` deleted TRACKED build/*.o + carbonsim,

@@ -12,6 +12,15 @@
 # committed objects stale enough to hide it completely. `make clean`
 # first is the only honest form.
 set -uo pipefail
+# FULL-AUDIT: the script had no self-location, so `make clean` and `make`
+# inside it acted on whatever directory the caller happened to be in.
+# Demonstrated: running it from a directory containing an unrelated
+# Makefile DELETED that project's files via its `clean` target, and the
+# script then "verified" a tree that was not the tree it lives in.
+# It now changes to its own directory first, like ./run and
+# ./s01_verify_record.sh already do.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$HERE" || { echo "VERIFY FAILED: cannot cd to $HERE"; exit 1; }
 # Full-audit P19: scratch logs live in the temp workspace, not predictable
 # /tmp paths (symlink race). Override with TMPDIR or default to /tmp.
 # FULL-AUDIT Q4: the default was /tmp/opencode — a scratch directory named
@@ -123,7 +132,7 @@ chk "regression gate count == 202" "202" "$RT_PASS"
 printf '  ---- audit regression suite: %s checks passed, %s failed ----\n' "$RT_PASS" "$RT_FAIL"
 [ "$RT_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_REG_LOG" | head -20
 chk "selftest-external green" "0" "$ET"
-chk "external gate count == 150" "150" "$ET_PASS"
+chk "external gate count == 153" "153" "$ET_PASS"
 printf '  ---- external sources: %s checks passed, %s failed ----\n' "$ET_PASS" "$ET_FAIL"
 [ "$ET_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_EXT_LOG" | head -20
 # Loop-closure suite: bio/QC/QM share one physics (Nernst, kT scale,
@@ -147,6 +156,21 @@ chk "selftest-eht green" "0" "$EHT"
 chk "eht gate count == 31" "31" "$EHT_PASS"
 printf '  ---- EHT oracles: %s checks passed, %s failed ----\n' "$EHT_PASS" "$EHT_FAIL"
 [ "$EHT_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_EHT_LOG" | head -20
+# FOURTH-AUDIT suite: one check per defect found and fixed by the
+# 2026-10 full mathematical / programming / operational audit, each
+# built on an independent oracle (the upstream pcg-random expected output
+# file, textbook overlap closed forms, the mirror symmetry of a bent
+# H-C-H, a grid-integrated two-centre Coulomb integral, the L'Hopital
+# limits of the Hodgkin-Huxley rate functions). Eighth gate.
+VERIFY_A4_LOG="$AUDIT_TMP/verify_audit4.log"
+if ! make selftest-audit4 >"$AUDIT_TMP/audit4_build.log" 2>&1; then echo "  FAIL  make selftest-audit4 builds"; fail=1; fi
+./build/test_audit4 > "$VERIFY_A4_LOG" 2>&1 && A4=0 || A4=1
+A4_PASS=$(grep -c '^  PASS' "$VERIFY_A4_LOG" 2>/dev/null || true)
+A4_FAIL=$(grep -c '^  FAIL' "$VERIFY_A4_LOG" 2>/dev/null || true)
+chk "selftest-audit4 green" "0" "$A4"
+chk "audit4 gate count == 43" "43" "$A4_PASS"
+printf '  ---- fourth audit: %s checks passed, %s failed ----\n' "$A4_PASS" "$A4_FAIL"
+[ "$A4_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_A4_LOG" | head -20
 if [ -f kcsa.cvmds ]; then
   # FULL-AUDIT O16: primary seal check calls ds_verify_file (no fork risk).
   if [ -x ./build/verify_cvmds ]; then
@@ -167,7 +191,10 @@ print('OK' if hashlib.sha256(d[:i]).hexdigest()==h else 'BAD')")
   chk "kcsa.cvmds seal intact" "OK" "$SEAL_OK"
   chk "no legacy UPPER keys (q_O/dE/S_/BO_/alpha_O)" "0" "$(grep -cE 'q_O_mean|q_K|q_Na|dE_K|dE_Na|S_K|S_Na|BO_K|BO_Na|alpha_O|E_K|E_Na|ddG|ddU' kcsa.cvmds || true)"
   chk "lower-case keys present" "1" "$(grep -Fc 'kcsa.qm.alpha_o' kcsa.cvmds)"
-  chk "charge unit e present" "1" "$(grep -Fc 'kcsa.qm.q_k' kcsa.cvmds)"
+  # FULL-AUDIT: this counted the KEY NAME and never looked at the unit
+# field, so a claim with the unit "bananas" passed. The third whitespace
+# field of the row is the unit.
+chk "charge unit e present" "e" "$(awk '$1=="kcsa.qm.q_k"{print $3}' kcsa.cvmds | head -1)"
   chk "header schema present" "1" "$(grep -Fc 'schema: 1' kcsa.cvmds)"
   chk "header demo kcsa present" "1" "$(grep -Fc 'demo: kcsa' kcsa.cvmds)"
   chk "source-hash record-tree-* present" "1" "$(grep -Fc 'source-hash: record-tree-' kcsa.cvmds)"
@@ -211,8 +238,6 @@ else
   echo "  FAIL  kcsa.cvmds missing"; fail=1
 fi
 
-echo
-if [ "$fail" -ne 0 ]; then echo "VERIFY FAILED"; exit 1; fi
 echo; echo "=== stdout/stderr + TUI contract ==="
 if printf 'help\ntest all\n' | timeout 60 ./s2tui >/dev/null 2>&1; then
   echo "  PASS  s2tui smoke (help + test all)"
@@ -225,4 +250,12 @@ else
   echo "  FAIL  s2tui screen forced-line degrade"; fail=1
 fi
 
+# FULL-AUDIT: the `fail` test used to sit BEFORE the TUI block, so a
+# failing TUI check set fail=1 and the script still printed
+# "VERIFY PASSED" and exited 0. Reproduced: with a deliberately broken
+# ./s2tui the script printed "FAIL s2tui smoke" and then
+# "VERIFY PASSED" with exit status 0. The single failure test now comes
+# LAST, after every check has run.
+echo
+if [ "$fail" -ne 0 ]; then echo "VERIFY FAILED"; exit 1; fi
 echo "VERIFY PASSED"
