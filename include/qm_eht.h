@@ -51,12 +51,33 @@
 
 /* STO exponent from Slater Zeff: zeta = Zeff/(n* a0), A^{-1}. -1 bad. */
 double eht_zeta (int Z, int n, int l, const ElectronConfig *cfg);
-/* s-s (n = 1,2), s-pσ, p-pσ, p-pπ (2p only). Dimensionless. R in A. */
+/* s-s (n = 1,2), s-pσ, p-pσ, p-pπ (2p only). Dimensionless. R in A.
+ *
+ * p_on_b convention (the ONE place the sign of the s-pσ channel is set):
+ *   p_on_b = 1 -> the p orbital is on centre B and points along the local
+ *                  +z (the A->B axis), i.e. its lobe points AWAY from the
+ *                  s on A. The resulting overlap is NEGATIVE.
+ *   p_on_b = 0 -> the p orbital is on centre A and points along the local
+ *                  +z, i.e. its lobe points TOWARD the s on B. The
+ *                  resulting overlap is POSITIVE.
+ * Both were verified against a brute-force 3D Cartesian grid oracle. */
 double eht_overlap_ss (int na, double za, int nb, double zb, double R);
 double eht_overlap_sps (int ns, double zs, int np, double zp, double R,
                         int p_on_b);
 double eht_overlap_pps (double za, double zb, double R);
 double eht_overlap_ppi (double za, double zb, double R);
+
+/* THE AUTHORITATIVE two-centre overlap between two AOs given in GLOBAL
+ * Cartesian axes: (n, zeta, l, m) per AO, with m = 0 for an s orbital and
+ * m = 1,2,3 for p_x, p_y, p_z. (dx,dy,dz) is the vector from atom i to
+ * atom j. Use THIS for any overlap matrix: it is the single place where
+ * the Slater-Koster direction cosines and the s-pσ sign are applied, and
+ * it is the implementation that is grid-validated.
+ *
+ * Returns 0.0 for unsupported shell combinations (l >= 2). */
+double eht_overlap_ao (int ni, double zi, int li, int mi,
+                       int nj, double zj, int lj, int mj,
+                       double R, double dx, double dy, double dz);
 
 /* ---- SCF (qm_eht_scf.c) ---- */
 

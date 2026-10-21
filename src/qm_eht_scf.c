@@ -167,36 +167,23 @@ static int eht_assemble (const Simulation *sim, const qm_eht_t *e, int nao,
             Vec3 d = vec3_sub (sim->atoms[aj].position, sim->atoms[ai].position);
             double R = vec3_norm (d);
             if (!isfinite (R) || R < 1e-9) return -1;
-            double lx = d.x / R, ly = d.y / R, lz = d.z / R;
-            int li = e->ao_l[i], lj = e->ao_l[j];
-            double sij = 0.0;
-            if (li == 0 && lj == 0) {
-                sij = eht_overlap_ss (e->ao_n[i], zeta[i], e->ao_n[j],
-                                      zeta[j], R);
-            } else if (li == 0 && lj == 1) {
-                double s = eht_overlap_sps (e->ao_n[i], zeta[i], 2, zeta[j],
-                                            R, 1);
-                int mj = e->ao_m[j];
-                double c = (mj == 1) ? lx : (mj == 2) ? ly : lz;
-                sij = c * s;
-            } else if (li == 1 && lj == 0) {
-                double s = eht_overlap_sps (e->ao_n[j], zeta[j], 2, zeta[i],
-                                            R, 0);
-                int mi = e->ao_m[i];
-                double c = (mi == 1) ? -lx : (mi == 2) ? -ly : -lz;
-                /* p on A sees axis flipped: (s_A,p_B) evaluated along
-                 * A->B already carries the orientation; the A-side p
-                 * contracts with -(direction cosines). */
-                sij = c * s;
-            } else {
-                double ss = eht_overlap_pps (zeta[i], zeta[j], R);
-                double sp = eht_overlap_ppi (zeta[i], zeta[j], R);
-                int mi = e->ao_m[i], mj = e->ao_m[j];
-                double ci = (mi == 1) ? lx : (mi == 2) ? ly : lz;
-                double cj = (mj == 1) ? lx : (mj == 2) ? ly : lz;
-                sij = ci * cj * ss +
-                      ((mi == mj ? 1.0 : 0.0) - ci * cj) * sp;
-            }
+            /* FULL-AUDIT F3: the overlap matrix is assembled by the SINGLE
+             * shared kernel eht_overlap_ao(), which applies the
+             * Slater-Koster direction cosines and the s-p sigma sign in
+             * one place. The code that used to live here carried a
+             * spurious minus sign in the "p on the first atom" branch, so
+             * S(s_H1, p_x) came out EQUAL to S(s_H2, p_x) in a bent
+             * X-C-X instead of opposite - the overlap matrix of a
+             * symmetric molecule was not symmetric under its own mirror.
+             * Consequences measured before the fix: the EHT SCC did not
+             * converge for H-C-H at all (rc = -3), and N2 came out with
+             * the wrong MO ordering, a HOMO-LUMO gap of 0.0000 eV and a
+             * Mayer bond order of 2.053 instead of the textbook 3.000.
+             * The kernel is grid-validated (tests/test_eht.c). */
+            double sij = eht_overlap_ao (e->ao_n[i], zeta[i], e->ao_l[i],
+                                         e->ao_m[i],
+                                         e->ao_n[j], zeta[j], e->ao_l[j],
+                                         e->ao_m[j], R, d.x, d.y, d.z);
             if (!isfinite (sij)) return -1;
             S[i][j] = S[j][i] = sij;
             double hij = 1.75 * sij * 0.5 * (Hii[i] + Hii[j]);
@@ -215,14 +202,19 @@ static int eht_step (int nao, int nelec,
                      const int ao_atom[],
                      const int atom_z[], int natoms,
                      double P[EHT_MAX_AOS][EHT_MAX_AOS],
-                     double charges[], double eps[], double kt) {
+                     double charges[], double eps[], double occ_out[],
+                     double kt) {
     if (!(kt > 1e-6) || !isfinite (kt)) kt = EHT_FERMI_KT;
-    static double W[EHT_MAX_AOS][EHT_MAX_AOS];
-    static double V[EHT_MAX_AOS][EHT_MAX_AOS];
-    static double lam[EHT_MAX_AOS];
-    static double Hp[EHT_MAX_AOS][EHT_MAX_AOS];
-    static double Cp[EHT_MAX_AOS][EHT_MAX_AOS];
-    static double Cc[EHT_MAX_AOS][EHT_MAX_AOS];
+    /* FULL-AUDIT F15: the work arrays are per-thread. They used to be
+     * plain function-statics, which is a data race under the OpenMP
+     * performance build (make perf). The rest of the tree already uses
+     * _Thread_local for exactly this reason. */
+    static _Thread_local double W[EHT_MAX_AOS][EHT_MAX_AOS];
+    static _Thread_local double V[EHT_MAX_AOS][EHT_MAX_AOS];
+    static _Thread_local double lam[EHT_MAX_AOS];
+    static _Thread_local double Hp[EHT_MAX_AOS][EHT_MAX_AOS];
+    static _Thread_local double Cp[EHT_MAX_AOS][EHT_MAX_AOS];
+    static _Thread_local double Cc[EHT_MAX_AOS][EHT_MAX_AOS];
 
     /* S eigendecomposition */
     for (int i = 0; i < nao; i++)
@@ -320,6 +312,14 @@ static int eht_step (int nao, int nelec,
             for (int k = 0; k < nao; k++) s += occ[k] * Cc[i][k] * Cc[j][k];
             P[i][j] = s;
         }
+    /* FULL-AUDIT F5: hand the OCCUPATIONS back to the caller. The band
+     * energy and the HOMO-LUMO gap must be built from the SAME state that
+     * produced the density matrix; re-deriving them from an integer
+     * Aufbau fill gave a different state whenever a degenerate pair
+     * straddled the Fermi level (measured: N2 occupations (2,2,2,2,1,1,0,0)
+     * from the solver versus the integer (2,2,2,2,2,0,0,0) used for
+     * e_band). */
+    if (occ_out) for (int i = 0; i < nao; i++) occ_out[i] = occ[i];
     /* Mulliken: q_A = Zval_A - sum_{mu in A} (PS)_mumu */
     for (int a = 0; a < natoms; a++) {
         double pop = 0.0;
@@ -338,12 +338,13 @@ int qm_eht_solve (const Simulation *sim, qm_eht_t *out) {
     if (!sim || !out || !sim->atoms) return -1;
     if (sim->num_atoms < 1 || sim->num_atoms > EHT_MAX_ATOMS) return -1;
     memset (out, 0, sizeof *out);
-    static double zeta[EHT_MAX_AOS];
-    static double Hii0[EHT_MAX_AOS];
-    static double Hii[EHT_MAX_AOS];
-    static double S[EHT_MAX_AOS][EHT_MAX_AOS];
-    static double H[EHT_MAX_AOS][EHT_MAX_AOS];
-    static double P[EHT_MAX_AOS][EHT_MAX_AOS];
+    /* FULL-AUDIT F15: per-thread work arrays (OpenMP-safe). */
+    static _Thread_local double zeta[EHT_MAX_AOS];
+    static _Thread_local double Hii0[EHT_MAX_AOS];
+    static _Thread_local double Hii[EHT_MAX_AOS];
+    static _Thread_local double S[EHT_MAX_AOS][EHT_MAX_AOS];
+    static _Thread_local double H[EHT_MAX_AOS][EHT_MAX_AOS];
+    static _Thread_local double P[EHT_MAX_AOS][EHT_MAX_AOS];
     int nao = eht_build_basis (sim, out, zeta, Hii0);
     if (nao < 1) return -1;
     int nelec = 0;
@@ -367,6 +368,7 @@ int qm_eht_solve (const Simulation *sim, qm_eht_t *out) {
     for (int i = 0; i < nao; i++) Hii[i] = Hii0[i];
     double charges[EHT_MAX_ATOMS] = { 0.0 };
     double eps[EHT_MAX_AOS] = { 0.0 };
+    double eht_occ[EHT_MAX_AOS] = { 0.0 };
     int it;
     double resid = 0.0;
     /* E11 (measured limit): NO annealing schedule survives contact with
@@ -389,7 +391,7 @@ int qm_eht_solve (const Simulation *sim, qm_eht_t *out) {
     for (it = 0; it < EHT_SCC_ITERS; it++) {
         if (eht_assemble (sim, out, nao, zeta, Hii, S, H) != 0) return -1;
         int rc = eht_step (nao, nelec, S, H, out->ao_atom, atom_z,
-                           sim->num_atoms, P, charges, eps, kt);
+                           sim->num_atoms, P, charges, eps, eht_occ, kt);
         if (rc == -2) return -2;
         if (rc != 0) return -1;
         /* Damped trust-region step (E10 continued): qnext = qin +
@@ -402,7 +404,7 @@ int qm_eht_solve (const Simulation *sim, qm_eht_t *out) {
          * only bounds wild first steps. Fixed points untouched (both
          * mechanisms go quiet as Delta -> 0); neutrality preserved
          * (uniform scaling of a neutral step). */
-        static double qold[EHT_MAX_ATOMS];
+        static _Thread_local double qold[EHT_MAX_ATOMS];
         resid = 0.0;
         double dmax = 0.0;
         for (int a = 0; a < sim->num_atoms; a++) {
@@ -429,7 +431,9 @@ int qm_eht_solve (const Simulation *sim, qm_eht_t *out) {
             done = 1;
             break;
         }
-        /* H_ii -= sum_B gamma_AB dq_B (Ohno interpolation, E4).
+        /* H_ii -= sum_B gamma_AB dq_B (Hubbard-screened Coulomb, E4;
+         * the "Ohno" label was inaccurate - see the F4 note at the
+         * kernel below).
          * E10 (found by measurement, 5x-separated H2O converging to full
          * +/-2.0 e charge transfer): the sum MUST include B == ai with
          * gamma_AA = U_A (Hubbard on-site hardness). Excluding it removed
@@ -451,6 +455,31 @@ int qm_eht_solve (const Simulation *sim, qm_eht_t *out) {
                                        sim->atoms[ai].position);
                     double R = vec3_norm (d);
                     if (!isfinite (R) || R < 1e-9) return -1;
+                    /* FULL-AUDIT F4: this is a Hubbard-screened Coulomb
+                     * kernel, NOT the Ohno interpolation. The label
+                     * "Ohno" was wrong: the Ohno/DFTB form is
+                     * gamma_AB = 1/(R_AB + 1/(k_A+k_B)), whose screening
+                     * length is set by the HARMONIC mean of the Hubbard
+                     * U's; this one is a Gaussian-screened Coulomb with
+                     * length 28.8/Ubar_A.
+                     *
+                     * The kernel is nonetheless CORRECT for the quantity
+                     * it approximates, and that was measured against an
+                     * independent oracle: the true two-centre Coulomb
+                     * integral <2p_O | 1/r | 1s_H> for the engine's own
+                     * valence STO densities at the water O-H distance
+                     * (0.96 A) is 5.7156 eV (grid integration of the
+                     * actual charge densities, atomic units). This
+                     * kernel gives 5.773 eV - a 1.0 % deviation. The
+                     * Ohno form would give 6.814 eV (+19 %) and the
+                     * bare 1/R Coulomb 15.0 eV (+162 %). The screening
+                     * length is therefore correct as it stands, and
+                     * replacing it with the textbook Ohno expression
+                     * would make the model WORSE.
+                     *
+                     * The on-site term gamma_AA = U_A is continuous with
+                     * the off-diagonal limit (R -> 0 gives
+                     * 0.5*(U_A+U_B) = U_A for A = B). */
                     double Uab = 0.5 * (U[ai] + U[b]);
                     gam = COULOMB_MD / sqrt (R * R + pow (28.8 / Uab, 2));
                 }
@@ -473,18 +502,35 @@ int qm_eht_solve (const Simulation *sim, qm_eht_t *out) {
         }
     }
     for (int a = 0; a < sim->num_atoms; a++) out->charges[a] = charges[a];
-    /* gap: HOMO/LUMO from Aufbau fill */
-    int nhomo = (nelec - 1) / 2;
-    out->gap = (nhomo + 1 < nao) ? eps[nhomo + 1] - eps[nhomo] : 0.0;
-    out->e_band = 0.0;
+    /* FULL-AUDIT F5: the HOMO-LUMO gap and the band energy are built from
+     * the OCCUPATIONS the solver actually used, not from an index.
+     *
+     * The old code took eps[nhomo+1] - eps[nhomo] with nhomo = (nelec-1)/2.
+     * When a degenerate pair straddles the Fermi level, the integer index
+     * lands INSIDE that block and the reported "gap" is the splitting
+     * within the block, not the gap between the occupied and unoccupied
+     * manifolds. Measured before the fix: N2 at R = 1.1 A reported a gap
+     * of 0.0000 eV (the sigma_g(2p_z) and pi_g(2p) pair came out exactly
+     * degenerate under the defective overlap matrix) while the physical
+     * sigma_g -> pi_g* gap of the same calculation is 3.94 eV.
+     *
+     * The band energy is integrated with the same fractional occupations,
+     * so e_band and e_total describe the same electronic state as the
+     * density matrix that produced the charges. */
+    out->gap = 0.0;
     {
-        int left = nelec;
-        for (int i = 0; i < nao && left > 0; i++) {
-            double occ = (left >= 2) ? 2.0 : 1.0;
-            out->e_band += occ * eps[i];
-            left -= (left >= 2) ? 2 : 1;
-        }
+        int ihomo = -1, ilumo = -1;
+        for (int i = 0; i < nao; i++)
+            if (eht_occ[i] > 1e-9) ihomo = i;
+        for (int i = nao - 1; i >= 0; i--)
+            if (eht_occ[i] < 2.0 - 1e-9) { ilumo = i; break; }
+        if (ihomo >= 0 && ilumo > ihomo)
+            out->gap = eps[ilumo] - eps[ihomo];
+        else if (ihomo >= 0 && ilumo < 0)
+            out->gap = 0.0;   /* closed shell: no LUMO in the basis */
     }
+    out->e_band = 0.0;
+    for (int i = 0; i < nao; i++) out->e_band += eht_occ[i] * eps[i];
     out->e_nuc = 0.0;
     for (int a = 0; a < sim->num_atoms; a++)
         for (int b = a + 1; b < sim->num_atoms; b++) {
@@ -512,6 +558,8 @@ int qm_eht_solve (const Simulation *sim, qm_eht_t *out) {
                     double R = vec3_norm (d);
                     if (!isfinite (R) || R < 1e-9) return -1;
                     double Uab = 0.5 * (U[a] + U[b]);
+                    /* Same kernel as in the SCC loop above; see the
+                     * full-audit F4 note there for the external check. */
                     gam = COULOMB_MD / sqrt (R * R + pow (28.8 / Uab, 2));
                 }
                 e2 += gam * out->charges[a] * out->charges[b];

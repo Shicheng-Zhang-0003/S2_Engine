@@ -42,14 +42,24 @@ static double eht_nstar (int n) {
 /* STO normalization N with chi = N r^{n-1} e^{-zr} Y_lm:
  * N_n = (2z)^{n+1/2} / sqrt((2n)!). Units A^{-(n+1/2)} for z in A^{-1}. */
 static double sto_norm (int n, double z) {
-    /* (2n)! for n<=6: exact small integers */
-    static const double fact2[] = { 1.0, 2.0, 24.0, 720.0, 40320.0,
-                                    3628800.0, 87178291200.0 };
-    if (n < 1 || n > 6 || !(z > 0.0) || !isfinite (z)) return 0.0;
+    /* (2n)! computed, not tabulated.
+     *
+     * FULL-AUDIT F7: the table used to hold 14! (87178291200) in the
+     * n = 6 slot, where (2n)! = 12! = 479001600 belongs. The typo made
+     * sto_norm(6, z) low by sqrt(12!/14!) = 0.0741. No shipped caller
+     * reached n = 6 (the valence basis is n = 1, 2), so nothing in the
+     * record was wrong - but the table advertised n <= 6 and silently
+     * delivered a wrong normalisation there. Computing (2n)! removes the
+     * class: there is no longer a hand-transcribed factorial to mistype.
+     */
+    if (n < 1 || n > 8 || !(z > 0.0) || !isfinite (z)) return 0.0;
+    double f2 = 1.0;
+    for (int i = 2; i <= 2 * n; i++) f2 *= (double)i;   /* (2n)! */
     double t = 2.0 * z;
     double p = t;
-    for (int i = 1; i < 2 * n + 1; i++) p *= t;   /* t^{2n+1} */
-    return sqrt (p / fact2[n]);
+    /* t^(2n+1): the loop body runs 2n times, so it starts at i = 1. */
+    for (int i = 1; i < 2 * n + 1; i++) p *= t;
+    return sqrt (p / f2);
 }
 
 double eht_zeta (int Z, int n, int l, const ElectronConfig *cfg) {
@@ -339,4 +349,96 @@ double eht_overlap_ppi (double za, double zb, double R) {
     double pre = Na * Nb * (3.0 / (4.0 * 3.14159265358979323846)) *
                  (R * R / 4.0) * (R * R * R / 8.0) * 3.14159265358979323846;
     return pre * J;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * eht_overlap_ao — the AUTHORITATIVE two-centre AO overlap in GLOBAL
+ * Cartesian axes.
+ *
+ * Why this function exists (full audit, F3/F4 + the EHT sign defect):
+ * two different pieces of code in this tree used to assemble the overlap
+ * matrix for the same physical basis, and they disagreed:
+ *
+ *   - src/qm_eht_scf.c assembled S itself and applied a Slater-Koster
+ *     rotation to the s-pσ channel with a SPURIOUS MINUS SIGN in the
+ *     "p on the first atom" branch. The result violated the mirror
+ *     symmetry of a symmetric molecule: for a bent H-C-H, the engine
+ *     produced S(s_H1, p_x) == S(s_H2, p_x) when the symmetry of the
+ *     physical system demands S(s_H1, p_x) == -S(s_H2, p_x). The EHT SCF
+ *     then failed to converge for H-C-H at all, and the N2 molecule came
+ *     out with the wrong MO ordering, a HOMO-LUMO gap of 0.0000 eV and a
+ *     Mayer bond order of 2.05 instead of the textbook 3.00.
+ *
+ *   - src/qm.c assembled S from per-ATOM valence shells, which silently
+ *     returned ZERO for every O-H / C-H / N-H pair (the O valence shell
+ *     is 2p, and the s-channel wrapper refused anything that was not an
+ *     s shell), i.e. the dominant 2s-1s sigma-bonding channel of water
+ *     and methane was missing from the overlap matrix entirely.
+ *
+ * One implementation, one place where the sign can be wrong, and the
+ * per-AO (n, l, m, zeta) description that a basis actually has.
+ *
+ * CONVENTIONS (all verified against a brute-force 3D Cartesian grid
+ * oracle, and against the mirror symmetry of a bent X-C-X):
+ *
+ *   - AOs are the REAL global-axis p orbitals: p_x, p_y, p_z, with
+ *     m = 1, 2, 3 respectively (m = 0 is an s orbital).
+ *   - (dx, dy, dz) is the vector from atom i to atom j; its unit vector
+ *     u is the local +z of the prolate frame (A = atom i at -R/2,
+ *     B = atom j at +R/2).
+ *   - The p integrals are the "parallel" convention: the p orbital is
+ *     taken along the local +z. For s-pσ this makes the value NEGATIVE
+ *     when the p lobe points away from the s (the two facing lobes then
+ *     have opposite signs). The global-axis direction cosine restores
+ *     the physical sign, so the assembled S matrix is correct for any
+ *     orientation of the p orbital in space.
+ *
+ *   S(s_i, p_j(e_mj)) = (e_mj . u) * S_-(p on B along +u)
+ *   S(p_i(e_mi), s_j) = (e_mi . u) * S_+(p on A along +u)
+ *   S(p_i(e_mi), p_j(e_mj)) = (e_mi.u)(e_mj.u) S_sigma
+ *                            + (delta_mij - (e_mi.u)(e_mj.u)) S_pi
+ *
+ *   with S_- = eht_overlap_sps(..., p_on_b = 1)   (p on B, along +u)
+ *        S_+ = eht_overlap_sps(..., p_on_b = 0)   (p on A, along +u)
+ *        S_sigma = eht_overlap_pps (the parallel-axis p-p sigma integral)
+ *        S_pi   = eht_overlap_ppi
+ *
+ *   The p-p sigma integral is the parallel convention, whose sign
+ *   crosses zero at zeta*R ~ 2.51. That is the correct mathematical
+ *   value of <p_i(+u) p_j(+u)> in a FIXED global basis, and the
+ *   Wolfsberg-Helmholtz Hamiltonian built on it is continuous through
+ *   the crossing, so it is kept as-is and documented rather than
+ *   replaced by a convention-dependent rescaling.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+double eht_overlap_ao (int ni, double zi, int li, int mi,
+                       int nj, double zj, int lj, int mj,
+                       double R, double dx, double dy, double dz) {
+    if (!(R > 0.0) || !isfinite (R)) return 0.0;
+    if (!(zi > 0.0) || !(zj > 0.0)) return 0.0;
+    double ux = dx / R, uy = dy / R, uz = dz / R;
+    if (!isfinite (ux) || !isfinite (uy) || !isfinite (uz)) return 0.0;
+
+    if (li == 0 && lj == 0) {
+        return eht_overlap_ss (ni, zi, nj, zj, R);
+    }
+    if (li == 0 && lj == 1) {
+        /* s on i, p on j: the p axis is e_mj; only its component along
+         * the i->j axis survives the integration against the
+         * cylindrically symmetric s on i. */
+        double c = (mj == 1) ? ux : (mj == 2) ? uy : uz;
+        return c * eht_overlap_sps (ni, zi, nj, zj, R, 1);
+    }
+    if (li == 1 && lj == 0) {
+        /* p on i, s on j: the p axis is e_mi. */
+        double c = (mi == 1) ? ux : (mi == 2) ? uy : uz;
+        return c * eht_overlap_sps (nj, zj, ni, zi, R, 0);
+    }
+    if (li == 1 && lj == 1) {
+        double ci = (mi == 1) ? ux : (mi == 2) ? uy : uz;
+        double cj = (mj == 1) ? ux : (mj == 2) ? uy : uz;
+        double ss = eht_overlap_pps (zi, zj, R);
+        double sp = eht_overlap_ppi (zi, zj, R);
+        return ci * cj * ss + (((mi == mj) ? 1.0 : 0.0) - ci * cj) * sp;
+    }
+    return 0.0;   /* unsupported shell combination */
 }
