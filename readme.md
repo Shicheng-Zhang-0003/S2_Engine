@@ -94,7 +94,7 @@ this document describes — not the other way around.
 
 | Artifact | What it is |
 |---|---|
-| `output.txt` | the verbatim 16-demo record (~1200 lines) |
+| `output.txt` | the verbatim 20-demo record (~1250 lines) |
 | `CURRENT_BASELINE_SHA.txt` | its SHA-256 (single source of truth — do not duplicate digests in prose) |
 | `kcsa.cvmds` | a schema-1 datastream written by Demo 12: 147 worked-example claims with provenance tags and a SHA-256 payload seal (`DATASTREAM_SPEC.md`). Covers every KcsA leg including Demo 12c's Born layer and contact mismatch |
 | `runs/` | candidate runs; untracked. Promotion is explicit (`./run --accept`) precisely so an accidental overwrite cannot masquerade as a record update |
@@ -115,38 +115,38 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **34 311 lines** (src 26 050 · include 3 830 · tests 4 431).
+Current tree: **34 498 lines** (src 26 220 · include 3 847 · tests 4 431).
 
 | File | Lines | Role |
 |---|---:|---|
 | `src/tui.c` | 7380 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
-| `src/main.c` | 5181 | the 20-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
-| `src/qm.c` | 3266 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver, **exact STO overlaps (ss/sps/pps/ppi), two-electron integrals (Hubbard-screened Coulomb + Wolfsberg-Helmholtz exchange), Roothaan–Hartree–Fock SCF solver + FD forces** |
+| `src/main.c` | 5223 | the 20-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
+| `src/qm.c` | 3291 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver, **exact STO overlaps (ss/sps/pps/ppi), two-electron integrals (Hubbard-screened Coulomb + Wolfsberg-Helmholtz exchange), Roothaan–Hartree–Fock SCF solver + FD forces** |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
 | `src/forces.c` | 1365 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud; **OpenMP cell-list pair search + private-force accumulators** |
 | `src/sim.c` | 1089 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints), **cell-list build for O(N) non-bonded pairs** |
 | `src/integrator.c` | 924 | Velocity Verlet, **reference PCG64** (O'Neill 2014, XSL-RR 128/64) / Knuth-MMIX LCG, Maxwell–Boltzmann, Berendsen/Andersen/exact-OU-Langevin, steepest descent, FIRE, **standard C11 64x64->128 multiply** |
 | `src/quantum.c` | 547 | Slater screening and orbital energies, hydrogenic radial profiles, Clementi–Raimondi exponents, real spherical harmonics |
-| `src/kcsa_filter.c` | 926 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit), **backbone + side-chain dihedral torsions** |
-| `src/qm_born.c` | 128 | Born ionic self-energy, Latimer–Pitzer–Slansky radii, Pauling free-ion polarizabilities |
-| `src/qm_fluctuation.c` | 774 | variance/entropy machinery, KcsA shell strain, site-integrity gate, **ion axis constraint for fluctuation sampling** |
+| `src/kcsa_filter.c` | 964 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit), **backbone + side-chain dihedral torsions** |
+| `src/qm_born.c` | 129 | Born ionic self-energy, Latimer–Pitzer–Slansky radii, Pauling free-ion polarizabilities |
+| `src/qm_fluctuation.c` | 775 | variance/entropy machinery, KcsA shell strain, site-integrity gate, **ion axis constraint for fluctuation sampling** |
 | `src/aminoacids.c` | 513 | glycine/alanine/dipeptide/polyalanine builders |
-| `src/datastream.c` | 440 | schema-1 writer, self-contained FIPS 180-4 SHA-256, seal verifier (fseeko/ftello, record-tree source-hash, \r/bracket hygiene) |
-| `src/periodic_table.c` | 294 | H–Kr element data, UFF ε/σ, Madelung electron configurations |
+| `src/datastream.c` | 445 | schema-1 writer, self-contained FIPS 180-4 SHA-256, seal verifier (fseeko/ftello, record-tree source-hash, \r/bracket hygiene) |
+| `src/periodic_table.c` | 323 | H–Kr element data, UFF ε/σ, Madelung electron configurations |
 | `src/tui_view.c` | 383 | viewport cell model shared by the ANSI frame and the curses screen |
-| `src/tui_screen.c` | 169 | ncursesw alternate-screen monitor (optional dep, TTY-gated, piped-safe) |
-| `src/neuron.c` | 164 | Hodgkin–Huxley 1952 (squid giant axon) |
-| `src/loop.c` | 76 | bio/QC/QM loop closure: Nernst, kT scale, LJ/Coulomb from same primaries |
-| `tests/test_regression.c` | 1815 | the 202-check in-repo oracle suite |
-| `tests/test_external.c` | 932 | the 150-check outside-reference suite |
+| `src/tui_screen.c` | 171 | ncursesw alternate-screen monitor (optional dep, TTY-gated, piped-safe) |
+| `src/neuron.c` | 173 | Hodgkin–Huxley 1952 (squid giant axon) |
+| `src/loop.c` | 84 | bio/QC/QM loop closure: Nernst, kT scale, LJ/Coulomb from same primaries |
+| `tests/test_regression.c` | 1831 | the 202-check in-repo oracle suite |
+| `tests/test_external.c` | 1087 | the 150-check outside-reference suite |
 | `tests/test_loop.c` | 273 | the 60-check loop-closure + best-layer suite |
-| `src/qm_eht_overlap.c` | 444 | exact STO overlaps: prolate A/B machinery, GL quadrature for p-pi, **and `eht_overlap_ao()` — the single shared global-axis AO overlap kernel** |
-| `src/qm_eht_scf.c` | 668 | Hoffmann EHT + SCC (Jacobi, Lowdin, Mulliken, Mayer, trust mixing) |
+| `src/qm_eht_overlap.c` | 467 | exact STO overlaps: prolate A/B machinery, GL quadrature for p-pi, **and `eht_overlap_ao()` — the single shared global-axis AO overlap kernel** |
+| `src/qm_eht_scf.c` | 697 | Hoffmann EHT + SCC (Jacobi, Lowdin, Mulliken, Mayer, trust mixing) |
 | `tests/test_eht.c` | 331 | the 31-check EHT oracle suite |
 | `tests/test_audit4.c` | 519 | the 43-check fourth-audit suite (one check per defect found and fixed) |
-| `include/qm_eht.h` | 107 | EHT API + E1-E11 abstraction inventory |
+| `include/qm_eht.h` | 128 | EHT API + E1-E11 abstraction inventory |
 | `include/loop.h` | 55 | loop bridge contract + abstraction inventory |
-| `include/` | 3830 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
+| `include/` | 3847 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
 | `tests/` (other) | 378 | datastream, forces, fire suites |
 
 ### 3.1 Multicore and cell lists (performance build)
@@ -625,12 +625,12 @@ are the quantum-layer demos added in v9R4.
 | 12 | KcsA legacy cage | full selectivity leg program; vacuum sites favor Na⁺, exchange favors K⁺ |
 | 12b | Real KcsA filter | deposited TVGYG, 164 atoms, C4 symmetry, CN = 8 at every site |
 | 12c | KcsA ionic layer | Born self-energy vs the measured table; filter contact mismatch; entropic term's status |
-| 17 | DNA duplex | G–C / A–T stack with B-DNA rise and twist; G–C BREATHING / A–T HELD |
-| 18 | EHT semiempirical SCF | H2 band dissociation, H2O Mulliken + gap, BO switch dissolves the wall |
 | 13 | H₂ quantum MD | the Roothaan–Hartree–Fock layer drives an H₂ trajectory; the force falls 19 → 1.6 eV/Å as the molecule relaxes to the SCF minimum |
 | 14 | H₂O quantum MD | **UNRESOLVED** — the SCF is not bound for water in this minimal basis, so the demo says so and runs the classical reference instead of printing a quantum-MD table it cannot support |
 | 15 | H₂ dissociation curve | the SCF curve **has** an interior minimum (R = 1.20 Å against the experimental 0.7414 Å) after the missing nuclear–nuclear repulsion was added; the deviation is printed, not hidden |
 | 16 | H₂ geometry optimization | the SCF-force optimiser converges to the SCF minimum and the deviation from the experimental bond length is printed |
+| 17 | DNA duplex | G–C / A–T stack with B-DNA rise and twist; G–C BREATHING / A–T HELD |
+| 18 | EHT semiempirical SCF | H2 band dissociation, H2O Mulliken + gap, BO switch dissolves the wall |
 
 ---
 
@@ -657,7 +657,7 @@ oracles. `make audit` runs the evidence.
 | Ionic radii | Shannon 1976 (VIII) | contact distances against deposited geometry |
 | Neuron | Hodgkin–Huxley 1952 | rate functions and a published worked example, 4 decimals |
 | SHA-256 | FIPS 180-4 | NIST known-answer vectors |
-| RNG | PCG64 (O'Neill 2014) | canonical 128-bit multiply + XSL-RR permutation |
+| RNG | PCG64 (O'Neill 2014) | the REFERENCE pcg64 (XSL-RR 128/64), checked against the upstream `pcg-c` expected-output file — see §6.2 |
 
 The second-audit pass verified the whole tree against these sources, including
 things that were wrong and are now fixed: the KcsA dehydration leg had been
@@ -720,6 +720,77 @@ Its findings:
 The four defects fixed in this pass are listed in `release_note_v9R4.md`
 under the third-audit section, and each is pinned by a regression check that
 fails on the pre-fix code.
+
+### 6.2 Fourth audit pass (2026-10-21) — full mathematical, programming and operational re-audit
+
+A second full audit, run over the whole tree at once: four independent
+reviewers worked in parallel over the quantum layer, the EHT/quantum
+modules, the record program and the KcsA/chemistry code, and the
+operational pipeline (build, gates, verifier, promotion, CI). Every
+finding was then **re-derived from a primary source before it was acted
+on** — and that discipline changed the outcome in both directions:
+
+* The claim that the EHT SCC gamma was "not the Ohno interpolation" was
+  **correct**, and the label was wrong — but replacing the kernel with the
+  textbook Ohno form would have made the model *worse* (+19 % against a
+  grid oracle, where the existing kernel is within 1.0 %). The kernel was
+  kept, the label was corrected, and the accuracy was pinned.
+* The claim that the reference PCG64 was "not reference pcg64" was
+  **correct** — and the fix was to implement the real thing and check it
+  against the upstream `pcg-c` expected-output file rather than against
+  itself.
+
+**What the audit found and what was done about it.** The defects are
+listed in full in `release_note_v9R4.md` under the fourth-audit section.
+The headline items:
+
+| Area | Defect | Consequence | Status |
+|---|---|---|---|
+| EHT overlap | sign error in the s–pσ branch | the overlap matrix was not symmetric under the molecular mirror; the SCC did not converge for H–C–H; N₂ had a 0.0000 eV gap and a 2.05 Mayer bond order | fixed; one shared kernel now serves both SCF modules |
+| RHF overlap | per-atom valence shells instead of per-AO | the 2s–1s channel of every O–H / C–H / N–H pair was exactly zero | fixed |
+| RHF core | `ao_n[]` never populated | the VSIP diagonal silently fell back to the first ionisation potential (O 2s: −13.6 eV instead of −32.3 eV) | fixed |
+| RHF energy | the density was passed to `qm_eri_zzdo()` with the wrong stride | the entire two-electron Fock term was built on garbage populations, and the Fock matrix came out asymmetric for a symmetric molecule | fixed |
+| RHF energy | the eigenvalue sort overwrote its own source | the LUMO was replaced by a duplicate of the HOMO | fixed |
+| RHF energy | the nuclear–nuclear repulsion was missing | the H₂ curve had no minimum at all | fixed; the minimum is now at R = 1.20 Å |
+| RHF forces | a failed displaced solve left the energy at 0.0 (a *finite* number) | a force of order E/2h ≈ 1.5 × 10⁶ eV/Å, silently | fixed; fail-closed now |
+| Induction | the coupled-dipole block carried a spurious 14.4× Coulomb factor | dipoles 3.6× too large, able to anti-align with the field, so the induced-dipole energy could come out **positive** | fixed |
+| Born | the induction energy was missing the 1/(4πε₀) factor, and the "cage field" was the *potential* (5.18 V) rather than the *field* (1.863 V/Å) | the printed induction energy was **111× too large** | fixed; the value is now −0.006253 eV (K⁺) |
+| Coulomb kernel | screened with the mean ionisation potential | 10.09 eV for the water O–H pair against a grid oracle of 5.7156 eV (76 % error) | fixed; the kernel now agrees to 1.0 % |
+| Fluctuation | the paired energy difference was taken at two different geometries | 5–18 % of the reported variance was an artefact, and larger than the K⁺-vs-Na⁺ difference the argument rested on | fixed |
+| KcsA | the hydroxyl cone was built around the C→O axis | ∠C–O–H came out at **70.5°** instead of 109.5° on the innermost filter ligand | fixed |
+| Forces | the cell-list path allocated its work buffers twice | every `forces_calculate()` call in the perf path leaked ~432 kB | fixed |
+| Forces | the cell-list path ignored the degenerate-cutoff rule and the angle-list exclusion | the two pair paths could disagree about the same system | fixed |
+| Sim | the cell-list grid was built with unchecked `int` products | a user-settable small cutoff could overflow into a **heap out-of-bounds write** | fixed; the count is computed in `double`/`size_t` and refused |
+| Sim | the grid origin was discarded | `sim_cell_index_atom()` returned −1 for every atom of any system not near the origin | fixed |
+| Integrator | the temperature cap wrote to stderr in batch mode | 69 lines of stderr, so the empty-stderr gate — and `./run`'s promotion — could never succeed | fixed; the cap is counted and reported as data |
+| RNG | "PCG64" was an invention with a 64-bit increment and a made-up output permutation | no published vector could check it, and the readme contradicted itself | fixed; the reference pcg64 is implemented and pinned against the upstream expected-output file |
+| Datastream | a NaN or inf could be sealed into a signed file | a non-finite claim in a file that verified "clean" | fixed; the writer fails closed |
+| Datastream | `ds_verify_file(NULL)` called `fopen(NULL)` | undefined behaviour (crashes on musl and macOS) | fixed |
+| Pipeline | `verify_scripts.sh` tested `fail` **before** the TUI checks | a red TUI check still printed "VERIFY PASSED" and exited 0 | fixed |
+| Pipeline | `./run --accept` copied an **unsealed** `kcsa.cvmds` after warning about it | the tracked, sealed artefact could be replaced by a tampered one | fixed; the promotion refuses |
+| Pipeline | `./run --accept` used `cp` in place | an interruption mid-copy left a truncated record | fixed; every artefact is written to a temporary name and renamed |
+| Pipeline | `make perf` shared the record's objects and binary names | `make perf` was a silent no-op, or broke the record link, or overwrote the tracked binary | fixed; the perf build is fully isolated |
+| Pipeline | three of the eight gates had no `FAIL`-line fallback | a suite could print FAIL and the gate would still pass | fixed |
+| Pipeline | there was no CI at all | the stale record reached HEAD with every commit message claiming a green tree | fixed; `.github/workflows/ci.yml` now gates the record |
+| Audit | `audit/thirdpass_uff_amber.py` was never executed and compared the engine against the LAMMPS table | 20 red findings that were all artefacts of the checker | replaced by `audit/math/a06_uff_amber.py`, now part of `make audit` |
+| Docs | the readme claimed a reference PCG64 in one place and denied it in another | — | fixed |
+
+**New evidence, not just new checks.** The audit added external oracles
+that did not exist before:
+
+* the upstream `pcg-c` expected-output file (published PCG64 vectors);
+* a brute-force 3D Cartesian grid integration of the *actual* valence
+  charge densities, which is what the Born-induction and screened-Coulomb
+  numbers are now checked against;
+* the textbook closed forms for the STO overlaps and the L'Hôpital limits
+  of the Hodgkin–Huxley rate functions;
+* the mirror symmetry of a bent H–C–H, used as an oracle for the overlap
+  matrix;
+* the Open Babel UFF parameter file (which cites Rappé et al., *JACS* **114**
+  (1992) 10024) as the reference for all 36 Lennard-Jones rows.
+
+All of these are in `tests/test_audit4.c` (the eighth gate) and
+`audit/math/a06_uff_amber.py` (now part of `make audit`).
 
 ---
 
@@ -832,6 +903,34 @@ Stated plainly, because the numbers above cannot be read correctly without them.
 * **Filter flexibility was tried and collapses** without a real protein force
   field: a restraint weak enough to let the filter respond cannot hold a +1
   ion's Coulomb field. The failure is documented, not tuned away.
+* **The Roothaan–Hartree–Fock layer is qualitative.** Its overlap matrix
+  is exact and its forces are a clean gradient, but the core Hamiltonian
+  is the EHT VSIP diagonal, the off-diagonal coupling is a
+  Wolfsberg–Helmholtz resonance integral calibrated for a different
+  energy formulation, and the two-electron term is a ZDO approximation.
+  The H₂ curve therefore has its minimum at 1.20 Å against the
+  experimental 0.7414 Å, and **water does not produce a bound solution at
+  all** in this minimal basis. The demos report both facts; the
+  not-bound gate (−4) refuses to report an unbound solution. The
+  *validated* electronic-structure module is the EHT one (Demo 18).
+* **The screened-Coulomb kernel is not Mataga–Nishimoto.** It is a
+  Hubbard-screened Coulomb that agrees with a grid oracle for the
+  two-centre integral to 1.0 %. The Mataga–Nishimoto and DFTB
+  interpolations would be 19 % and 26 % further from that oracle
+  respectively, so the textbook substitution is *worse*, not better. The
+  label is what was wrong, and it has been corrected.
+* **The free-ion polarizability table is a compilation, not Pauling's own
+  numbers.** The values in the tree (Li⁺ 0.03, Na⁺ 0.18, K⁺ 0.83, Rb⁺
+  1.40, Cs⁺ 2.40 Å³) give the K⁺/Na⁺ ratio 4.61 that the induction leg
+  uses. Pauling's own third-edition table gives 0.028 / 0.147 / 0.810 /
+  1.35 / 1.94 Å³, a ratio of 5.51 and a 24 % difference for Cs⁺. The
+  difference is tens of percent on a single number in an already
+  qualitative leg.
+* **The Pauli term still uses the heuristic overlap.** `qm_overlap()`
+  dispatches to the exact kernel, but the charge-responsive overlap
+  `qm_overlap_q()` (the `exp(−ζR)·ang` estimate) is what the Pauli
+  repulsion is built from, and the EHT layer does not use `qm_overlap`
+  at all.
 
 ---
 
