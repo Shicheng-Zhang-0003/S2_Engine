@@ -42,3 +42,8 @@ audit/scratch/
 # an unreviewed run from being committed alongside a record change.
 runs/
 build/*.log
+# The OpenMP performance build (make perf): its own object directory and
+# its own binaries, so it can never contaminate the record build.
+build-perf/
+carbonsim-perf
+s2tui-perf
