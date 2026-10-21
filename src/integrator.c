@@ -129,13 +129,22 @@ void integrator_step(Simulation *sim) {
                 Atom *a = &sim->atoms[i];
                 a->velocity.x *= s; a->velocity.y *= s; a->velocity.z *= s;
             }
-            /* FULL-AUDIT C32: temperature cap warning is suppressed in live
-             * mode because it writes to stderr and corrupts the TUI display.
-             * The live status line already shows the temperature, so the
-             * warning is redundant and actively harmful there. In batch mode
-             * (redirected stderr), the warning is still emitted so operators
-             * see the cap event. */
-            if (!sim->temp_capped_latched && !display_live())
+            /* FULL-AUDIT: the cap event must obey the STREAM CONTRACT.
+             *
+             * The record's contract (readme section 2) is: stdout is DATA,
+             * stderr carries human display and ONLY when stderr is a TTY.
+             * This warning was emitted in BATCH mode (redirected stderr),
+             * which produced 69 lines in the record run and made the
+             * empty-stderr gate - and therefore ./run's refusal to promote
+             * a run whose stderr is not empty - impossible to satisfy.
+             *
+             * The cap is a physics event, not a progress message, so it is
+             * not silently dropped: sim->temp_cap_events counts the
+             * events and the demos report the count as DATA. The line
+             * itself is now emitted only on a live terminal, like every
+             * other human-facing diagnostic in the tree. */
+            sim->temp_cap_events++;
+            if (!sim->temp_capped_latched && display_live())
                 fprintf(stderr, "  capped T=%.3gK to %.3gK (set maxtemp to change)\n",
                         T, sim->max_temperature);
             sim->temp_capped_latched = 1;
@@ -309,56 +318,102 @@ static void mul64x64(uint64_t a, uint64_t b, uint64_t *hi, uint64_t *lo) {
     *hi = p11 + (mid >> 32) + carry + (*lo < p00);
 }
 
-/* S2-PCG64-like (O'Neill-inspired, NOT reference pcg-random.org pcg64; see M39 —
- * the standard `pcg64` of pcg-random.org). 128-bit LCG state, 64-bit
- * output, 2^64 period. */
-#define PCG_DEFAULT_INCREMENT 6364136223846793005ULL
-#define PCG_DEFAULT_MUL_LO   4865540595714422341ULL  /* 0x4385DF649FCCF645 */
-#define PCG_DEFAULT_MUL_HI   2549297995355413924ULL  /* 0x2360ED051FC65DA4 */
+/*
+ * PCG64 — the REFERENCE "pcg64" of pcg-random.org (O'Neill 2014,
+ * pcg_variants.h), XSL-RR 128/64 output, 128-bit LCG state.
+ *
+ * FULL-AUDIT: this used to be an "S2-PCG64-like" invention: the same
+ * 128-bit multiplier as the reference, but a 64-bit increment, a
+ * non-reference output permutation, and a non-reference seeding. The
+ * readme claimed in one place that it was "PCG64 (O'Neill 2014) ...
+ * canonical 128-bit multiply + XSL-RR permutation" and in another that
+ * it was "NOT reference pcg64" - the document contradicted itself, and
+ * no published vector could be used to check it.
+ *
+ * It is now the real thing, and it is checked against PUBLISHED
+ * vectors rather than against itself:
+ *
+ *   upstream pcg-c, test-high/expected/check-pcg64.out
+ *     (https://github.com/imneme/pcg-c), seeds initstate = 42,
+ *     initseq = 54 -> the first six outputs are
+ *       86b1da1d72062b68 1304aa46c9853d39 a3670e9e0dd50358
+ *       f9090e529a7dae00 c85b9fd837996f2c 606121f8e3919196
+ *   the same six values appear in the Rust rand_pcg crate's
+ *     lcg128xsl64.rs test (0.9.0), which is an independent port.
+ *
+ * The engine uses initseq = 54 so that its stream for a given seed is
+ * directly comparable with the published one, and
+ * tests/test_regression.c pins those six outputs.
+ *
+ * The algorithm, verbatim from pcg_variants.h:
+ *
+ *   MULT = 0x2360ED051FC65DA44385DF649FCCF645
+ *   inc  = (initseq << 1) | 1                  (always odd)
+ *   seed: state = 0; step(); state += initstate; step();
+ *   step: state = state * MULT + inc  (mod 2^128)
+ *   next: step();  return rotr64( uint64(state >> 64) ^ uint64(state),
+ *                                 state >> 122 );
+ *
+ * The 128-bit multiply is done with the standard C11 schoolbook
+ * mul64x64() below (no __int128), and the high word of the increment
+ * is zero because inc = 109 for initseq = 54.
+ */
+#define PCG64_MULT_LO   0x4385DF649FCCF645ULL
+#define PCG64_MULT_HI   0x2360ED051FC65DA4ULL
+/* initseq = 54 -> inc = (54 << 1) | 1 = 109 = 0x6D, high word 0. */
+#define PCG64_SEQ       54ULL
+#define PCG64_INC_LO    ((PCG64_SEQ << 1) | 1ULL)
+#define PCG64_INC_HI    0ULL
 
-static uint64_t pcg64_next(Simulation *sim) {
-    /* Snapshot the state, then advance it: state = state*MULT + INC. */
-    const uint64_t old_lo = sim->rng_state;
-    const uint64_t old_hi = sim->rng_state_hi;
-
-    /* state * MULT mod 2^128, using schoolbook 64x64->128 (mul64x64).
-     *   lo' = lo*mul_lo                                  (mod 2^64)
-     *   hi' = hi64(lo*mul_lo) + lo*mul_hi + hi*mul_lo    (mod 2^64)
-     * The hi*mul_hi term contributes only above bit 128 and is dropped. */
+static void pcg64_step(Simulation *sim) {
+    /* state = state * MULT + INC  (mod 2^128), schoolbook 64x64->128.
+     *   lo' = lo*mult_lo                              (mod 2^64)
+     *   hi' = hi64(lo*mult_lo) + lo64(lo*mult_hi)
+     *         + lo64(hi*mult_lo)                      (mod 2^64)
+     * The hi*mult_hi term lives entirely above bit 128 and is dropped. */
     uint64_t m_hi, m_lo;
-    mul64x64(old_lo, PCG_DEFAULT_MUL_LO, &m_hi, &m_lo);
+    mul64x64(sim->rng_state, PCG64_MULT_LO, &m_hi, &m_lo);
     uint64_t lo = m_lo;
     uint64_t hi = m_hi;
-    mul64x64(old_lo, PCG_DEFAULT_MUL_HI, &m_hi, &m_lo);
+    mul64x64(sim->rng_state, PCG64_MULT_HI, &m_hi, &m_lo);
     hi += m_lo;
-    mul64x64(old_hi, PCG_DEFAULT_MUL_LO, &m_hi, &m_lo);
-    uint64_t add_lo = m_lo;
-    lo += add_lo;
-    if (lo < add_lo) hi += 1;      /* carry out of the low word */
-    hi += m_hi;
-
-    /* + increment (64-bit), with carry into the high word */
-    uint64_t nlo = lo + PCG_DEFAULT_INCREMENT;
-    if (nlo < lo) hi += 1;
-    sim->rng_state = nlo;
+    mul64x64(sim->rng_state_hi, PCG64_MULT_LO, &m_hi, &m_lo);
+    hi += m_lo;
+    /* + INC (128-bit) */
+    uint64_t nlo = lo + PCG64_INC_LO;
+    uint64_t carry = (nlo < lo) ? 1ULL : 0ULL;
+    lo = nlo;
+    hi += PCG64_INC_HI + carry;
+    sim->rng_state = lo;
     sim->rng_state_hi = hi;
+}
 
-    /* Output permutation, "xsl-rr 128/64": xor the two halves, xorshift
-     * right by 18, take 32 bits, then rotate right by the top 5 bits. */
-    uint64_t xorshifted = ((old_hi ^ old_lo) >> 18);
-    uint32_t rot = (uint32_t)(old_hi >> 59);
-    uint32_t x = (uint32_t)((xorshifted >> 27) & 0xffffffffu);
-    return (uint64_t)((x >> rot) | (x << ((32 - rot) & 31)));
+static uint64_t pcg64_next(Simulation *sim) {
+    /* pcg64 is ADVANCE-THEN-OUTPUT. */
+    pcg64_step(sim);
+    /* pcg_output_xsl_rr_128_64:
+     *   rotr64( uint64(state >> 64) ^ uint64(state), state >> 122 ) */
+    uint64_t xorshifted = sim->rng_state_hi ^ sim->rng_state;
+    uint32_t rot = (uint32_t)(sim->rng_state_hi >> 58);   /* state >> 122 */
+    return (xorshifted >> rot) | (xorshifted << ((64u - rot) & 63u));
 }
 
 static void pcg64_seed(Simulation *sim, uint64_t seed) {
-    /* Standard PCG seeding: state=0, step by inc, add seed, step again. */
+    /* pcg_setseq_128_srandom_r(rng, initstate = seed, initseq = 54). */
     sim->rng_state = 0;
     sim->rng_state_hi = 0;
-    (void)pcg64_next(sim);
-    sim->rng_state += seed;
-    sim->rng_state_hi += 0;      /* seed is 64-bit; the high word stays */
-    (void)pcg64_next(sim);
+    pcg64_step(sim);                 /* state = inc */
+    sim->rng_state += seed;          /* state += initstate */
+    pcg64_step(sim);
+}
+
+uint64_t integrator_pcg64_raw(Simulation *sim, unsigned long seed, int n,
+                              uint64_t *out) {
+    if (!sim || !out || n < 1) return 0;
+    sim->rng_kind = INTEGRATOR_RNG_PCG64;
+    pcg64_seed(sim, (uint64_t)seed);
+    for (int i = 0; i < n; i++) out[i] = pcg64_next(sim);
+    return (uint64_t)n;
 }
 
 static double rand_uniform(Simulation *sim) {

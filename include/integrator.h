@@ -122,6 +122,17 @@ void integrator_langevin(Simulation *sim);
  * After sampling, removes net linear momentum (centre of mass velocity = 0).
  * `seed` initialises the internal RNG (use 0 for a fixed default seed).
  */
+/* Raw PCG64 output stream, for the regression suite.
+ *
+ * FULL-AUDIT: the reference PCG64 (O'Neill 2014, pcg-random.org) is
+ * checked against PUBLISHED vectors - the upstream pcg-c expected
+ * output file (seeds initstate = 42, initseq = 54) - and the only way
+ * to do that is to expose the raw 64-bit stream. The stream is
+ * reseeded with the given seed (initstate) and the fixed sequence 54,
+ * matching the upstream test. */
+uint64_t integrator_pcg64_raw(Simulation *sim, unsigned long seed, int n,
+                              uint64_t *out);
+
 void integrator_maxwell_boltzmann(Simulation *sim, double T_init,
                                    unsigned long seed);
 
