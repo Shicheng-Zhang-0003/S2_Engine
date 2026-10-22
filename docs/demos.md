@@ -6,11 +6,8 @@ Run `./carbonsim` for the record, or `test demo <n>` inside `s2tui`
 for the fast live smoke check. Every headline below is printed by
 the demo itself, and the record is the authority — not this table.
 
-<a id="5-the-demos-20"></a>
-## 5. The demos (20)
-
-Run `./carbonsim` for the record, or `test demo <n>` inside `s2tui` for the
-fast live smoke check.
+<a id="the-demos-20"></a>
+## The demos (20)
 
 12b is the real-filter twin of 12, 17 is the duplex, 18 is EHT, and 13–16
 are the quantum-layer demos added in v9R4.

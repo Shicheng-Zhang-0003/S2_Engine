@@ -3,8 +3,8 @@
 *S2 Engine v9R4 · stated plainly, because the numbers above cannot
 be read correctly without them.*
 
-<a id="7-known-limitations"></a>
-## 7. Known limitations
+<a id="known-limitations"></a>
+## Known limitations
 
 Stated plainly, because the numbers above cannot be read correctly without them.
 

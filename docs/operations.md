@@ -3,8 +3,8 @@
 *S2 Engine v9R4 · how the record is produced, verified, and
 promoted, and how to read it.*
 
-<a id="2-the-record-and-its-artifacts"></a>
-## 2. The record and its artifacts
+<a id="the-record-and-its-artifacts"></a>
+## The record and its artifacts
 
 The record is the tracked stdout of `./carbonsim`, and it is the authority
 this document describes — not the other way around.
@@ -62,8 +62,8 @@ binary**. Never promote a perf run to the record: thread scheduling
 changes the floating-point summation order, so the digests differ.
 
 ---
-<a id="8-interpreting-the-output"></a>
-## 8. Interpreting the output
+<a id="interpreting-the-output"></a>
+## Interpreting the output
 
 * **Sign conventions differ per block and are printed where they matter.**
   The KcsA forensic table uses `dU = E(K⁺) − E(Na⁺)`, so `+ = Na⁺ favored`;

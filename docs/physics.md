@@ -11,7 +11,9 @@ blocks are not decoration — they say which claims may be cited.
 Slater screening (`Z_eff = Z − S`, Slater's own 1930 iron example reproduced),
 orbital energies from Slater `n*`, hydrogenic radial profiles `P(r) = r²|R_nl|²`
 with exact expectation values, Clementi–Raimondi SCF exponents for spatial
-ranges, and all 49 real spherical harmonics (orthonormal through l = 3).
+ranges, and all 16 real spherical harmonics — l = 0…3, i.e. 1 s + 3 p + 5 d +
+7 f — orthonormal to quadrature precision (worst |∫Y_iY_jdΩ − δ_ij| = 7.2 × 10⁻⁵
+over the full 16 × 16 matrix).
 Demo 1 includes a per-element computed-vs-NIST ledger instead of a blanket
 accuracy claim.
 

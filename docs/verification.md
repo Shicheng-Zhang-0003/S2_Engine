@@ -7,8 +7,8 @@ Two standards, both structural rather than aspirational: parameters
 are checked against primary sources, and claims are checked by
 independent oracles.
 
-<a id="6-provenance-and-verification"></a>
-## 6. Provenance and verification
+<a id="provenance-and-verification"></a>
+## Provenance and verification
 
 Two standards, both structural rather than aspirational: parameters are
 checked against primary sources, and claims are checked by independent
@@ -42,8 +42,8 @@ constants had duplicated spellings free to drift. Each correction is pinned
 by a regression check that fails on the old code. The row-by-row history
 lives in `release_note_v9R4.md` and the commit log, not here.
 
-<a id="61-third-audit-pass-2026-10-10-—-independent-oracle-sweep"></a>
-### 6.1 Third audit pass (2026-10-10) — independent oracle sweep
+<a id="the-third-audit-pass-2026-10-10-—-independent-oracle-sweep"></a>
+### The third audit pass (2026-10-10) — independent oracle sweep
 
 A full mathematical, programming and operational re-audit ran an
 **independent verification harness** built outside the tree (`/tmp`, linked
@@ -96,8 +96,8 @@ The four defects fixed in this pass are listed in `release_note_v9R4.md`
 under the third-audit section, and each is pinned by a regression check that
 fails on the pre-fix code.
 
-<a id="62-fourth-audit-pass-2026-10-21-—-full-mathematical-programming-and-operational-re-audit"></a>
-### 6.2 Fourth audit pass (2026-10-21) — full mathematical, programming and operational re-audit
+<a id="the-fourth-audit-pass-2026-10-21-—-full-mathematical-programming-and-operational-re-audit"></a>
+### The fourth audit pass (2026-10-21) — full mathematical, programming and operational re-audit
 
 The eighth gate, `tests/test_audit4.c` (80 checks), exists because of this
 pass: one check per defect, each built on an oracle *outside* the thing it
