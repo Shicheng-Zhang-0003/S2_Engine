@@ -20,8 +20,9 @@ anything here.
 | `math/` | independent mathematical oracles in Python (symbolic gradient checks, constants, pair and dihedral derivatives) |
 | `harness/` | C harnesses linked against the engine objects — the dipole solver, QEq conservation, minimizer guards, KcsA geometry |
 | `external/` | checks against sources outside the repository, plus the fetched reference files |
-| `probe_thirdpass.c` | the 2026-10-10 third-pass verification harness (78 independent checks: FD forces for every term, NVE conservation, thermostat ensembles, HH closed forms, QEq ordering, KcsA, SHA-256) |
+| `probe_thirdpass.c` | the third-pass verification harness (78 independent checks: FD forces for every term, NVE conservation, thermostat ensembles, HH closed forms, QEq ordering, KcsA, SHA-256) |
 | `math/a06_uff_amber.py` | UFF and AMBER table verification: all 36 UFF sigma/epsilon and 13 AMBER ff99 types against primary transcriptions (the Open Babel UFF parameter file, which cites Rappe et al. JACS 114 (1992) 10024, and parm99.dat). Replaces `thirdpass_uff_amber.py`, which was never executed by `make audit` and compared the engine against the LAMMPS lj/cut/uff table rather than Rappe Table I. |
+| `probe_thirdpass.c` | the 2026-10-21 fourth-pass verification harness: the same 78 independent checks, re-run against the fixed engine |
 | `external/uff_reference.prm` | machine-readable transcription of UFF Table II (Rappé 1992), vendored so the table check runs offline |
 | `orig/` | verbatim copies of the **pre-fix** `qm.c`, `integrator.c` and `constants.h`, used to prove a regression test actually goes red on the defect it claims to catch |
 | `history/` | one-off fix and verify scripts from the pre-v9R4 pass, kept for provenance |
@@ -89,6 +90,15 @@ directory at the right depth.
 ./audit/run_audit.sh            # every harness and oracle
 ./audit/run_audit.sh --revert   # also link the suite against the pre-fix engine
 ```
+
+**The audit builds the engine clean-first.** It used to build only when
+the object directory was empty; with the repository's tracked `build/*.o`
+present (the normal case) it linked whatever objects happened to be
+there, so the audit evidence could predate the source it claimed to
+audit. Reproduced: appending a comment to `src/forces.c` and running
+`make audit` used the STALE `build/forces.o` and reported the harness
+green. The build is now unconditional and clean-first, exactly like
+`verify_scripts.sh`.
 
 `--revert` is the interesting half. It compiles `orig/qm_orig.c` and
 `orig/integrator.c`, links `tests/test_regression.c` against *those* instead of

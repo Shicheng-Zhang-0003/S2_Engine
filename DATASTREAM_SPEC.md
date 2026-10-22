@@ -1,9 +1,32 @@
 # Carbon VM Structured Datastream — Schema v1
 
-**Status:** specification (implementation lands in s41; first consumer in s42).
-**Companion:** `MASTERPLAN.md` Part 5. This file is the single source of
-truth for the simulator's machine-readable output. The printf demo log
-remains for humans; this datastream exists for verification.
+**Status:** IMPLEMENTED and in production. The writer is
+`src/datastream.c`; the first consumer is Demo 12, which writes
+`kcsa.cvmds`. The seal is a self-contained FIPS 180-4 SHA-256 over the
+payload, verified by `ds_verify_file()` and independently by
+`verify_scripts.sh` (which re-computes it in Python).
+
+This file is the single source of truth for the simulator's
+machine-readable output. The printf demo log remains for humans; this
+datastream exists for verification.
+
+**Implementation notes added by the fourth audit (2026-10-21)** — the
+rules the format now ENFORCES, not merely states:
+
+* **The seal must terminate the file.** The `payload-sha256:` line is the
+  last content: exactly one optional trailing newline, then EOF. Content
+  after the seal is covered by no digest, so `ds_verify_file()` rejects it
+  (full-audit Q3).
+* **A non-finite number never enters the payload.** `ds_add_claim()` and
+  friends fail the writer closed on a NaN or an infinity, so a
+  non-finite claim can never be sealed into a file that verifies "clean".
+* **A short write is not a success.** `ds_close()` honours `fclose()`'s
+  return value and removes a partially written file.
+* **The writer buffers and truncates.** `ds_open()` buffers the whole
+  payload and `ds_close()` truncates it; there is no append path and no
+  reopen, so a file is either written complete and sealed, or not at all.
+* **The buffer cap is 1 GiB**, and it is the cap: growth stops at 2^30
+  bytes rather than the 2 GiB the old comment claimed.
 
 ---
 
@@ -70,6 +93,10 @@ Columns: `step  time_fs  KE_ev  PE_ev  E_ev  T_k`
 ### 3.4 `[claims]` — required for any demo asserting a scientific result
 One row per claim.
 Columns: `key  value  unit  provenance`
+
+The `value` field is a **finite** decimal number. The writer refuses a
+non-finite one and fails closed, so a claim in this file is always a
+number a consumer can compare against a reference.
 - `key`: dot-separated namespace, `<demo>.<subsystem>.<quantity>`,
   lower-case except documented element/energy shorthands (`e_k/e_na`
   for K+/Na+ ions, `de_*`, `s_*`, `bo_*`, `q_*`, `alpha_o`; legacy files
@@ -126,7 +153,13 @@ reference within a stated tolerance. Claims with provenance `computed` are
 checked only for internal consistency (e.g.
 `ddG_corrected == ddG_vacuum + dehyd.K - dehyd.Na`).
 
-## 6. KcsA worked example (first consumer, wired in s42)
+The repository's own validator is `verify_scripts.sh`, which checks the
+seal (twice: through `ds_verify_file()` and through an independent
+Python `hashlib` re-computation), the header's required fields, the
+absence of legacy upper-case keys, the **unit field** of the charge
+claim, and the provenance vocabulary.
+
+## 6. KcsA worked example (the first consumer, shipped in Demo 12)
 The Demo 12 antiprism + dehydration run must emit at least (current
 lower-case key form; legacy upper-case files accepted):
 

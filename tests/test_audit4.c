@@ -674,6 +674,48 @@ static void test_kcsa_site_gate_enforces(void) {
        "the statistics describe the collapse for the caller to report");
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+ * 15. The KcsA collapse itself, measured and pinned.
+ *
+ * The documentation quotes a table (the 8-fold site holds for ~50 fs and
+ * then the ion's Coulomb pull closes the shell). A quoted number that no
+ * gate reproduces is a number nobody can check, so the two endpoints of
+ * that table are pinned here: a SHORT run holds the site, a LONGER one
+ * loses it. If a future change makes the filter hold, this check goes
+ * red and the documentation has to be updated with it - which is the
+ * point.
+ * ═══════════════════════════════════════════════════════════════════════ */
+static void test_kcsa_collapse_measured(void) {
+    grp("KcsA: the flexible site holds briefly, then collapses (measured)");
+    Vec3 sites[4];
+    if (kcsa_ion_sites(4, sites) < 2) { ok("ion sites", 0, "none"); return; }
+    {
+        QmKcsaSeries ss;
+        /* 20 equilibration steps: the site is still intact. */
+        qm_kcsa_binding_series(19, sites[1], 300.0, 20, 30, 1u, 0.5,
+                                NULL, NULL, 0, &ss);
+        char d[160];
+        snprintf(d, sizeof d, "CN=%.3f after 20 equilibration steps", ss.cn_mean);
+        ok("the 8-fold site survives the first ~50 fs", ss.cn_mean > 7.9, d);
+        snprintf(d, sizeof d, "<O-O>=%.3f A (crystallographic 4.5-5.5)", ss.mean_oo_A);
+        ok("the O-O diagonals are still near the crystallographic value",
+           ss.mean_oo_A > 4.0 && ss.mean_oo_A < 5.5, d);
+    }
+    {
+        QmKcsaSeries ss;
+        /* 200 equilibration steps: the shell has closed. */
+        qm_kcsa_binding_series(19, sites[1], 300.0, 200, 30, 1u, 0.5,
+                                NULL, NULL, 0, &ss);
+        char d[160];
+        snprintf(d, sizeof d, "CN=%.3f after 200 equilibration steps", ss.cn_mean);
+        ok("by 200 fs the shell has closed and the site is lost",
+           ss.cn_mean < 7.0, d);
+        snprintf(d, sizeof d, "<O-O>=%.3f A (crystallographic 4.5-5.5)", ss.mean_oo_A);
+        ok("the O-O diagonals have closed well inside the crystallographic value",
+           ss.mean_oo_A < 4.3, d);
+    }
+}
+
 int main(void) {
     test_pcg64_reference();
     test_eht_mirror_symmetry();
@@ -689,6 +731,7 @@ int main(void) {
     test_kcsa_hydroxyl_angle();
     test_kcsa_end_to_end();
     test_kcsa_site_gate_enforces();
+    test_kcsa_collapse_measured();
     printf("\n══════════════════════════════════════════════════════════════\n");
     printf("  TOTAL %d passed, %d failed\n", g_pass, g_fail);
     printf("══════════════════════════════════════════════════════════════\n");

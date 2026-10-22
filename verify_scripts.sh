@@ -168,7 +168,7 @@ if ! make selftest-audit4 >"$AUDIT_TMP/audit4_build.log" 2>&1; then echo "  FAIL
 A4_PASS=$(grep -c '^  PASS' "$VERIFY_A4_LOG" 2>/dev/null || true)
 A4_FAIL=$(grep -c '^  FAIL' "$VERIFY_A4_LOG" 2>/dev/null || true)
 chk "selftest-audit4 green" "0" "$A4"
-chk "audit4 gate count == 76" "76" "$A4_PASS"
+chk "audit4 gate count == 80" "80" "$A4_PASS"
 printf '  ---- fourth audit: %s checks passed, %s failed ----\n' "$A4_PASS" "$A4_FAIL"
 [ "$A4_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_A4_LOG" | head -20
 if [ -f kcsa.cvmds ]; then

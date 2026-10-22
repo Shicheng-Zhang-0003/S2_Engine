@@ -328,6 +328,10 @@ and repaired what it found. Truth changes, all pinned by tests:
 * **PCG64 claim narrowed.** The stream is O'Neill-inspired, not reference
   pcg64 (64-bit increment, non-reference output permutation). Renamed
   S2-PCG64-like in code and docs; LCG stays the record default.
+  *(Superseded by the fourth audit: the generator is now the REFERENCE
+  pcg64 — XSL-RR 128/64, the canonical 128-bit multiplier and increment —
+  and it is pinned against the upstream `pcg-c` expected-output file. See
+  section 11.4.)*
 * **QEq/Thole relabelled.** QEq-lite (topological hard core, not Rappe
   shielding) and absolute-width Thole damping are now named as what they are.
 * **Force-layer trust boundaries.** Bond/angle/dihedral/pair entry points now
@@ -1211,6 +1215,6 @@ vectors, the textbook overlap closed forms, the mirror symmetry of a bent
 H–C–H, a brute-force 3D grid integration of the actual valence charge
 densities, the L'Hôpital limits of the Hodgkin–Huxley rate functions, and
 the geometric symmetry of a hydroxyl. `test_external` grew from 150 to
-153. The tree now pins **570 checks across eight suites**, all green, and
+153. The tree now pins **574 checks across eight suites**, all green, and
 the CI chain runs them plus the audit, the ASan/UBSan record
 reproducibility harness, the OpenMP build, and the record-staleness check.
