@@ -22,7 +22,10 @@ on:
 jobs:
   record:
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    # The ASan/UBSan record-reproducibility leg takes about 3 hours on
+    # this machine (the record run is ~11 min; the sanitized build is
+    # ~12x slower), so the budget has to allow for it.
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
         with:
