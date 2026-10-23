@@ -1,6 +1,6 @@
 # S2 Engine — Nano Chemistry & Biological Simulator
 
-**v9R4** (internal) · **V0.9RC4** (external) · C11 · record path: no dependencies beyond libm
+**v9R5** (internal) · **V0.9RC5** (external) · C11 · record path: no dependencies beyond libm
 Repository: https://github.com/Shicheng-Zhang-0003/S2_Engine
 
 S2 is a self-contained computational chemistry and biology engine. It places
@@ -232,6 +232,18 @@ gate is built on an oracle *outside* the thing it checks.
 prints a `FAIL` line — both are checked for every suite, not just some of
 them. The full provenance tables, the two audit passes, and the external
 oracles are in [`docs/verification.md`](docs/verification.md).
+
+**This release is V0.9RC5.** It follows V0.9RC4 (the deep audit that
+produced the datastream, the KcsA ionic layer, the exact STO overlaps,
+the Roothaan-Hartree-Fock layer, and the multicore build) and V0.9RC3
+(the first audit pass). V0.9RC5's headline is the fourth audit: a full
+mathematical, programming and operational re-audit that found and fixed
+30 physics defects, 23 programming defects and 38 operational defects,
+added 183 new checks (80 in the new eighth gate), split the 1061-line
+readme into a documentation set, and corrected the record itself (which
+had silently drifted away from HEAD for several months). The complete
+correction history, with the measurement behind each one, is in
+[`release_note_v9R4.md`](release_note_v9R4.md) under section 11.
 
 The record also reproduces **byte-for-byte under AddressSanitizer and
 UndefinedBehaviorSanitizer** with an empty stderr, which is what

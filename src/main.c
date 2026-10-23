@@ -3803,14 +3803,14 @@ static void demo_kcsa_filter(void) {
                                      dirty ? "-dirty" : "");
                             ds_set_header(w, "source-hash", tok);
                         } else {
-                            ds_set_header(w, "source-hash", "record-tree-v9R4-unversioned");
+                            ds_set_header(w, "source-hash", "record-tree-v9R5-unversioned");
                         }
                     } else {
-                        ds_set_header(w, "source-hash", "record-tree-v9R4-unversioned");
+                        ds_set_header(w, "source-hash", "record-tree-v9R5-unversioned");
                     }
                     pclose(gp);
                 } else {
-                    ds_set_header(w, "source-hash", "record-tree-v9R4-unversioned");
+                    ds_set_header(w, "source-hash", "record-tree-v9R5-unversioned");
                 }
             }
             ds_set_header(w, "build-flags-note", "record build must not carry -march=native");

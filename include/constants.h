@@ -137,14 +137,20 @@
 #define COULOMB_MD          (COULOMB_K * ELEM_CHARGE / 1.0e-10)  /* eV·Å / e² (audit fix C2: derived in-line) */
 
 /* ── Release identity ───────────────────────────────────────────────────────
- * Internal name (v9R4) and the external release tag (V0.9RC4) are kept
+ * Internal name (v9R5) and the external release tag (V0.9RC5) are kept
+ * in lockstep. Bumped from v9R4/V0.9RC4 because the fourth audit changed
+ * the record (demo 12c's Born/induction numbers, the hydroxyl angle, the
+ * honest reporting of the quantum-MD and entropic legs) and the engine
+ * (the shared exact-overlap kernel, the RHF nuclear repulsion, the
+ * reference PCG64, the isolated OpenMP build, the enforcing
+ * site-integrity gate).
  * side by side so they cannot drift apart - which is exactly the failure
  * mode this file's own derive-in-line discipline exists to prevent. The
  * datastream header previously carried a hand-typed source string that
  * had been wrong for several releases.
  */
-#define S2_VERSION_INTERNAL "v9R4"
-#define S2_VERSION_EXTERNAL "V0.9RC4"
+#define S2_VERSION_INTERNAL "v9R5"
+#define S2_VERSION_EXTERNAL "V0.9RC5"
 
 /* ── Simulation limits ───────────────────────────────────────────────────── */
 #define MAX_ELECTRONS       128

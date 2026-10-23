@@ -1,6 +1,6 @@
 # Physics — what the engine models
 
-*S2 Engine v9R4 · C11 · units: Å, fs, eV, AMU, elementary charge*
+*S2 Engine v9R5 · C11 · units: Å, fs, eV, AMU, elementary charge*
 
 The engine's physics layers, one by one: what each one is, what
 it is good for, and where it stops being trustworthy. The honesty

@@ -1,6 +1,6 @@
 # The interactive terminal — `s2tui`
 
-*S2 Engine v9R4 · a POSIX shell over one live simulation.*
+*S2 Engine v9R5 · a POSIX shell over one live simulation.*
 
 <a id="interactive-terminal-—-s2tui"></a>
 ### Interactive terminal — `s2tui`

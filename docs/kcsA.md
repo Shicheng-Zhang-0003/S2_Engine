@@ -1,6 +1,6 @@
 # KcsA — the potassium channel program
 
-*S2 Engine v9R4 · the selectivity filter, the ionic layer, and the
+*S2 Engine v9R5 · the selectivity filter, the ionic layer, and the
 entropic term, and exactly how far each of them is trustworthy.*
 
 The filter is the deposited 1K4C chain-C structure, not a cage.

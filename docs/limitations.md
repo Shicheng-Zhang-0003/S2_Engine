@@ -1,6 +1,6 @@
 # Known limitations
 
-*S2 Engine v9R4 · stated plainly, because the numbers above cannot
+*S2 Engine v9R5 · stated plainly, because the numbers above cannot
 be read correctly without them.*
 
 <a id="known-limitations"></a>

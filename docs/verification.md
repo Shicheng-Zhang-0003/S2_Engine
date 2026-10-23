@@ -1,6 +1,6 @@
 # Provenance and verification
 
-*S2 Engine v9R4 · where every number comes from, and how each claim
+*S2 Engine v9R5 · where every number comes from, and how each claim
 is checked against something outside this repository.*
 
 Two standards, both structural rather than aspirational: parameters

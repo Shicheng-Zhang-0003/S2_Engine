@@ -1,6 +1,6 @@
 # Operations — the record, the artifacts, and the pipeline
 
-*S2 Engine v9R4 · how the record is produced, verified, and
+*S2 Engine v9R5 · how the record is produced, verified, and
 promoted, and how to read it.*
 
 <a id="the-record-and-its-artifacts"></a>

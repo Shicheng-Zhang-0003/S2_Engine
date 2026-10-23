@@ -1,6 +1,6 @@
 # The demos — what each one claims
 
-*S2 Engine v9R4 · the 20-demo record sequence.*
+*S2 Engine v9R5 · the 20-demo record sequence.*
 
 Run `./carbonsim` for the record, or `test demo <n>` inside `s2tui`
 for the fast live smoke check. Every headline below is printed by
