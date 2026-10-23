@@ -176,6 +176,14 @@ int sim_rebuild_angles_geometric(Simulation *sim, double k_default);
  * peptide being crushed by its own bond terms; the ion had barely been
  * involved.
  *
+ * (FULL-AUDIT, for the record: the same collapse still happens in the
+ * FLEXIBLE-filter leg once the torsions and the geometric angle list are
+ * in place - the site holds for ~50 fs and then closes. The difference
+ * is that the flexible leg now (a) does not inject artificial strain
+ * from a generic tetrahedral angle table, and (b) REFUSES to report a
+ * binding-energy variance for a site that was not maintained. See
+ * include/qm_fluctuation.h and docs/kcsA.md.)
+ *
  * Calling this makes the bonded terms zero-strain at the reference
  * geometry, after which they do what they are wanted to do: resist
  * deformation away from the deposited structure, so a flexible-filter

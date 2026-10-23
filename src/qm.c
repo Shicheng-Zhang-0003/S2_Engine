@@ -685,7 +685,8 @@ double qm_overlap(const Atom *a, const Atom *b, double R_ang, Vec3 dir_a_to_b) {
  * (resonance) integral. These are the building blocks of any Fock matrix.
  * ════════════════════════════════════════════════════════════════════════════ */
 
-/* Mataga-Nishimoto two-center Coulomb integral:
+/* Screened two-center Coulomb integral (the Hubbard-screened kernel; the
+ * "Mataga-Nishimoto" label this carried was wrong - see the note below):
  *
  *   γ_ab(R) = C / sqrt(R² + (C/η)²)   eV,   C = COULOMB_MD = 14.3996 eV·Å
  *

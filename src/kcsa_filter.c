@@ -503,11 +503,27 @@ int kcsa_site_binding(Simulation *sim, int filter_first, int n_subunits,
      * physical target. With K+ inside (S0/S2/S4 triple, high-K 1K4C),
      * zero-strain bonds (r0 = deposited), geometric angles, completed
      * side-chain H (kcsa_add_hydrogens, 26/subunit), C-alpha tethers and
-     * Langevin NVT, the filter HOLDS: CN 8->8, <r> 2.78->2.61 A over 1 ps
-     * at 50 K. Empty under the same protocol goes CN 8->1. That split —
-     * ions stabilize — is the KcsA result the rigid record cannot show,
-     * and the reason the record stays rigid: the flexible number needs
-     * the full occupancy + solvent + membrane context to be a free energy.
+     * Langevin NVT, the filter WAS BELIEVED to hold: CN 8->8, <r> 2.78->2.61
+     * A over 1 ps at 50 K, with the empty filter going CN 8->1.
+     *
+     * FULL-AUDIT: that claim does not survive measurement with the
+     * protocol as it stands. The site holds for the first ~50 fs and then
+     * the ion's Coulomb pull closes the shell: measured CN 8.000 (O-O
+     * 4.19 A) after 20 equilibration steps, CN 6.233 after 100, CN 4.000
+     * (O-O 3.28 A) after 200 - and still CN 4.0-5.0 with O-O 3.45-3.79 A
+     * after 1-2 ps, at 50 K as well as 300 K, and with the C-alpha tether
+     * at 0.5 as well as 8 eV/A^2. The two endpoints of that sequence
+     * are pinned by tests/test_audit4.c, and qm_kcsa_binding_series() now
+     * REFUSES to return a variance for a site that was not maintained,
+     * so a collapsed cage cannot be quoted as a measurement.
+     *
+     * So the reason this function has no flexible-filter mode is not
+     * "the flexible number needs the full occupancy + solvent + membrane
+     * context to be a free energy" - it is that this reduced protein
+     * model does not hold the site at all, and the record stays rigid
+     * because a rigid cage is the only thing here that can be measured
+     * honestly. Closing that needs a real protein force field, not a
+     * smaller timestep.
      * See kcsa_add_hydrogens / kcsa_add_calpha_tethers (opt-in, record-off).
      *
      * RADIAL RELAXATION AT FIXED DEPTH.

@@ -1273,7 +1273,7 @@ MD STABILITY (8000-step ensemble): G-C BREATHING (range 2.91-4.10), A-T HELD (ra
 ║  DEMO 18: EHT semiempirical SCF — bonds that can break║
 ╚══════════════════════════════════════════════════════╝
   EHT: Hoffmann 1963 minimal-basis SCF (H 1s; C/N/O 2s+2p),
-  exact prolate/STO overlaps, SCC via Ohno Hubbard gammas.
+  exact prolate/STO overlaps, SCC via Hubbard-screened Coulomb.
   Single-zeta, non-variational, WH K=1.75 (see qm_eht.h E1-E8).
   --- H2 EHT curve (band energy; qualitative) ---
   R(A)     E_band(eV)  gap(eV)   MayerBO  switch

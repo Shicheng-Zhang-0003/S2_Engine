@@ -3,7 +3,10 @@
  * Scope (read before citing): single-zeta STO minimal valence basis
  * (H 1s; C/N/O 2s+2p), Hoffmann 1963 VSIPs, Wolfsberg-Helmholtz K=1.75,
  * no d orbitals, H/C/N/O only (Z 1,6,7,8), Löwdin-orthogonalized SCF
- * with Ohno-interpolated Hubbard gammas (U from in-tree Mulliken J),
+ * with Hubbard-screened Coulomb gammas (U from in-tree Mulliken J; the
+ * screening kernel is a Gaussian-screened Coulomb, NOT the
+ * Mataga-Nishimoto/DFTB interpolation, and it agrees with a 3D grid
+ * integration of the true two-centre integral to 1.0 %),
  * at most EHT_MAX_AOS basis functions and EHT_MAX_ATOMS atoms — larger
  * systems refuse loudly (rc), never silently.
  *
@@ -11,7 +14,13 @@
  *  E1 single-zeta STOs (no split-valence, no polarization functions).
  *  E2 minimal valence basis (no core relaxation, no virtuals beyond it).
  *  E3 Wolfsberg-Helmholtz K=1.75 (empirical, not derived).
- *  E4 Ohno gamma with in-tree U (SCC coupling is modeled, not ab initio).
+ *  E4 Hubbard-screened Coulomb gamma with in-tree U (SCC coupling is
+ *     modeled, not ab initio). FULL-AUDIT: this was labelled "Ohno
+ *     gamma", which it is not - the Mataga-Nishimoto and DFTB
+ *     interpolations are RATIONAL forms and this one is not; and the
+ *     "reproduces MN within 1 %" claim was false (-35 % at 0.5 A).
+ *     The kernel was kept because it is the one that matches the
+ *     measured two-centre integral; the label was corrected.
  *  E5 band energy + bare nuclear repulsion: EHT is NON-VARIATIONAL.
  *    Curves are qualitative (dissociation limits correct, minima/depths
  *    approximate). Never quote as predictions; Demo 18 prints both the

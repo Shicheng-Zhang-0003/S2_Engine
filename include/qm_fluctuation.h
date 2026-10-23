@@ -211,7 +211,24 @@ int qm_kcsa_binding_series(int ion_Z, Vec3 site, double temp_K,
  * minimisation (CN 8 at the deposited 2.777 A mean ion-O distance) and
  * loses it within a few hundred steps of Langevin dynamics at every
  * temperature from 50 K to 300 K and every C-alpha restraint stiffness
- * from 0.5 to 16 eV/A^2. The reason is structural rather than numerical:
+ * from 0.5 to 16 eV/A^2.
+ *
+ * FULL-AUDIT: the paragraph below blamed the failure on the ABSENCE of
+ * side-chain torsion terms. The torsions exist (kcsa_add_dihedrals) and
+ * they are built here, so that reason was stale - and the conclusion was
+ * still right, which is the dangerous kind of wrong. Measured with the
+ * torsions in place: the site holds for the first ~50 fs (CN 8.000,
+ * O-O 4.17-4.28 A) and then the ion's Coulomb pull closes the shell -
+ * CN 6.2 at 100 fs, CN 4.0 with O-O at 3.28 A at 200 fs - at every
+ * temperature, equilibration length and tether stiffness tested, with a
+ * filter strain of 6-9 eV. Stiffening the angle term makes it WORSE
+ * (CN 3.2 at 1.0 eV/rad^2, 2.7 at 2.2), so this is the limit of the
+ * reduced protein model rather than a missing-stiffness parameter. The
+ * two endpoints of that table are pinned by tests/test_audit4.c, and the
+ * site-integrity gate below REFUSES to return a variance for a site that
+ * was not maintained.
+ *
+ * The reason the torsions were added in the first place:
  * this engine's reduced protein model has no side-chain torsion terms, and
  * four of the eight filter oxygens belong to Thr75's side chain. Without
  * torsions, the hydroxyl rotates out of the shell and the coordination

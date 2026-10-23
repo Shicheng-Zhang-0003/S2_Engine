@@ -295,9 +295,18 @@ int kcsa_add_calpha_tethers(Simulation *sim, int filter_first,
  * (HC +0.06, HA +0.15, HO +0.42) and re-neutralizes each residue by
  * uniform carbon shift (exact neutrality preserved). Opt-in: record
  * path stays 41 atoms; flexible path calls this. Returns H count
- * (104 for tetramer) or -1. With ions + zero-strain bonds/geometric
- * angles + tethers + Langevin, the filter HOLDS (CN 8->8); empty it
- * collapses (CN 8->1) — the 1K4D inactivated split, not an artefact.
+ * (104 for tetramer) or -1.
+ *
+ * FULL-AUDIT: this header used to claim that with ions + zero-strain
+ * bonds + geometric angles + tethers + Langevin "the filter HOLDS (CN
+ * 8->8)". It does not. The site holds for the first ~50 fs and then the
+ * ion's Coulomb pull closes the shell (CN 8.000 -> 6.233 at 100 fs ->
+ * 4.000 at 200 fs, O-O 4.19 A -> 3.28 A), at 50 K and 300 K, with the
+ * C-alpha tether at 0.5 and at 8 eV/A^2, over 1-2 ps. The endpoints are
+ * pinned by tests/test_audit4.c and
+ * qm_kcsa_binding_series() REFUSES to return a variance for a site that
+ * was not maintained. A completed filter is a NECESSARY precondition for
+ * the flexible leg, not a sufficient one.
  *
  * CAPACITY REQUIRED (the trap that cost an afternoon, now stated here
  * because nothing said it): one hydrogen AND one bond per appended

@@ -4499,7 +4499,7 @@ static void demo_kcsa_ionic(void) {
 static void demo_eht(void) {
     banner("DEMO 18: EHT semiempirical SCF — bonds that can break");
     printf("  EHT: Hoffmann 1963 minimal-basis SCF (H 1s; C/N/O 2s+2p),\n"
-           "  exact prolate/STO overlaps, SCC via Ohno Hubbard gammas.\n"
+           "  exact prolate/STO overlaps, SCC via Hubbard-screened Coulomb.\n"
            "  Single-zeta, non-variational, WH K=1.75 (see qm_eht.h E1-E8).\n");
     static const double Rs[] = { 0.5, 0.74, 1.0, 1.5, 2.0, 3.0, 4.0 };
     /* E5 energy reporting: E_band ONLY (bare 1/R sums are unclaimed). */

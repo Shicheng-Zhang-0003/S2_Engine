@@ -289,12 +289,19 @@ void integrator_berendsen(Simulation *sim) {
  *    behaviour in the low-order bits and visible lattice structure, so
  *    it is a mediocre source for molecular dynamics.
  *
- *  - S2-PCG64-like (O'Neill-inspired, NOT reference pcg64). A permuted
- *    congruential generator with a 2^64 period, proper output
- *    permutation, and a 128-bit LCG state. Statistically far stronger
- *    than the LCG for the same cost. Select it with
- *    sim->rng_kind = INTEGRATOR_RNG_PCG64 (default remains
- *    INTEGRATOR_RNG_LCG for record compatibility).
+ *  - PCG64, the REFERENCE pcg64 of pcg-random.org (O'Neill 2014) with
+ *    the XSL-RR 128/64 output function: a permuted congruential
+ *    generator with a 2^64 period, a 128-bit LCG state and the
+ *    canonical multiplier and increment. Statistically far stronger than
+ *    the LCG for the same cost. FULL-AUDIT: this used to be an
+ *    "S2-PCG64-like" invention (the reference multiplier with a 64-bit
+ *    increment, a made-up output permutation and non-reference
+ *    seeding), so no published vector could check it and the readme
+ *    contradicted itself. It now reproduces the upstream pcg-c
+ *    expected-output file byte for byte (seeds initstate = 42,
+ *    initseq = 54); the six values are pinned in tests/test_audit4.c.
+ *    Select it with sim->rng_kind = INTEGRATOR_RNG_PCG64 (default
+ *    remains INTEGRATOR_RNG_LCG for record compatibility).
  *
  * Both paths are fully tested by the regression suite: statistical
  * uniformity, chi-square on bin counts, and the hard requirement that

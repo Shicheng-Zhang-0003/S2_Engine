@@ -208,7 +208,12 @@ double qm_bj_f6(double r, double r0ab, double a1, double a2);
 
 /* ── Two-electron integrals under ZDO (Zero Differential Overlap) ────────
  *
- * Mataga-Nishimoto Coulomb γ_ab(R) and Wolfsberg-Helmholtz exchange β_ab.
+ * Hubbard-screened Coulomb γ_ab(R) and Wolfsberg-Helmholtz exchange β_ab.
+ * FULL-AUDIT: the Coulomb kernel was labelled "Mataga-Nishimoto" and
+ * is not - see the note at qm_eri_coulomb. It agrees with a 3D grid
+ * integration of the true two-centre integral to 1.0 %; the
+ * Mataga-Nishimoto and DFTB interpolations would be 19 % and 26 %
+ * further away.
  * γ_ab → η (Hubbard U) at R→0, → COULOMB_MD/R at R→∞. β_ab = -K_WH·S·(H_aa+H_bb)/2.
  * qm_eri_zzdo() builds the two-electron Fock contribution J − 0.5·K from a
  * diagonal density matrix. These are the building blocks of any SCF solver.
