@@ -209,9 +209,9 @@ int qm_kcsa_binding_series(int ion_Z, Vec3 site, double temp_K,
  * qm_kcsa_binding_series is the direct measurement, and on this engine it
  * does not converge: the filter holds its 8-fold site through
  * minimisation (CN 8 at the deposited 2.777 A mean ion-O distance) and
- * loses it within a few hundred steps of Langevin dynamics at every
- * temperature from 50 K to 300 K and every C-alpha restraint stiffness
- * from 0.5 to 16 eV/A^2.
+ * then loses it within ~50 fs of Langevin dynamics at every temperature
+ * from 50 K to 300 K and every C-alpha restraint stiffness from 0.5 to
+ * 16 eV/A^2 (measured, not asserted - see the table below).
  *
  * FULL-AUDIT: the paragraph below blamed the failure on the ABSENCE of
  * side-chain torsion terms. The torsions exist (kcsa_add_dihedrals) and

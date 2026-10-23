@@ -635,10 +635,26 @@ argument turns on and that a rigid cage cannot produce.
 (2.777 Å) and loses it within a few hundred steps of Langevin dynamics at
 every temperature from 50 K to 300 K and every Cα restraint stiffness from
 0.5 to 16 eV/Å²: CN falls to 3–5 and the O–O diagonals close from the
-crystallographic ~4.5–5.5 Å to ~3.5 Å. The cause is structural, not
-numerical — **the engine has no side-chain torsion terms, and four of the
-eight filter oxygens belong to Thr75's side chain.** Without torsions the
-hydroxyl leaves the shell. No thermostat and no restraint recovers it.
+crystallographic ~4.5–5.5 Å to ~3.5 Å. The cause is structural, not numerical — *or at least it was, before
+the torsions were added.* The release note is a historical document: at
+the time it was written (before the fourth audit) the engine genuinely
+had no side-chain torsion terms, and the Thr75 hydroxyl left the shell
+and the O–O diagonals closed from ~4.5–5.5 Å to ~3.5 Å. That diagnosis
+was correct for the code as it then was.
+
+**Update (fourth audit, 2026-10-21):** the torsions were added
+(`kcsa_add_dihedrals`: backbone phi/psi/omega and side-chain chi1), and
+the ion is held on the pore axis. The site still collapses — measured:
+it holds for the first ~50 fs (CN 8.000, O–O 4.17–4.28 Å) and then the
+ion's Coulomb pull closes the shell (CN 6.2 at 100 fs, CN 4.0 with O–O at
+3.28 Å at 200 fs), at every temperature (50–300 K), equilibration length
+(100–2000 steps) and tether stiffness (0.5–8 eV/Å²) tested. Stiffening
+the angle term makes it *worse* (CN 3.2 at 1.0 eV/rad², 2.7 at 2.2).
+The reason is therefore **not** a missing term but the limit of the reduced
+protein model: holding a real 8-coordinate selectivity filter needs a real
+protein force field and explicit solvent. The site-integrity gate now
+refuses to return a variance for a collapsed site, so the entropic leg is
+reported UNRESOLVED and cannot be quoted by accident.
 
 The leg is therefore reported **UNRESOLVED**, with the evidence attached and a
 `site_maintained` gate that fails closed rather than printing a number from a

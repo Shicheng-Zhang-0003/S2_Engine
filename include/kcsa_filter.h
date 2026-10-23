@@ -298,7 +298,7 @@ int kcsa_add_calpha_tethers(Simulation *sim, int filter_first,
  * (104 for tetramer) or -1.
  *
  * FULL-AUDIT: this header used to claim that with ions + zero-strain
- * bonds + geometric angles + tethers + Langevin "the filter HOLDS (CN
+ * bonds + geometric angles + tethers + Langevin "the filter was claimed to HOLD (CN
  * 8->8)". It does not. The site holds for the first ~50 fs and then the
  * ion's Coulomb pull closes the shell (CN 8.000 -> 6.233 at 100 fs ->
  * 4.000 at 200 fs, O-O 4.19 A -> 3.28 A), at 50 K and 300 K, with the
