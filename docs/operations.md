@@ -38,10 +38,10 @@ as DATA.
 | Step | Command | What it guarantees |
 |---|---|---|
 | build | `make clean && make` | a warning-free build from the tracked sources |
-| stage | `./run` | writes `runs/<stamp>.{txt,stderr.txt,cvmds}`; prints the recorded and the new digest side by side; **never** touches `output.txt` |
-| promote | `./run --accept` | refuses unless stderr is empty, `make test` is green, and the staged `kcsa.cvmds` seal verifies; then writes each artefact to a temporary name and renames it into place, the ledger last |
-| verify | `./verify_scripts.sh` | the baseline digest, the seal (twice — through the engine and through an independent Python re-computation), a clean build, all eight gates with their pinned counts, the verdict-slot structure, and the TUI contract |
-| reproduce | `./s01_verify_record.sh` | the record reproduces **byte-for-byte** under AddressSanitizer and UndefinedBehaviorSanitizer with an empty stderr, in both builds |
+| stage | `./run` | builds clean, runs the engine in a private `runs/.stage-<stamp>/` directory (so a plain run cannot overwrite the tracked sidecar), then writes `runs/<stamp>.{txt,stderr.txt,cvmds}`; prints the recorded and the new digest side by side; **never** touches `output.txt` or `kcsa.cvmds` |
+| promote | `./run --accept` | refuses unless `src include tests makefile` are clean, stderr is empty, a staged `kcsa.cvmds` exists and its seal verifies, and `make test` is green; then writes each artefact to a temporary name and renames it into place, the ledger last. If only the sidecar header changed (stdout identical), it refreshes just the sidecar |
+| verify | `./verify_scripts.sh` | the baseline digest, version tags against `include/constants.h`, the sidecar's recorded source commit (exists, ancestor of HEAD, source files equal), the seal (twice — through the engine and through an independent Python re-computation), a clean build, all eight gates with their pinned counts, the verdict-slot structure, and the TUI contract |
+| reproduce | `./s01_verify_record.sh` | the record reproduces **byte-for-byte** under AddressSanitizer and UndefinedBehaviorSanitizer with an empty stderr, in both builds; the normal, sanitizer and tracked sidecars must carry identical `[claims]` sections and valid seals |
 | audit | `make audit` | the independent oracles and C harnesses, against a clean-first build |
 | CI | `.github/workflows/ci.yml` | all of the above, ending in `git diff --exit-code` on the three record artefacts |
 

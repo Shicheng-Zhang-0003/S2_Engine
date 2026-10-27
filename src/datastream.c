@@ -332,20 +332,45 @@ int ds_close(DSWriter *w) {
     }
     if (w->failed) rc = -1;
     else {
-        f = fopen(w->path, "wb");
-        if (!f || fwrite(w->buf, 1, w->len, f) != w->len) {
-            rc = -1;
-            if (f) { fclose(f); remove(w->path); }
-        } else if (fclose(f) != 0) {
-            /* FULL-AUDIT: a short write that only materialises at
-             * fclose() (ENOSPC on a buffered stream) was swallowed:
-             * ds_close returned 0 for a truncated file. The seal was
-             * computed over the full buffer, so the truncated file
-             * would fail ds_verify_file() - but the WRITER reported
-             * success. Now the close error is honoured and the partial
-             * file is removed. */
-            rc = -1;
-            remove(w->path);
+        /* FULL-AUDIT: write to a temporary file in the target directory
+         * and rename it into place only after the complete sealed payload
+         * has been written and closed. A crash or a short write can then
+         * leave only the temporary file, never a truncated target. A
+         * failed close also leaves any pre-existing target untouched,
+         * which is the correct semantics for a record sidecar: the old
+         * file belongs to an older run and must not be mistaken for the
+         * new payload. Callers must treat rc != 0 as "no new file"; they
+         * must not re-verify the target and call the old seal current. */
+        size_t plen = strlen(w->path);
+        char *tmp = malloc(plen + 32);
+        if (!tmp) rc = -1;
+        else {
+            if (snprintf(tmp, plen + 32, "%s.tmp.%ld", w->path, (long)getpid()) < 0
+                || strlen(tmp) >= plen + 32) {
+                rc = -1;
+                free(tmp);
+            } else {
+                f = fopen(tmp, "wb");
+                if (!f || fwrite(w->buf, 1, w->len, f) != w->len) {
+                    rc = -1;
+                    if (f) fclose(f);
+                    remove(tmp);
+                } else if (fclose(f) != 0) {
+                    /* FULL-AUDIT: a short write that only materialises at
+                     * fclose() (ENOSPC on a buffered stream) was swallowed:
+                     * ds_close returned 0 for a truncated file. The seal was
+                     * computed over the full buffer, so the truncated file
+                     * would fail ds_verify_file() - but the WRITER reported
+                     * success. Now the close error is honoured and only the
+                     * temporary file is removed. */
+                    rc = -1;
+                    remove(tmp);
+                } else if (rename(tmp, w->path) != 0) {
+                    rc = -1;
+                    remove(tmp);
+                }
+                free(tmp);
+            }
         }
     }
     free(w->buf);

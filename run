@@ -14,7 +14,7 @@
 # which reads as an engine defect and is really just the overwrite.
 #
 # The record is now regenerated deliberately and never in place:
-#   1. output goes to a timestamped file under the caller, never to output.txt;
+#   1. output goes to a timestamped file under runs/, never to output.txt;
 #   2. the previous digest is reported before and after, side by side;
 #   3. promoting the new run to output.txt + CURRENT_BASELINE_SHA.txt is an
 #      explicit second step, so the diff a reviewer sees is the record change
@@ -47,10 +47,47 @@ esac
 
 command -v sha256sum >/dev/null || { echo "run: sha256sum not found" >&2; exit 2; }
 
+# A promoted record must name a clean source state. The sidecar's
+# source-hash is a commit plus a -dirty flag, so a record built from an
+# uncommitted source tree cannot be reproduced from any commit. Staging a
+# candidate from a dirty tree is allowed (for development); promotion is
+# not. The pathspec deliberately excludes build/*.o and carbonsim: those
+# are tracked, but a normal rebuild changes their debug paths, and they
+# are not source inputs.
+if [ "$ACCEPT" -eq 1 ] && command -v git >/dev/null 2>&1; then
+  SRC_DIRTY="$(git -c core.fsmonitor=false -c core.hooksPath=/dev/null \
+    status --porcelain -- :/src :/include :/tests :/makefile 2>/dev/null || true)"
+  if [ -n "$SRC_DIRTY" ]; then
+    echo "run: REFUSING promotion: the source tree is dirty:" >&2
+    printf '%s\n' "$SRC_DIRTY" >&2
+    echo "      commit the source changes first; a record must name a clean" >&2
+    echo "      source state, not a -dirty working tree." >&2
+    exit 1
+  fi
+fi
+
+# The ledger and the record are compared side by side and WITH EACH OTHER.
+# This check runs BEFORE the expensive build/run: a tree whose output.txt and
+# CURRENT_BASELINE_SHA.txt disagree is exactly the state a stale record
+# produces, and spending six to eleven minutes to discover it is pointless.
+LEDGER_SHA="$(cat "$LEDGER" 2>/dev/null | tr -d ' \n' || echo '(absent)')"
+OLD="$(sha "$RECORD")"
+if [ "$LEDGER_SHA" != "(absent)" ] && [ "$LEDGER_SHA" != "$OLD" ]; then
+  echo "run: REFUSING to run: $LEDGER does not match $RECORD" >&2
+  echo "      ledger : $LEDGER_SHA" >&2
+  echo "      record : $OLD" >&2
+  echo "      the record and its ledger are out of step; promote one of" >&2
+  echo "      them deliberately before recording anything new." >&2
+  exit 1
+fi
+
 printf 'run: building\n' >&2
 # Full-audit P20: clean-first + warning gate. An incremental `make` is a no-op
 # against tracked objects and cannot fail (B1 class). Fail closed on warnings.
-make clean >/dev/null 2>&1
+if ! make clean >/dev/null 2>&1; then
+  echo "run: make clean failed; refusing to run against unremoved objects" >&2
+  exit 1
+fi
 # FULL-AUDIT O23: hermetic log path (missing dir previously failed closed-open).
 # FULL-AUDIT Q4: the default was /tmp/opencode, which is a scratch directory
 # belonging to one tool rather than a general temporary location: on any
@@ -65,6 +102,14 @@ if grep -q 'warning:' "$AUDIT_TMP/run_build.log"; then echo "run: build produced
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$RUNS_DIR"
+# Run the engine in a private staging directory. The engine writes
+# kcsa.cvmds relative to its cwd, so running it in the tree root used to
+# overwrite the tracked sidecar even on a plain, unpromoted ./run. The
+# staging directory also makes the staged pair (stdout + sidecar) come
+# from the same run by construction.
+STAGE="$RUNS_DIR/.stage-$STAMP"
+rm -rf "$STAGE"
+mkdir -p "$STAGE"
 OUT="$RUNS_DIR/$STAMP.txt"
 ERR="$RUNS_DIR/$STAMP.stderr.txt"
 CVMD="$RUNS_DIR/$STAMP.cvmds"
@@ -77,95 +122,118 @@ if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
   export SOURCE_DATE_EPOCH
 fi
 
-printf 'run: executing (about two minutes)\n' >&2
-./carbonsim > "$OUT" 2> "$ERR"
+printf 'run: executing (about six to eleven minutes; the polar-WHAM leg dominates)\n' >&2
+( cd "$STAGE" && "$HERE/carbonsim" ) > "$OUT" 2> "$ERR" || {
+  rc=$?
+  rm -rf "$STAGE"
+  echo "run: engine exited $rc; no record candidate" >&2
+  sed -n '1,20p' "$ERR" >&2
+  exit "$rc"
+}
 # FULL-AUDIT O21: stage the kcsa.cvmds side effect alongside stdout so the
 # sealed pair cannot fork (record = stdout + cvmds, promoted atomically).
-if [ -f kcsa.cvmds ]; then cp kcsa.cvmds "$CVMD"; fi
+# A missing sidecar is not a partial success: the engine exits nonzero when
+# ds_close fails, but a future regression that forgot to open the writer
+# would otherwise promote a stdout-only "record" that cannot be verified.
+if [ ! -f "$STAGE/kcsa.cvmds" ]; then
+  rm -rf "$STAGE"
+  echo "run: engine exited 0 but produced no kcsa.cvmds" >&2
+  echo "      the record is stdout PLUS the sealed datastream; refusing a" >&2
+  echo "      stdout-only candidate." >&2
+  exit 1
+fi
+cp "$STAGE/kcsa.cvmds" "$CVMD"
+rm -rf "$STAGE"
 
+ERR_NONEMPTY=0
 if [ -s "$ERR" ]; then
-  echo "run: engine wrote to stderr; not promoting a run whose stderr is not empty" >&2
+  ERR_NONEMPTY=1
+  echo "run: engine wrote to stderr; this run is not promotable" >&2
   sed -n '1,20p' "$ERR" >&2
 fi
 
 NEW="$(sha "$OUT")"
-OLD="$(sha "$RECORD")"
-# FULL-AUDIT: the ledger and the record were compared side by side and
-# never compared WITH EACH OTHER, so a tree whose output.txt and
-# CURRENT_BASELINE_SHA.txt disagreed (exactly the state a stale record
-# produces) was reported as "recorded record: X / recorded ledger: Y"
-# with no complaint. The two must agree.
-LEDGER_SHA="$(cat "$LEDGER" 2>/dev/null | tr -d ' \n' || echo '(absent)')"
-if [ "$LEDGER_SHA" != "(absent)" ] && [ "$LEDGER_SHA" != "$OLD" ]; then
-  echo "run: REFUSING to run: $LEDGER does not match $RECORD" >&2
-  echo "      ledger : $LEDGER_SHA" >&2
-  echo "      record : $OLD" >&2
-  echo "      the record and its ledger are out of step; promote one of" >&2
-  echo "      them deliberately before recording anything new." >&2
-  exit 1
-fi
 
 echo
 echo "  recorded record : $OLD"
 echo "  this run         : $NEW   ($OUT)"
-echo "  recorded ledger  : $(cat "$LEDGER" 2>/dev/null | tr -d ' \n' || echo '(absent)')"
+echo "  recorded ledger  : $LEDGER_SHA"
 
-if [ -z "$(cat "$ERR")" ] && [ "$OLD" = "$NEW" ]; then
-  echo "  verdict          : identical to the record; nothing to promote (stdout)"
+# One gate for every promotion path: the staged sidecar must verify, and the
+# test suite must be green. The old code only checked this on the
+# stdout-changed path, so a --accept that refreshed a sidecar next to an
+# unchanged stdout would have skipped it.
+verify_and_test() {
+  if [ ! -x ./build/verify_cvmds ]; then
+    echo "run: REFUSING promotion: build/verify_cvmds is missing, so the" >&2
+    echo "      staged kcsa.cvmds seal cannot be checked" >&2
+    return 1
+  fi
+  if ! ./build/verify_cvmds "$CVMD" >/dev/null 2>&1; then
+    echo "run: REFUSING promotion: the staged kcsa.cvmds seal did not" >&2
+    echo "      verify. The record is stdout PLUS the sealed datastream;" >&2
+    echo "      promoting an unverifiable sidecar would break that." >&2
+    return 1
+  fi
+  if ! make test >/dev/null 2>&1; then
+    echo "run: REFUSING promotion: make test is red" >&2
+    echo "      (run with an empty argument to stage without promoting)" >&2
+    return 1
+  fi
+  return 0
+}
+
+if [ "$OLD" = "$NEW" ]; then
+  if [ "$ERR_NONEMPTY" -eq 1 ]; then
+    echo "  verdict          : stdout identical, but stderr is not empty; not promoting"
+    exit 1
+  fi
+  if cmp -s "$CVMD" kcsa.cvmds; then
+    echo "  verdict          : identical to the record; nothing to promote"
+    exit 0
+  fi
+  # stdout stands still but the sealed sidecar does not. The usual cause is
+  # a source commit that did not change any printed value (a comment, a
+  # verifier, a docs-only change): the engine's source-hash header now names
+  # the new commit even though the numerical record is unchanged. --accept
+  # must be able to refresh that header, otherwise the tracked sidecar keeps
+  # naming an old commit forever.
   # FULL-AUDIT: a plain ./run used to REFRESH the tracked kcsa.cvmds even
   # though stdout stood still, so an unadmitted run left the tracked
   # artifact modified (git status showed " M kcsa.cvmds"). The sidecar is
   # now promoted only by --accept, like the record itself.
-  if [ -f "$CVMD" ] && [ -x ./build/verify_cvmds ] && ./build/verify_cvmds "$CVMD" >/dev/null 2>&1; then
-    if ! cmp -s "$CVMD" kcsa.cvmds; then
-      echo "  sidecar          : staged kcsa.cvmds differs from the tracked one;"
-      echo "                    it is NOT refreshed by a plain run (use --accept)"
-    fi
+  if [ "$ACCEPT" -eq 1 ]; then
+    verify_and_test || exit 1
+    cp "$CVMD" "kcsa.cvmds.tmp.$$"
+    mv -f "kcsa.cvmds.tmp.$$" kcsa.cvmds
+    echo "  verdict          : stdout unchanged; PROMOTED refreshed kcsa.cvmds"
+    echo "                    (same numerical record, new source-hash header)"
+    echo "                    review 'git diff kcsa.cvmds' before committing"
+    exit 0
   fi
+  echo "  sidecar          : staged kcsa.cvmds differs from the tracked one;"
+  echo "                    it is NOT refreshed by a plain run (use --accept)"
   exit 0
 fi
 
 # FULL-AUDIT O22: promotion requires empty stderr AND a green verifier.
 # An empty stderr alone can still promote red science; warn loudly.
-if [ "$ACCEPT" -eq 1 ] && [ -z "$(cat "$ERR")" ]; then
-  # FULL-AUDIT: the staged sidecar is NOT promoted unless its seal
-  # verifies. The old code printed a warning and then copied the file
-  # anyway - so a TAMPERED or TRUNCATED kcsa.cvmds replaced the tracked,
-  # sealed artefact while the log said "promoting stdout only". Worse,
-  # when ./build/verify_cvmds was missing the `!` chain made the whole
-  # condition false, so an unverified file was promoted SILENTLY.
-  # The sidecar is part of the record (stdout + sealed datastream), so
-  # an unverifiable sidecar is a hard refusal.
-  if [ -f "$CVMD" ]; then
-    if [ ! -x ./build/verify_cvmds ]; then
-      echo "run: REFUSING promotion: build/verify_cvmds is missing, so the" >&2
-      echo "      staged kcsa.cvmds seal cannot be checked" >&2
-      exit 1
-    fi
-    if ! ./build/verify_cvmds "$CVMD" >/dev/null 2>&1; then
-      echo "run: REFUSING promotion: the staged kcsa.cvmds seal did not" >&2
-      echo "      verify. The record is stdout PLUS the sealed datastream;" >&2
-      echo "      promoting an unverifiable sidecar would break that." >&2
-      exit 1
-    fi
-  fi
-  if ! make test >/dev/null 2>&1; then
-    echo "run: REFUSING promotion: make test is red (run with empty arg to stage without promoting)" >&2
-    exit 1
-  fi
+if [ "$ACCEPT" -eq 1 ] && [ "$ERR_NONEMPTY" -eq 0 ]; then
+  verify_and_test || exit 1
   # FULL-AUDIT: the promotion is ATOMIC. `cp` truncates the destination
   # before it writes, so an interruption mid-copy left a TRUNCATED
   # output.txt - the record destroyed, and the ledger disagreeing with
   # it. Each artefact is now written to a temporary name in the same
   # directory and renamed into place (rename is atomic within a
   # filesystem), and the ledger is written LAST so it never advertises
-  # a digest the record does not have.
-  cp "$OUT" "$RECORD.tmp"
-  if [ -f "$CVMD" ]; then cp "$CVMD" kcsa.cvmds.tmp; fi
-  mv -f "$RECORD.tmp" "$RECORD"
-  if [ -f "$CVMD" ]; then mv -f kcsa.cvmds.tmp kcsa.cvmds; fi
-  printf '%s\n' "$NEW" > "$LEDGER.tmp"
-  mv -f "$LEDGER.tmp" "$LEDGER"
+  # a digest the record does not have. The pid suffix keeps concurrent
+  # staging runs from sharing a temporary file.
+  cp "$OUT" "$RECORD.tmp.$$"
+  cp "$CVMD" "kcsa.cvmds.tmp.$$"
+  mv -f "$RECORD.tmp.$$" "$RECORD"
+  mv -f "kcsa.cvmds.tmp.$$" kcsa.cvmds
+  printf '%s\n' "$NEW" > "$LEDGER.tmp.$$"
+  mv -f "$LEDGER.tmp.$$" "$LEDGER"
   echo "  verdict          : PROMOTED to $RECORD and $LEDGER (+ kcsa.cvmds)"
   echo "                    review 'git diff $RECORD' before committing"
   echo "                    then run ./verify_scripts.sh && ./s01_verify_record.sh"
@@ -175,5 +243,5 @@ fi
 echo "  verdict          : differs from the record, left unpromoted"
 echo "                    inspect 'git diff --no-index $RECORD $OUT', then"
 echo "                    re-run as './run --accept' to promote it"
-[ "$ACCEPT" -eq 1 ] && exit 1
+if [ "$ACCEPT" -eq 1 ] || [ "$ERR_NONEMPTY" -eq 1 ]; then exit 1; fi
 exit 0

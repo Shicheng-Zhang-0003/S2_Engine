@@ -41,9 +41,10 @@ jobs:
 
       - name: build (serial record build, warning-free)
         run: |
+          set -o pipefail
           make clean
-          make -j"$(nproc)"
-          if grep -q 'warning:' build/*.log 2>/dev/null; then
+          make -j"$(nproc)" 2>&1 | tee /tmp/s2-build.log
+          if grep -q 'warning:' /tmp/s2-build.log; then
             echo "build produced warnings"; exit 1
           fi
 
@@ -81,7 +82,7 @@ jobs:
       - name: multicore gates
         run: |
           for t in test_datastream test_forces test_fire test_loop \
-                   test_eht test_external test_regression; do
+                   test_eht test_external test_regression test_audit4; do
             printf '%-18s ' "$t"
             if ./build-perf/"$t" > "perf_$t.log" 2>&1; then
               echo "OK"

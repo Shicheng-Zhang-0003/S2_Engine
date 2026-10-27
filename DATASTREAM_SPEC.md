@@ -20,11 +20,15 @@ rules the format now ENFORCES, not merely states:
 * **A non-finite number never enters the payload.** `ds_add_claim()` and
   friends fail the writer closed on a NaN or an infinity, so a
   non-finite claim can never be sealed into a file that verifies "clean".
-* **A short write is not a success.** `ds_close()` honours `fclose()`'s
-  return value and removes a partially written file.
-* **The writer buffers and truncates.** `ds_open()` buffers the whole
-  payload and `ds_close()` truncates it; there is no append path and no
-  reopen, so a file is either written complete and sealed, or not at all.
+* **A short write is not a success.** `ds_close()` writes to
+  `<path>.tmp.<pid>` and honours `fclose()`'s return value; on any failure
+  it removes the temporary file and leaves the target untouched.
+* **Replacement is atomic.** `ds_close()` renames the completed temporary
+  file into place only after the sealed payload has been written and closed.
+  There is no append path and no reopen, so the target is either the
+  complete, sealed new payload or the previous file byte-for-byte — never a
+  truncated mixture. A caller that sees `ds_close() != 0` has not produced a
+  new file and must not verify the old one and call its seal current.
 * **The buffer cap is 1 GiB**, and it is the cap: growth stops at 2^30
   bytes rather than the 2 GiB the old comment claimed.
 

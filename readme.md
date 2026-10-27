@@ -35,7 +35,7 @@ together, and what may not be cited.
 | [`docs/limitations.md`](docs/limitations.md) | the full list of known limitations, stated plainly |
 | [`docs/terminal.md`](docs/terminal.md) | the interactive terminal `s2tui`: a POSIX shell over one live simulation |
 | [`DATASTREAM_SPEC.md`](DATASTREAM_SPEC.md) | the `.cvmds` format: schema 1, the SHA-256 seal, the claim and provenance vocabulary |
-| [`release_note_v9R4.md`](release_note_v9R4.md) | the release's correction history: every defect that was found, what it was, and what replaced it |
+| [`release_note_v9R5.md`](release_note_v9R5.md) | the release's correction history: every defect that was found, what it was, and what replaced it |
 | [`audit/README.md`](audit/README.md) | the audit's own working material: independent oracles, C harnesses, external references, pre-fix engine copies |
 
 ## 1. Build, run, test
@@ -50,12 +50,12 @@ every line command works, only the alternate-screen reports unavailable).
 | `make` / `make -j$(nproc)` | build everything: `carbonsim`, `s2tui`, and all eight test binaries (serial record build, byte-deterministic) |
 | `make perf` | build everything with **OpenMP multicore** (`-fopenmp -DS2_OPENMP -march=native`) — cell-list O(N) pair search + parallel O(N²) kernels across all cores. The perf build has its **own object directory (`build-perf/`) and its own binaries (`carbonsim-perf`, `s2tui-perf`)**, so it can never contaminate the record build. Performance runs only; **never for the record** (thread scheduling changes FP summation order, so digests differ from the serial record). |
 | `./carbonsim` | run the 20-demo record sequence (**~11 minutes**; the polar-WHAM leg dominates); stdout is the byte-deterministic record |
-| `./run` | clean build behind a warning gate, run to `runs/<timestamp>.txt`, print old/new digests side by side |
-| `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt` + `kcsa.cvmds` (staged atomically: each artefact is written to a temporary name and renamed into place, and the ledger is written last); refuses to promote unless stderr is empty, `make test` is green, **and** the staged `kcsa.cvmds` seal verifies |
-| `make test` | build and run the eight unit gates only (19/22/7/202/153/60/31/80) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
+| `./run` | clean build behind a warning gate, run in a private staging directory, write `runs/<timestamp>.txt` + `.cvmds`, print old/new digests side by side; never touches the tracked record |
+| `./run --accept` | promote that run to `output.txt` + `CURRENT_BASELINE_SHA.txt` + `kcsa.cvmds` (staged atomically: each artefact is written to a temporary name and renamed into place, and the ledger is written last); refuses to promote unless the source tree is clean, stderr is empty, `make test` is green, a staged `kcsa.cvmds` exists, **and** its seal verifies |
+| `make test` | build and run the eight unit gates only (19/22/7/202/153/60/31/81) — CI must run `make test && ./verify_scripts.sh && ./s01_verify_record.sh` (plus `make audit` for evidence) |
 | `make tui` | build just the interactive terminal (`./s2tui`) |
-| `./verify_scripts.sh` | read-only record + spec verifier: baseline digest, `kcsa.cvmds` seal, key/unit compliance, every suite |
-| `./s01_verify_record.sh` | builds normally and under ASan/UBSan, asserts both reproduce the recorded digest with empty stderr |
+| `./verify_scripts.sh` | read-only record + spec verifier: baseline digest, version tags, sidecar source provenance, `kcsa.cvmds` seal, key/unit compliance, every suite |
+| `./s01_verify_record.sh` | builds normally and under ASan/UBSan, asserts both reproduce the recorded digest with empty stderr, and that all three sidecar `[claims]` sections agree |
 | `make audit` / `make audit-revert` | run the audit's independent oracles and C harnesses; `--revert` links the same regression suite against the pre-fix engine |
 | `make clean` | remove `build/`, `build-perf/`, all four binaries, and `audit/build` |
 | `s2tui` | interactive terminal; `help` prints the command map |
@@ -67,7 +67,7 @@ Set `SOURCE_DATE_EPOCH` for byte-stable side artifacts (`./run` defaults it to t
 commit time so `kcsa.cvmds` seals identically across repeated runs).
 
 **Current gate status: all green.** The eight gates, what each one pins,
-and the 574 checks they total are in §5 below. On top of them:
+and the 575 checks they total are in §5 below. On top of them:
 a warning-free clean build (serial and `make perf`), an empty stderr on the
 record, byte-identical stdout across repeated runs (serial record only),
 an intact `kcsa.cvmds` seal, and the OpenMP build passing all eight gates
@@ -99,39 +99,39 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **34 818 lines** (src 26 337 · include 3 864 · tests 4 617).
+Current tree: **35 030 lines** (src 26 414 · include 3 918 · tests 4 698).
 
 | File | Lines | Role |
 |---|---:|---|
 | `src/tui.c` | 7430 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
-| `src/main.c` | 5233 | the 20-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
-| `src/qm.c` | 3291 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver, **exact STO overlaps (ss/sps/pps/ppi), two-electron integrals (Hubbard-screened Coulomb + Wolfsberg-Helmholtz exchange), Roothaan–Hartree–Fock SCF solver + FD forces** |
+| `src/main.c` | 5261 | the 20-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
+| `src/qm.c` | 3292 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver, **exact STO overlaps (ss/sps/pps/ppi), two-electron integrals (Hubbard-screened Coulomb + Wolfsberg-Helmholtz exchange), Roothaan–Hartree–Fock SCF solver + FD forces** |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
 | `src/forces.c` | 1365 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud; **OpenMP cell-list pair search + private-force accumulators** |
 | `src/sim.c` | 1089 | lifecycle, molecule constructors, topology rebuild (P6-guarded both twins), ion/restraint plumbing (32 restraints), **cell-list build for O(N) non-bonded pairs** |
-| `src/integrator.c` | 924 | Velocity Verlet, **reference PCG64** (O'Neill 2014, XSL-RR 128/64) / Knuth-MMIX LCG, Maxwell–Boltzmann, Berendsen/Andersen/exact-OU-Langevin, steepest descent, FIRE, **standard C11 64x64->128 multiply** |
+| `src/integrator.c` | 931 | Velocity Verlet, **reference PCG64** (O'Neill 2014, XSL-RR 128/64) / Knuth-MMIX LCG, Maxwell–Boltzmann, Berendsen/Andersen/exact-OU-Langevin, steepest descent, FIRE, **standard C11 64x64->128 multiply** |
 | `src/quantum.c` | 547 | Slater screening and orbital energies, hydrogenic radial profiles, Clementi–Raimondi exponents, real spherical harmonics |
-| `src/kcsa_filter.c` | 980 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit), **backbone + side-chain dihedral torsions** |
+| `src/kcsa_filter.c` | 996 | real 1K4C TVGYG filter, ion sizing, sites, binding/dehydration legs, C-alpha tethers, H-completion (26/subunit), **backbone + side-chain dihedral torsions** |
 | `src/qm_born.c` | 128 | Born ionic self-energy, Latimer–Pitzer–Slansky radii, Pauling free-ion polarizabilities |
 | `src/qm_fluctuation.c` | 815 | variance/entropy machinery, KcsA shell strain, site-integrity gate, **ion axis constraint for fluctuation sampling** |
 | `src/aminoacids.c` | 513 | glycine/alanine/dipeptide/polyalanine builders |
-| `src/datastream.c` | 445 | schema-1 writer, self-contained FIPS 180-4 SHA-256, seal verifier (fseeko/ftello, record-tree source-hash, \r/bracket hygiene) |
+| `src/datastream.c` | 470 | schema-1 writer, self-contained FIPS 180-4 SHA-256, atomic replacement, seal verifier (fseeko/ftello, record-tree source-hash, \r/bracket hygiene) |
 | `src/periodic_table.c` | 323 | H–Kr element data, UFF ε/σ, Madelung electron configurations |
 | `src/tui_view.c` | 383 | viewport cell model shared by the ANSI frame and the curses screen |
 | `src/tui_screen.c` | 171 | ncursesw alternate-screen monitor (optional dep, TTY-gated, piped-safe) |
 | `src/neuron.c` | 173 | Hodgkin–Huxley 1952 (squid giant axon) |
 | `src/loop.c` | 84 | bio/QC/QM loop closure: Nernst, kT scale, LJ/Coulomb from same primaries |
 | `tests/test_regression.c` | 1831 | the 202-check in-repo oracle suite |
-| `tests/test_external.c` | 1095 | the 150-check outside-reference suite |
+| `tests/test_external.c` | 1095 | the 153-check outside-reference suite |
 | `tests/test_loop.c` | 273 | the 60-check loop-closure + best-layer suite |
 | `src/qm_eht_overlap.c` | 467 | exact STO overlaps: prolate A/B machinery, GL quadrature for p-pi, **and `eht_overlap_ao()` — the single shared global-axis AO overlap kernel** |
 | `src/qm_eht_scf.c` | 697 | Hoffmann EHT + SCC (Jacobi, Lowdin, Mulliken, Mayer, trust mixing) |
 | `tests/test_eht.c` | 331 | the 31-check EHT oracle suite |
-| `tests/test_audit4.c` | 696 | the 76-check fourth-audit suite (one check per defect found and fixed) |
-| `include/qm_eht.h` | 128 | EHT API + E1-E11 abstraction inventory |
+| `tests/test_audit4.c` | 777 | the 81-check fourth-audit suite (one check per defect found and fixed, plus the atomic-replacement regression) |
+| `include/qm_eht.h` | 137 | EHT API + E1-E11 abstraction inventory |
 | `include/loop.h` | 55 | loop bridge contract + abstraction inventory |
-| `include/` | 3864 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
-| `tests/` (other) | 378 | datastream, forces, fire suites |
+| `include/` | 3918 | types, constants, per-module contracts; `amber_lj.h` and `display.h` carry shared policy |
+| `tests/` (other) | 391 | datastream, forces, fire suites |
 
 ### 2.1 Multicore and cell lists (performance build)
 
@@ -214,7 +214,7 @@ interesting ones:
 
 ## 5. Verification at a glance
 
-**574 checks in eight gates**, plus 20 independent audit harnesses. Every
+**575 checks in eight gates**, plus 20 independent audit harnesses. Every
 gate is built on an oracle *outside* the thing it checks.
 
 | Gate | Checks | What it pins |
@@ -226,7 +226,7 @@ gate is built on an oracle *outside* the thing it checks.
 | `test_external` | 153 | values from outside this repository: NIST CODATA, `parm99.dat`, FIPS, PDB 1K4C, Latimer–Pitzer–Slansky Born radii, Pauling polarizabilities, HO-eps unit pin |
 | `test_loop` | 60 | bio/QC/QM loop closure: Nernst, kT, Marcus/Shannon/LJ/Coulomb, BJ/penetration, Langevin, flat-bottom, tethers, H-complete ions-hold |
 | `test_eht` | 31 | exact overlaps vs 3D-grid STO oracles, Jacobi vs 2×2 forms, H₂/H₂O SCF laws, fail-loud gates |
-| `test_audit4` | 80 | the fourth audit: the reference PCG64 vs the upstream expected-output file, EHT mirror symmetry, textbook overlap closed forms, Born induction units, one-electron integral limits, SCF invariants, the coupled-dipole operator, the cell-list origin and overflow refusal, the datastream's non-finite refusal, the Hodgkin–Huxley L'Hôpital limits, **the whole KcsA chain re-derived from the deposited geometry**, and the site-integrity gate, and the measured collapse of the flexible site |
+| `test_audit4` | 81 | the fourth audit: the reference PCG64 vs the upstream expected-output file, EHT mirror symmetry, textbook overlap closed forms, Born induction units, one-electron integral limits, SCF invariants, the coupled-dipole operator, the cell-list origin and overflow refusal, the datastream's non-finite refusal and atomic replacement, the Hodgkin–Huxley L'Hôpital limits, **the whole KcsA chain re-derived from the deposited geometry**, and the site-integrity gate, and the measured collapse of the flexible site |
 
 `make test` fails if any suite's exit code is non-zero **or** if any suite
 prints a `FAIL` line — both are checked for every suite, not just some of
@@ -239,11 +239,14 @@ the Roothaan-Hartree-Fock layer, and the multicore build) and V0.9RC3
 (the first audit pass). V0.9RC5's headline is the fourth audit: a full
 mathematical, programming and operational re-audit that found and fixed
 30 physics defects, 23 programming defects and 38 operational defects,
-added 183 new checks (80 in the new eighth gate), split the 1061-line
-readme into a documentation set, and corrected the record itself (which
-had silently drifted away from HEAD for several months). The complete
+added 183 new checks at the time (80 in the new eighth gate), split the
+1061-line readme into a documentation set, and corrected the record itself
+(which had silently drifted away from HEAD for several months). The complete
 correction history, with the measurement behind each one, is in
-[`release_note_v9R4.md`](release_note_v9R4.md) under section 11.
+[`release_note_v9R5.md`](release_note_v9R5.md) under section 11.
+
+A later datastream regression — a failed close must leave an existing
+`kcsa.cvmds` untouched — brings the eighth gate to 81 and the tree to 575.
 
 The record also reproduces **byte-for-byte under AddressSanitizer and
 UndefinedBehaviorSanitizer** with an empty stderr, which is what
@@ -314,7 +317,7 @@ NOTE: `build/*.o` + `carbonsim` are TRACKED per repo custom, so every verifier
 The tracked objects embed the absolute build path in their DWARF, so they
 are not byte-reproducible across machines even though the RECORD is.
 readme.md               this file
-release_note_v9R4.md    the release's corrections and rationale (history)
+release_note_v9R5.md    the release's corrections and rationale (history)
 DATASTREAM_SPEC.md      the .cvmds format, schema 1
 src/, include/, tests/  the engine and its suites
 docs/                   the long-form documentation, split by subject:
