@@ -52,9 +52,12 @@ rm -rf "$SCRATCH"; mkdir -p "$SCRATCH"
 # FULL-AUDIT: ds_open() stamps wallclock unless SOURCE_DATE_EPOCH is set.
 # Leave it live and the normal and sanitizer sidecars can never be compared
 # meaningfully; the record is supposed to be reproducible. Default to the
-# tree's commit time, which also makes repeated local verifications stable.
+# LAST SOURCE COMMIT's time (not HEAD's): HEAD moves when the record is
+# committed, while the source commit is stable.
 if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
-  SOURCE_DATE_EPOCH="$(git -C "$TREE" log -1 --format=%ct 2>/dev/null || date +%s)"
+  SDE="$(git -C "$TREE" log -1 --format=%ct -- :/src :/include :/tests :/makefile 2>/dev/null || true)"
+  [ -n "$SDE" ] || SDE="$(date +%s)"
+  SOURCE_DATE_EPOCH="$SDE"
   export SOURCE_DATE_EPOCH
 fi
 

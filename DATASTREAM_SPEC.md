@@ -64,10 +64,13 @@ Key/value pairs, one per line, `key: value`.
 - `build-compiler:` e.g. `gcc 13.3.0` (full version; major-only `gcc 13`
   is a legacy coarse value, still accepted by verifiers)
 - `build-flags:` exact CFLAGS used (a *record* build must NOT carry `-march=native`)
-- `source-hash:` SHA-256 of the source tree or git commit when VCS is
-  available; otherwise a `record-tree-*` token describing the tree state
-  (no-VCS fallback, e.g. `record-tree-v9R4-unversioned`; validators check
-  presence and the `record-tree-` prefix, not hash equality, in that mode).
+- `source-hash:` git commit that last touched the source paths
+  (`src include tests makefile`) when VCS is available, suffixed `-dirty`
+  if those paths differ from it; otherwise a `record-tree-*` token describing
+  the tree state (no-VCS fallback, e.g. `record-tree-v9R5-unversioned`;
+  validators check presence and the `record-tree-` prefix, not hash
+  equality, in that mode). Naming the source commit rather than `HEAD`
+  keeps the sidecar stable across record-only and documentation commits.
   Extra free-form suffixes after `;` are FORBIDDEN (full-audit O10).
 - `rng-seed:` integer seed for any stochastic initialisation
 - `wallclock:` ISO-8601 timestamp of the run

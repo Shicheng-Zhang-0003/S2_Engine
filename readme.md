@@ -63,8 +63,9 @@ every line command works, only the alternate-screen reports unavailable).
 The record build uses `-O3 -g -Wall -Wextra -Werror -ffp-contract=off -std=c11 -Iinclude` and never
 `-march=native`: `-ffp-contract=off` pins FP codegen (the `-march` ban alone does not stop FMA
 fusion under `-O3` on FMA hosts), and `-Werror` makes warnings fail the build.
-Set `SOURCE_DATE_EPOCH` for byte-stable side artifacts (`./run` defaults it to the tree's own
-commit time so `kcsa.cvmds` seals identically across repeated runs).
+Set `SOURCE_DATE_EPOCH` for byte-stable side artifacts (`./run` defaults it to the last
+source commit's time so `kcsa.cvmds` seals identically across repeated runs, including
+after record-only commits).
 
 **Current gate status: all green.** The eight gates, what each one pins,
 and the 575 checks they total are in §5 below. On top of them:
@@ -99,12 +100,12 @@ are 2019 CODATA values, and every conversion factor is derived in-line from
 primaries (`include/constants.h`) rather than hand-typed, so reciprocals are
 exact by construction.
 
-Current tree: **35 030 lines** (src 26 414 · include 3 918 · tests 4 698).
+Current tree: **35 037 lines** (src 26 421 · include 3 918 · tests 4 698).
 
 | File | Lines | Role |
 |---|---:|---|
 | `src/tui.c` | 7430 | interactive terminal: full POSIX shell + `screen` fullscreen twin, chemistry lab, gas/barostat (not in the record) |
-| `src/main.c` | 5261 | the 20-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
+| `src/main.c` | 5268 | the 20-demo record program and datastream consumer (Demo 7 A-T + monomer-subtracted legs; fail-closed exit status) |
 | `src/qm.c` | 3292 | QEq-lite (topological hard core, not literal Rappe shielding) + induced dipoles (first-order + coupled SCF), Pauli, TT/BJ dispersion, penetration-damped Coulomb, overlap, SCF driver, **exact STO overlaps (ss/sps/pps/ppi), two-electron integrals (Hubbard-screened Coulomb + Wolfsberg-Helmholtz exchange), Roothaan–Hartree–Fock SCF solver + FD forces** |
 | `src/nucleobases.c` | 1279 | five bases, deoxyribose, T-p-A dinucleotide, pairing/geometry helpers |
 | `src/forces.c` | 1365 | non-bonded pairs (upper-bound OOB-checked), bonded terms, harmonic/flat-bottom restraints, analytic dihedral gradients, energy breakdown; QM caps fail loud; **OpenMP cell-list pair search + private-force accumulators** |
