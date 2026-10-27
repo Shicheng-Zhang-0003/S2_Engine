@@ -1,6 +1,6 @@
-# v9R4 / V0.9RC4 — Deep Audit Release
+# v9R5 / V0.9RC5 — Deep Audit Release
 
-**Internal:** `v9R4`  **External tag:** `V0.9RC4`
+**Internal:** `v9R5`  **External tag:** `V0.9RC5`
 **Repository:** https://github.com/Shicheng-Zhang-0003/S2_Engine
 
 ---
@@ -1225,12 +1225,14 @@ The same six values appear in the Rust `rand_pcg` crate's published test
 
 ### 11.5 Gates
 
-`test_audit4` is the eighth suite: **43** checks, one per defect above,
-each built on an independent oracle — the upstream published PCG64
+`test_audit4` is the eighth suite: **81** checks, mostly one per defect
+above, each built on an independent oracle — the upstream published PCG64
 vectors, the textbook overlap closed forms, the mirror symmetry of a bent
 H–C–H, a brute-force 3D grid integration of the actual valence charge
 densities, the L'Hôpital limits of the Hodgkin–Huxley rate functions, and
-the geometric symmetry of a hydroxyl. `test_external` grew from 150 to
-153. The tree now pins **574 checks across eight suites**, all green, and
-the CI chain runs them plus the audit, the ASan/UBSan record
-reproducibility harness, the OpenMP build, and the record-staleness check.
+the geometric symmetry of a hydroxyl. The later check pins the datastream's
+atomic replacement: a failed close leaves an existing target untouched.
+`test_external` grew from 150 to 153. The tree now pins **575 checks across
+eight suites**, all green, and the CI chain runs them plus the audit, the
+ASan/UBSan record reproducibility harness, the OpenMP build, and the
+record-staleness check.

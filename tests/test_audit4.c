@@ -403,6 +403,43 @@ static void test_datastream_nonfinite(void) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+ * 9b. A failed writer must not destroy or replace an existing target.
+ *     ds_close() writes <path>.tmp.<pid> and renames only after the whole
+ *     sealed payload is safely on disk; a failure leaves the old file
+ *     untouched. Verifying the old file and calling it this run's seal was
+ *     the fail-open bug the atomic replacement fixes.
+ * ═══════════════════════════════════════════════════════════════════════ */
+static void test_datastream_existing_target(void) {
+    grp("Datastream preserves an existing target on a failed close (audit)");
+    const char *path = "build/audit4_existing.cvmds";
+    const char *old = "[header]\nprevious record\n[end]\n";
+    FILE *f = fopen(path, "wb");
+    if (!f) { ok("seed an existing target", 0, "could not create"); return; }
+    int wrote = fwrite(old, 1, strlen(old), f) == strlen(old);
+    if (fclose(f) != 0) wrote = 0;
+    if (!wrote) { ok("seed an existing target", 0, "short write"); return; }
+
+    DSWriter *w = ds_open(path, "audit4");
+    if (!w) { ok("ds_open over an existing target", 0, "failed"); return; }
+    ds_add_claim(w, "audit4.finite", 2.5, "eV", "computed");
+    ds_add_claim(w, "audit4.nan", NAN, "eV", "computed");
+    int rc = ds_close(w);
+
+    char now[128] = {0};
+    size_t n = 0;
+    f = fopen(path, "rb");
+    if (f) { n = fread(now, 1, sizeof now - 1, f); fclose(f); }
+    char tmp[160];
+    snprintf(tmp, sizeof tmp, "%s.tmp.%ld", path, (long)getpid());
+    int same = (n == strlen(old)) && memcmp(now, old, n) == 0;
+    ok("a failed close leaves the previous target byte-for-byte",
+       rc != 0 && same && access(tmp, F_OK) != 0,
+       "target unchanged, no temporary file left");
+    remove(tmp);
+    remove(path);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
  * 10. The periodic table refuses a NULL symbol; the electron count
  *     reports what was actually placed.
  * ═══════════════════════════════════════════════════════════════════════ */
@@ -726,6 +763,7 @@ int main(void) {
     test_dipole_coupling_scale();
     test_cell_list_origin();
     test_datastream_nonfinite();
+    test_datastream_existing_target();
     test_periodic_table_guards();
     test_neuron_singularities();
     test_kcsa_hydroxyl_angle();

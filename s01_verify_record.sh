@@ -20,7 +20,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TREE="$HERE"
 SCRATCH="$HERE/audit/scratch/s01"
-# Record SHA is the single source of truth in v9R4/CURRENT_BASELINE_SHA.txt.
+# Record SHA is the single source of truth in the tree's
+# CURRENT_BASELINE_SHA.txt.
 # Read live so this harness cannot fork from the tree it verifies.
 EXPECTED_SHA="$(cat "$TREE/CURRENT_BASELINE_SHA.txt" | tr -d ' \n')"
 EMPTY_SHA="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -47,6 +48,15 @@ EMPTY_SHA="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 command -v sha256sum >/dev/null || { echo "FATAL: sha256sum not found"; exit 2; }
 
 rm -rf "$SCRATCH"; mkdir -p "$SCRATCH"
+
+# FULL-AUDIT: ds_open() stamps wallclock unless SOURCE_DATE_EPOCH is set.
+# Leave it live and the normal and sanitizer sidecars can never be compared
+# meaningfully; the record is supposed to be reproducible. Default to the
+# tree's commit time, which also makes repeated local verifications stable.
+if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
+  SOURCE_DATE_EPOCH="$(git -C "$TREE" log -1 --format=%ct 2>/dev/null || date +%s)"
+  export SOURCE_DATE_EPOCH
+fi
 
 # FULL-AUDIT: the sanitizer build was missing several things the record
 # build has, and each omission weakened the gate:
@@ -82,6 +92,8 @@ echo "[2/6] run normal build"
 # TRACKED kcsa.cvmds with a wallclock-stamped one. The runs happen in
 # the scratch directory; the tracked sidecar is restored afterwards.
 ( cd "$SCRATCH" && "$TREE/carbonsim" ) >"$SCRATCH/output.txt" 2>"$SCRATCH/stderr_normal.txt"
+# Preserve the normal build's sidecar before the sanitizer run overwrites it.
+cp "$SCRATCH/kcsa.cvmds" "$SCRATCH/kcsa.normal.cvmds"
 
 echo "[3/6] clean + ASan build"
 make -C "$TREE" clean >/dev/null
@@ -130,6 +142,34 @@ check "ASan output SHA == recorded"                "$EXPECTED_SHA" "$asan_sha"
 check "ASan output == normal output (byte-identical)" "$norm_sha"  "$asan_sha"
 check "ASan stderr empty"                          "$EMPTY_SHA"     "$asan_err"
 check "normal stderr empty (no fallback warnings)" "$EMPTY_SHA"     "$norm_err"
+
+# FULL-AUDIT: the sealed sidecar is half the record. Only its seal was ever
+# checked here; its CLAIMS could have drifted away from the freshly computed
+# values while stdout happened to match. Compare the [claims] sections of all
+# three copies: the normal build, the sanitizer build, and the tracked file.
+claims_section() { sed -n '/^\[claims\]/,/^\[end\]/p' "$1" 2>/dev/null | grep -v '^\['; }
+claims_section "$SCRATCH/kcsa.normal.cvmds" > "$SCRATCH/claims.normal"
+claims_section "$SCRATCH/kcsa.cvmds"        > "$SCRATCH/claims.asan"
+claims_section "$TREE/kcsa.cvmds"           > "$SCRATCH/claims.tracked"
+norm_claims_sha=$(sha256sum "$SCRATCH/claims.normal"  | cut -d' ' -f1)
+asan_claims_sha=$(sha256sum "$SCRATCH/claims.asan"    | cut -d' ' -f1)
+track_claims_sha=$(sha256sum "$SCRATCH/claims.tracked" | cut -d' ' -f1)
+norm_claims_n=$(grep -vc '^#\|^$' "$SCRATCH/claims.normal" || true)
+check "fresh sidecar has claim rows" "yes" \
+      "$([ "${norm_claims_n:-0}" -gt 0 ] && echo yes || echo no)"
+check "ASan sidecar claims == normal sidecar claims" "$norm_claims_sha" "$asan_claims_sha"
+check "tracked sidecar claims == fresh normal claims" "$norm_claims_sha" "$track_claims_sha"
+
+if [ -x "$TREE/build/verify_cvmds" ]; then
+  "$TREE/build/verify_cvmds" "$SCRATCH/kcsa.normal.cvmds" >/dev/null 2>&1 && NS=0 || NS=1
+  "$TREE/build/verify_cvmds" "$SCRATCH/kcsa.cvmds"        >/dev/null 2>&1 && AS=0 || AS=1
+  "$TREE/build/verify_cvmds" "$TREE/kcsa.cvmds"           >/dev/null 2>&1 && TS=0 || TS=1
+  check "fresh normal sidecar seal verifies" "0" "$NS"
+  check "fresh ASan sidecar seal verifies"   "0" "$AS"
+  check "tracked sidecar seal verifies"      "0" "$TS"
+else
+  check "build/verify_cvmds present" "yes" "no"
+fi
 
 if [ "$fail" -ne 0 ]; then
   echo

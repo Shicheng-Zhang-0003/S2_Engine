@@ -40,7 +40,7 @@ Marcus 1991 TATB free energies, K⁺ advantage 1.368 → 0.726 eV), a glycine
 charge table carried a sign-inverted neutrality correction, and several
 constants had duplicated spellings free to drift. Each correction is pinned
 by a regression check that fails on the old code. The row-by-row history
-lives in `release_note_v9R4.md` and the commit log, not here.
+lives in `release_note_v9R5.md` and the commit log, not here.
 
 <a id="the-third-audit-pass-2026-10-10-—-independent-oracle-sweep"></a>
 ### The third audit pass (2026-10-10) — independent oracle sweep
@@ -92,16 +92,17 @@ Its findings:
   seal verified clean (Q3, now rejected and pinned).
 * **QEq — one real physics defect, now refused.** See §7.
 
-The four defects fixed in this pass are listed in `release_note_v9R4.md`
+The four defects fixed in this pass are listed in `release_note_v9R5.md`
 under the third-audit section, and each is pinned by a regression check that
 fails on the pre-fix code.
 
 <a id="the-fourth-audit-pass-2026-10-21-—-full-mathematical-programming-and-operational-re-audit"></a>
 ### The fourth audit pass (2026-10-21) — full mathematical, programming and operational re-audit
 
-The eighth gate, `tests/test_audit4.c` (80 checks), exists because of this
-pass: one check per defect, each built on an oracle *outside* the thing it
-checks — the upstream `pcg-c` expected-output file, textbook overlap
+The eighth gate, `tests/test_audit4.c` (81 checks), exists because of this
+pass; 80 of them are the fourth-audit checks, and one is a later regression
+for atomic datastream replacement. Each is built on an oracle *outside* the
+thing it checks — the upstream `pcg-c` expected-output file, textbook overlap
 closed forms, the mirror symmetry of a bent H–C–H, a 3D grid integration
 of the actual valence charge densities, the L'Hôpital limits of the
 Hodgkin–Huxley rate functions, and the KcsA chain re-derived from the
@@ -126,7 +127,7 @@ on** — and that discipline changed the outcome in both directions:
   itself.
 
 **What the audit found and what was done about it.** The defects are
-listed in full in `release_note_v9R4.md` under the fourth-audit section.
+listed in full in `release_note_v9R5.md` under the fourth-audit section.
 The headline items:
 
 | Area | Defect | Consequence | Status |

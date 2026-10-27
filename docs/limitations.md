@@ -145,13 +145,6 @@ Stated plainly, because the numbers above cannot be read correctly without them.
   1.35 / 1.94 Å³, a ratio of 5.51 and a 24 % difference for Cs⁺. The
   difference is tens of percent on a single number in an already
   qualitative leg.
-* **The Pauli term still uses the heuristic overlap.** `qm_overlap()`
-  dispatches to the exact kernel, but the charge-responsive overlap
-  `qm_overlap_q()` (the `exp(−ζR)·ang` estimate) is what the Pauli
-  repulsion is built from, and the EHT layer does not use `qm_overlap`
-  at all.
-
----
 
 ---
 

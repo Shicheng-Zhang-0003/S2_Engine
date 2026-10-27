@@ -3773,12 +3773,15 @@ static void demo_kcsa_filter(void) {
              * Prefer the git commit when available, else a record-tree token. */
             {
                 char sh[64] = "";
+                char tok[96];
                 /* FULL-AUDIT: `git status` honours core.fsmonitor from
                  * the repository configuration, so running the engine
                  * inside an untrusted checkout can execute a configured
                  * command with the user's privileges. The same applies
                  * to hooks. The config is overridden for these two
                  * read-only queries. */
+                snprintf(tok, sizeof tok, "record-tree-%s-unversioned",
+                         S2_VERSION_INTERNAL);
                 FILE *gp = popen("git -c core.fsmonitor=false "
                                  "-c core.hooksPath=/dev/null "
                                  "rev-parse HEAD 2>/dev/null", "r");
@@ -3787,13 +3790,24 @@ static void demo_kcsa_filter(void) {
                         size_t L = strlen(sh);
                         while (L && (sh[L-1] == '\n' || sh[L-1] == '\r' || sh[L-1] == ' ')) sh[--L] = '\0';
                         if (L == 40) {
-                            char tok[96];
                             /* FULL-AUDIT O10: a dirty tree is not the commit.
-                             * Suffix -dirty when `git status` is non-empty. */
+                             * Suffix -dirty when the SOURCE tree is non-empty.
+                             * The pathspec is deliberate: the tracked build
+                             * objects and the carbonsim binary are rewritten
+                             * by a clean build (DWARF paths differ by machine),
+                             * so a whole-tree `git status` marks every normal
+                             * build dirty. The record is a claim about
+                             * src/include/tests/makefile, not about the
+                             * compiler's debug paths. The :/ prefix makes the
+                             * pathspec top-of-tree relative, because ./run
+                             * executes the engine from a staging subdirectory:
+                             * bare `-- src` there matches nothing and silently
+                             * reports a dirty tree as clean. */
                             int dirty = 0;
                             FILE *gs = popen("git -c core.fsmonitor=false "
                                              "-c core.hooksPath=/dev/null "
-                                             "status --porcelain 2>/dev/null", "r");
+                                             "status --porcelain -- :/src :/include :/tests :/makefile "
+                                             "2>/dev/null", "r");
                             if (gs) {
                                 char lb[256];
                                 if (fgets(lb, sizeof lb, gs)) dirty = 1;
@@ -3801,17 +3815,15 @@ static void demo_kcsa_filter(void) {
                             }
                             snprintf(tok, sizeof tok, "record-tree-%s%s", sh,
                                      dirty ? "-dirty" : "");
-                            ds_set_header(w, "source-hash", tok);
-                        } else {
-                            ds_set_header(w, "source-hash", "record-tree-v9R5-unversioned");
                         }
-                    } else {
-                        ds_set_header(w, "source-hash", "record-tree-v9R5-unversioned");
                     }
                     pclose(gp);
-                } else {
-                    ds_set_header(w, "source-hash", "record-tree-v9R5-unversioned");
                 }
+                /* The spec requires source-hash in every header. The old
+                 * fallback hard-coded v9R5 and the branch that never ran a
+                 * successful rev-parse set no header at all; both are now
+                 * one version-derived token. */
+                ds_set_header(w, "source-hash", tok);
             }
             ds_set_header(w, "build-flags-note", "record build must not carry -march=native");
             ds_set_header(w, "cage-geometry",
@@ -3955,10 +3967,17 @@ static void demo_kcsa_filter(void) {
 
             {
                 int rc = ds_close(w);
-                int vrc = ds_verify_file("kcsa.cvmds");
+                /* Only verify the target if THIS writer produced it. A
+                 * failed ds_close leaves any pre-existing kcsa.cvmds
+                 * untouched (see datastream.c); verifying that old file
+                 * and reporting "seal intact" next to "FAILED to write"
+                 * would mistake the previous run's artifact for this
+                 * run's output. */
+                int vrc = (rc == 0) ? ds_verify_file("kcsa.cvmds") : -1;
                 printf("\n  Datastream s42: kcsa.cvmds %s (verify: %s).\n",
                        (rc == 0) ? "written" : "FAILED to write",
-                       (rc == 0 && vrc == 0) ? "seal intact" : "seal FAILED");
+                       (rc != 0) ? "target left untouched"
+                                 : ((vrc == 0) ? "seal intact" : "seal FAILED"));
                 /* FULL-AUDIT: the sealed datastream is the single
                  * integrity-critical artefact this tree produces. A
                  * missing, truncated or unsealed kcsa.cvmds used to be
@@ -3967,8 +3986,10 @@ static void demo_kcsa_filter(void) {
                  * header claims. It is now a hard failure. */
                 if (rc != 0 || vrc != 0) {
                     fprintf(stderr,
-                            "  RECORD FAILED: kcsa.cvmds was not written "
-                            "or did not verify (rc=%d verify=%d)\n", rc, vrc);
+                            "  RECORD FAILED: kcsa.cvmds %s (rc=%d verify=%d)\n",
+                            (rc != 0) ? "was not written; any pre-existing "
+                                        "file was left untouched"
+                                      : "did not verify", rc, vrc);
                     g_failed = 1;
                 }
             }
@@ -4310,8 +4331,15 @@ static void kcsa_ionic_claims(DSWriter *w) {
                  "Dixit-Asthagiri2009-dbeta-sigma2-over-2");
     ds_add_claim(w, "kcsa.entropic.coco_target", 7.3, "kcal/mol",
                  "Dixit-Asthagiri2009-dU-COCO");
+    /* 0.0 is a SENTINEL, not a computed variance. The site-integrity gate
+     * refuses to return a variance because the flexible filter loses its
+     * 8-fold site (CN 8 -> 4 within 200 fs); the provenance names that
+     * measured reason. It used to say "no-sidechain-torsions", which
+     * stopped being true when kcsa_add_dihedrals() added the chi1 terms
+     * and the site still collapsed. Do not change this label without
+     * re-reading the gate in qm_fluctuation.c. */
     ds_add_claim(w, "kcsa.entropic.computed", 0.0, "kcal/mol",
-                 "UNRESOLVED-no-sidechain-torsions");
+                 "UNRESOLVED-site-collapse");
 }
 
 static void demo_kcsa_ionic(void) {

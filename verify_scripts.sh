@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# verify_record.sh — read-only record + spec verifier. Run from v9R4/.
-# Checks: CLEAN build, baseline SHA match, stderr empty, every selftest
-# green, kcsa.cvmds seal + key/unit compliance, cage geometry wiring.
+# verify_scripts.sh — read-only record + spec verifier. Run from the tree root.
+# Checks: CLEAN build, baseline SHA match, version tags, every selftest
+# green, kcsa.cvmds seal + provenance + key/unit compliance, cage geometry
+# wiring.
 #
 # AUDIT FIX B1 (the check that was missing): the old script ran a bare
 # `make` to count warnings. This repository TRACKS build/*.o and the
@@ -60,11 +61,24 @@ echo "=== record ==="
 [ -f output.txt ] || { echo "FATAL: output.txt missing"; exit 2; }
 EXP=$(cat CURRENT_BASELINE_SHA.txt | tr -d ' \n')
 ACT=$(sha256sum output.txt | cut -d' ' -f1)
+chk "CURRENT_BASELINE_SHA.txt is one 64-hex digest" "yes" \
+    "$(printf '%s' "$EXP" | grep -Eq '^[0-9a-f]{64}$' && echo yes || echo no)"
 chk "output.txt SHA == CURRENT_BASELINE_SHA.txt" "$EXP" "$ACT"
 chk "stderr.txt empty" "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" "$(sha256sum stderr.txt 2>/dev/null | cut -d' ' -f1 || echo MISSING)"
+# FULL-AUDIT: the v9R4 tag shipped a v9R4 banner from a tree whose constants
+# said v9R5, and nothing compared the tracked record to the source of truth.
+# Both banner occurrences and the sidecar header must name the version in
+# include/constants.h; a stale record can no longer pass by having the right
+# SHA for the wrong release.
+VINT=$(sed -n 's/^#define S2_VERSION_INTERNAL "\(.*\)"/\1/p' include/constants.h | head -1)
+VEXT=$(sed -n 's/^#define S2_VERSION_EXTERNAL "\(.*\)"/\1/p' include/constants.h | head -1)
+chk "constants.h defines both version tags" "yes" \
+    "$([ -n "$VINT" ] && [ -n "$VEXT" ] && echo yes || echo no)"
+REC_VERS=$(grep -oE 'v9R[0-9]+ / V0\.9RC[0-9]+' output.txt | sort -u | tr '\n' ';' | sed 's/;$//')
+chk "output.txt version banner == constants.h" "$VINT / $VEXT" "$REC_VERS"
 # AUDIT FIX B1: clean first - see the header. A bare `make` is a no-op
 # against the committed objects and cannot fail.
-make clean >/dev/null 2>&1
+make clean >/dev/null 2>&1 || { echo "  FAIL  make clean failed"; exit 1; }
 if ! make > "$VERIFY_BUILD_LOG" 2>&1; then
   echo "  FAIL  clean build succeeds"
   grep -E "error" "$VERIFY_BUILD_LOG" | head -10
@@ -168,7 +182,7 @@ if ! make selftest-audit4 >"$AUDIT_TMP/audit4_build.log" 2>&1; then echo "  FAIL
 A4_PASS=$(grep -c '^  PASS' "$VERIFY_A4_LOG" 2>/dev/null || true)
 A4_FAIL=$(grep -c '^  FAIL' "$VERIFY_A4_LOG" 2>/dev/null || true)
 chk "selftest-audit4 green" "0" "$A4"
-chk "audit4 gate count == 80" "80" "$A4_PASS"
+chk "audit4 gate count == 81" "81" "$A4_PASS"
 printf '  ---- fourth audit: %s checks passed, %s failed ----\n' "$A4_PASS" "$A4_FAIL"
 [ "$A4_FAIL" = "0" ] || grep '^  FAIL' "$VERIFY_A4_LOG" | head -20
 if [ -f kcsa.cvmds ]; then
@@ -176,12 +190,10 @@ if [ -f kcsa.cvmds ]; then
   if [ -x ./build/verify_cvmds ]; then
     if ./build/verify_cvmds kcsa.cvmds >/dev/null 2>&1; then SEAL_C="OK"; else SEAL_C="BAD"; fi
     chk "kcsa.cvmds seal intact (ds_verify_file)" "OK" "$SEAL_C"
+  else
+    echo "  FAIL  build/verify_cvmds missing (build it before verifying)"; fail=1
   fi
   # python cross-check kept as second opinion, not primary.
-  python3 - <<'PY'
-import sys
-PY
-  # seal check via built verifier through a tiny C call is overkill; use python sha to cross-check [end]
   SEAL_OK=$(python3 -c "
 import hashlib
 d=open('kcsa.cvmds','rb').read()
@@ -198,8 +210,37 @@ chk "charge unit e present" "e" "$(awk '$1=="kcsa.qm.q_k"{print $3}' kcsa.cvmds 
   chk "header schema present" "1" "$(grep -Fc 'schema: 1' kcsa.cvmds)"
   chk "header demo kcsa present" "1" "$(grep -Fc 'demo: kcsa' kcsa.cvmds)"
   chk "source-hash record-tree-* present" "1" "$(grep -Fc 'source-hash: record-tree-' kcsa.cvmds)"
+  SC_VINT=$(sed -n 's/^version-internal: //p' kcsa.cvmds | head -1)
+  SC_VEXT=$(sed -n 's/^version-external: //p' kcsa.cvmds | head -1)
+  chk "kcsa.cvmds version-internal == constants.h" "$VINT" "$SC_VINT"
+  chk "kcsa.cvmds version-external == constants.h" "$VEXT" "$SC_VEXT"
+  # FULL-AUDIT: the tracked sidecar named a months-old commit and carried a
+  # -dirty suffix while the build was clean, so "source-hash present" was the
+  # only provenance check and it could not distinguish the recorded source
+  # from the source being verified. Now the named commit must exist, be an
+  # ancestor of HEAD, and its src/include/tests/makefile content must equal
+  # the working tree being tested. -dirty is rejected outright.
+  SRC_HASH=$(sed -n 's/^source-hash: //p' kcsa.cvmds | head -1)
+  SRC_NODIRTY="${SRC_HASH%-dirty}"
+  if [ "$SRC_NODIRTY" = "$SRC_HASH" ]; then SRC_DIRTY_STATE=clean; else SRC_DIRTY_STATE=dirty; fi
+  chk "sidecar source-hash is not -dirty" "clean" "$SRC_DIRTY_STATE"
+  SRC_COMMIT="${SRC_NODIRTY#record-tree-}"
+  if printf '%s' "$SRC_COMMIT" | grep -Eq '^[0-9a-f]{40}$'; then SRC_FORM=yes; else SRC_FORM=no; fi
+  chk "sidecar source-hash names a 40-hex commit" "yes" "$SRC_FORM"
+  if [ "$SRC_FORM" = yes ] && command -v git >/dev/null 2>&1; then
+    if git cat-file -e "${SRC_COMMIT}^{commit}" 2>/dev/null; then SRC_EXISTS=yes; else SRC_EXISTS=no; fi
+    chk "sidecar source commit exists" "yes" "$SRC_EXISTS"
+    if [ "$SRC_EXISTS" = yes ]; then
+      if git merge-base --is-ancestor "$SRC_COMMIT" HEAD 2>/dev/null; then SRC_ANC=yes; else SRC_ANC=no; fi
+      chk "sidecar source commit is an ancestor of HEAD" "yes" "$SRC_ANC"
+      if [ -z "$(git status --porcelain -- src include tests makefile 2>/dev/null)" ]; then SRC_CLEAN=clean; else SRC_CLEAN=dirty; fi
+      chk "working source tree is clean" "clean" "$SRC_CLEAN"
+      if git diff --quiet "$SRC_COMMIT" -- src include tests makefile 2>/dev/null; then SRC_SAME=yes; else SRC_SAME=no; fi
+      chk "source files == the sidecar's recorded commit" "yes" "$SRC_SAME"
+    fi
+  fi
   chk "provenance legacy-free (JC2008-alone deprecated)" "0" "$(grep -cE ' JC2008( |$)' kcsa.cvmds || true)"
-  chk "no digest duplicated in prose" "0" "$(grep -rE '[0-9a-f]{64}' readme.md release_note_v9R4.md DATASTREAM_SPEC.md 2>/dev/null | wc -l)"
+  chk "no digest duplicated in prose" "0" "$(grep -rE '[0-9a-f]{64}' readme.md release_note_v9R5.md DATASTREAM_SPEC.md 2>/dev/null | wc -l)"
 
 # Verdict-slot ownership. The recap table's invariant is that every demo
 # that ran has its own line, and sizing the arrays is only HALF of that:
