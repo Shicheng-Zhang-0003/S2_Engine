@@ -3770,7 +3770,13 @@ static void demo_kcsa_filter(void) {
             ds_set_header(w, "version-internal", S2_VERSION_INTERNAL);
             ds_set_header(w, "version-external", S2_VERSION_EXTERNAL);
             /* FULL-AUDIT O10: spec requires a SHA or record-tree-* token.
-             * Prefer the git commit when available, else a record-tree token. */
+             * Prefer the last commit that touched the source tree, else a
+             * record-tree token. Deliberately NOT rev-parse HEAD: after the
+             * record itself is committed, HEAD names the record commit, and
+             * naming that would make every later source-identical run
+             * promote a new sidecar forever. The record is a claim about
+             * src/include/tests/makefile, so its provenance is the last
+             * commit that changed those paths. */
             {
                 char sh[64] = "";
                 char tok[96];
@@ -3784,7 +3790,8 @@ static void demo_kcsa_filter(void) {
                          S2_VERSION_INTERNAL);
                 FILE *gp = popen("git -c core.fsmonitor=false "
                                  "-c core.hooksPath=/dev/null "
-                                 "rev-parse HEAD 2>/dev/null", "r");
+                                 "log -1 --format=%H -- :/src :/include :/tests :/makefile "
+                                 "2>/dev/null", "r");
                 if (gp) {
                     if (fgets(sh, sizeof sh, gp)) {
                         size_t L = strlen(sh);

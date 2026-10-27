@@ -115,10 +115,15 @@ ERR="$RUNS_DIR/$STAMP.stderr.txt"
 CVMD="$RUNS_DIR/$STAMP.cvmds"
 
 # FULL-AUDIT O17: byte-stable side artifacts. ds_open() honors
-# SOURCE_DATE_EPOCH; default to the tree's own commit time so repeated
-# runs seal identically unless the caller overrides.
+# SOURCE_DATE_EPOCH; default to the LAST SOURCE COMMIT's time, not HEAD's.
+# HEAD advances when the record itself is committed, so HEAD time would
+# change the sidecar's wallclock on every record/docs commit and a plain
+# ./run could never reproduce the tracked sidecar. The source commit is
+# stable until src/include/tests/makefile actually change.
 if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
-  SOURCE_DATE_EPOCH="$(git log -1 --format=%ct 2>/dev/null || date +%s)"
+  SDE="$(git log -1 --format=%ct -- :/src :/include :/tests :/makefile 2>/dev/null || true)"
+  [ -n "$SDE" ] || SDE="$(date +%s)"
+  SOURCE_DATE_EPOCH="$SDE"
   export SOURCE_DATE_EPOCH
 fi
 
