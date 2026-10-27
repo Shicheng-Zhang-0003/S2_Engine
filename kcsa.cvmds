@@ -3,11 +3,11 @@ schema: 1
 demo: kcsa
 build-compiler: gcc 13.3.0
 build-flags: -O3 -g -Wall -Wextra -Werror -ffp-contract=off -std=c11 -Iinclude
-wallclock: 2026-10-22T14:10:43Z
+wallclock: 2026-10-27T03:42:13Z
 rng-seed: 7
-version-internal: v9R4
-version-external: V0.9RC4
-source-hash: record-tree-496ecfb9b63d3387ba00cffa7de0dffca909dbbf-dirty
+version-internal: v9R5
+version-external: V0.9RC5
+source-hash: record-tree-d18723b0fee55f141ffa87ec0bd41877fcff0657
 build-flags-note: record build must not carry -march=native
 cage-geometry: LEGACY demo-12 constructed cage: 3d-2.70-2.83-xy-derived-zsep-3.084
 real-filter-geometry: demo 12b: PDB 1K4C chain C TVGYG, C4-symmetric, CN=8 at all four sites
@@ -160,7 +160,7 @@ kcsa.shell.strain_na 0.45359093340517481 eV computed-linear-elastic-k10
 kcsa.shell.strain_ratio 1.0121621004437233 1 computed-linear-elastic-k10
 kcsa.entropic.target 5.5 kcal/mol Dixit-Asthagiri2009-dbeta-sigma2-over-2
 kcsa.entropic.coco_target 7.2999999999999998 kcal/mol Dixit-Asthagiri2009-dU-COCO
-kcsa.entropic.computed 0 kcal/mol UNRESOLVED-no-sidechain-torsions
+kcsa.entropic.computed 0 kcal/mol UNRESOLVED-site-collapse
 
 [end]
-payload-sha256: 186c1a49c5fe83d4ce9fbc0ae31c8020e748db3991c26e18ae51e1b91a683488
+payload-sha256: dae6b24c5ebc4439f9dc867531d9f13d10a05d3c561d15339753400f7f21c0b0
