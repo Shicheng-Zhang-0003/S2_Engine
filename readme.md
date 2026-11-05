@@ -1,5 +1,7 @@
 # S2 Engine — Nano Chemistry & Biological Simulator
 
+## Vibe Coded Industries Production 2
+
 **v9R5** (internal) · **V0.9RC5** (external) · C11 · record path: no dependencies beyond libm
 Repository: https://github.com/Shicheng-Zhang-0003/S2_Engine
 
