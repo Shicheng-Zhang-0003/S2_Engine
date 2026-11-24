@@ -55,6 +55,15 @@ extern "C" {
  *   P2 gamma_AB is an Ohno interpolant, gamma_AB = e^2/sqrt(R^2 + d^2),
  *      d = e^2/gamma_bar. It is an approximation to the two-centre Coulomb
  *      integral, flagged here rather than presented as exact.
+ *      SENSITIVITY (measured): the engine's grid-validated two-centre
+ *      kernel uses d = 2e^2/gamma_bar (28.8/Ubar with U = 2J). Substituting
+ *      that value moves the H2 minimum from 0.80 A to 1.00 A and the water
+ *      HOMO from -17.3 to -16.0 eV. The 0.80 A result therefore depends on
+ *      the shorter d; it is not a parameter-free prediction. At the water
+ *      O-H distance this kernel gives gamma_AB = 9.80 eV, while the engine
+ *      kernel gives 5.77 eV and a grid oracle for <2p_O|1/r|1s_H> gives
+ *      5.7156 eV (1.0% agreement). The side-fix does not reproduce the
+ *      engine's validated two-centre Coulomb scale.
  *   P3 Slater exponents are tabulated in atomic units; eht_overlap_ao()
  *      takes A^-1. They are converted explicitly (the old code was 1.889x
  *      too diffuse).
