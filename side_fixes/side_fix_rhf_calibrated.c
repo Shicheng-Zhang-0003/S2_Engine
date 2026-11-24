@@ -11,8 +11,24 @@
 #include <stdio.h>
 
 #define MAX_AO 32
-#define MAX_ITER 100
+#define MAX_ITER 500
 #define SCF_TOL 1e-6
+/* CONVERGENCE IS NOT ONE SMALL STEP.
+ *
+ * A single max_dp < SCF_TOL test is unsafe. In the pre-fix hybrid model the
+ * damped iteration approached an UNSTABLE antibonding fixed point, parked
+ * near it for a few iterations, then departed for the physical solution. At
+ * R = 2.50 A the trajectory ran
+ *
+ *     it=21 max_dp=7.5e-07   it=22 4.3e-07   it=23 3.6e-07
+ *     it=24 max_dp=5.9e-07   it=25 1.5e-06 -> rising again
+ *
+ * and the single test fired at it=21 with a spurious P_01 = -1.535. The
+ * orthogonal CNDO/2 secular problem no longer has that pathological root,
+ * but the window is retained: it costs a few iterations and rejects exactly
+ * the parked-but-about-to-depart case if a future parameter change
+ * reintroduces an unstable fixed point. */
+#define SCF_STABLE_WINDOW 5
 
 static int jacobi_diag(double A[MAX_AO][MAX_AO], double V[MAX_AO][MAX_AO], double d[MAX_AO], int n) {
     for (int i = 0; i < n; i++) {
@@ -101,6 +117,49 @@ static int get_val_e(int Z) {
     }
 }
 
+/* Assemble the CNDO/2 Fock matrix from a density P. Factored out so the
+ * post-SCF energy-identity check rebuilds F with exactly the same code path
+ * that produced it during the iteration. */
+static void build_fock(const Simulation *sim, int Nat, int nao,
+                       const int *ao_atom,
+                       const double H[MAX_AO][MAX_AO],
+                       const double P[MAX_AO][MAX_AO],
+                       double F[MAX_AO][MAX_AO]) {
+    for (int i = 0; i < nao; i++) {
+        int a = ao_atom[i];
+        int Za = sim->atoms[a].Z;
+        double P_AA = 0.0;
+        for (int k = 0; k < nao; k++) {
+            if (ao_atom[k] == a) P_AA += P[k][k];
+        }
+        double f_ii = H[i][i] + (P_AA - 0.5 * P[i][i]) * get_gamma_self(Za);
+        for (int b = 0; b < Nat; b++) {
+            if (b == a) continue;
+            int Zb = sim->atoms[b].Z;
+            double R = vec3_dist(sim->atoms[a].position, sim->atoms[b].position);
+            double g_ab = get_gamma_ab(Za, Zb, R);
+            double P_BB = 0.0;
+            for (int k = 0; k < nao; k++) {
+                if (ao_atom[k] == b) P_BB += P[k][k];
+            }
+            f_ii += P_BB * g_ab;
+        }
+        F[i][i] = f_ii;
+
+        for (int j = i + 1; j < nao; j++) {
+            int b = ao_atom[j];
+            int Zb = sim->atoms[b].Z;
+            if (a == b) {
+                F[i][j] = F[j][i] = -0.5 * P[i][j] * get_gamma_self(Za);
+            } else {
+                double R = vec3_dist(sim->atoms[a].position, sim->atoms[b].position);
+                double g_ab = get_gamma_ab(Za, Zb, R);
+                F[i][j] = F[j][i] = H[i][j] - 0.5 * P[i][j] * g_ab;
+            }
+        }
+    }
+}
+
 int side_fix_qm_scf_rhf_calibrated(const Simulation *sim, SideFixScfResult *out) {
     if (!sim || !sim->atoms || sim->num_atoms < 1) return -1;
     int Nat = sim->num_atoms;
@@ -113,9 +172,15 @@ int side_fix_qm_scf_rhf_calibrated(const Simulation *sim, SideFixScfResult *out)
         int Z = sim->atoms[a].Z;
         if (Z == 1) {
             ao_atom[nao] = a; ao_n[nao] = 1; ao_l[nao] = 0; ao_m[nao] = 0;
-            ao_zeta[nao] = 1.2; nao++;
+            /* Slater exponents are tabulated in atomic units; eht_overlap_ao()
+             * takes zeta in A^-1. The old code passed 1.2 / 1.625 / 1.950 /
+             * 2.275 straight through, i.e. every orbital was 1.889x too
+             * diffuse (zeta_eff = zeta_a.u. * a0). The H2 curve and the
+             * water HOMO both move when this is corrected. */
+            ao_zeta[nao] = 1.2 / BOHR_TO_ANGSTROM; nao++;
         } else if (Z == 6 || Z == 7 || Z == 8) {
-            double zeta = (Z == 6) ? 1.625 : (Z == 7) ? 1.950 : 2.275;
+            double zeta = ((Z == 6) ? 1.625 : (Z == 7) ? 1.950 : 2.275)
+                          / BOHR_TO_ANGSTROM;
             ao_atom[nao] = a; ao_n[nao] = 2; ao_l[nao] = 0; ao_m[nao] = 0;
             ao_zeta[nao] = zeta; nao++;
             for (int m = 1; m <= 3 && nao < MAX_AO; m++) {
@@ -128,6 +193,12 @@ int side_fix_qm_scf_rhf_calibrated(const Simulation *sim, SideFixScfResult *out)
 
     int n_elec = 0;
     for (int a = 0; a < Nat; a++) n_elec += get_val_e(sim->atoms[a].Z);
+    /* CLOSED-SHELL ONLY. With n_occ = n_elec / 2 an odd electron count used
+     * to lose its electron silently: an isolated H atom became n_occ = 0,
+     * P = 0, E = 0 and returned "converged". That is a wrong answer, not a
+     * converged one, and it invalidates any atomization energy built from
+     * such a fragment. Refuse instead. */
+    if (n_elec % 2 != 0) return -5;
     int n_occ = n_elec / 2;
 
     double S[MAX_AO][MAX_AO];
@@ -182,23 +253,27 @@ int side_fix_qm_scf_rhf_calibrated(const Simulation *sim, SideFixScfResult *out)
         }
     }
 
-    double W[MAX_AO][MAX_AO], Vmat[MAX_AO][MAX_AO], lam[MAX_AO], Sm[MAX_AO][MAX_AO];
+    /* CNDO/2 SECULAR PROBLEM: S = I.
+     *
+     * CNDO/2 is a zero-differential-overlap model. The atomic orbitals are
+     * treated as an ORTHOGONAL basis in the secular equations, and the real
+     * overlap S_mn survives only in the resonance integral
+     * H_mn = beta_AB S_mn (above). The previous code solved the generalized
+     * problem F C = S C eps with the EXACT S and also fed the resulting
+     * non-orthogonal P into an expression derived for an orthogonal basis.
+     * That mixed two models: Tr(P S) = n_elec held, but the two-electron
+     * terms saw Tr(P) < n_elec, the H2 symmetric solution had P_00 = 0.571
+     * instead of 1, and the H2 curve came out unbound with a spurious root
+     * flip at R ~ 2.5 A.
+     *
+     * With W = I the Roothaan step reduces to the ordinary eigenproblem,
+     * the density is normalised by Tr(P) = n_elec, and the CNDO/2 energy
+     * decomposition below is the matching expression. This is the standard
+     * CNDO/2 convention (Pople & Segal 1966, eqs. 13-16). */
+    double W[MAX_AO][MAX_AO];
     for (int i = 0; i < nao; i++)
-        for (int j = 0; j < nao; j++) Sm[i][j] = S[i][j];
-
-    if (jacobi_diag(Sm, Vmat, lam, nao) != 0) return -2;
-    for (int i = 0; i < nao; i++) {
-        if (lam[i] <= 1e-10) return -2;
-    }
-    for (int i = 0; i < nao; i++) {
-        for (int j = 0; j < nao; j++) {
-            double sum = 0.0;
-            for (int k = 0; k < nao; k++) {
-                sum += Vmat[i][k] * Vmat[j][k] / sqrt(lam[k]);
-            }
-            W[i][j] = sum;
-        }
-    }
+        for (int j = 0; j < nao; j++)
+            W[i][j] = (i == j) ? 1.0 : 0.0;
 
     double P[MAX_AO][MAX_AO];
     for (int i = 0; i < nao; i++)
@@ -208,42 +283,11 @@ int side_fix_qm_scf_rhf_calibrated(const Simulation *sim, SideFixScfResult *out)
     double C[MAX_AO][MAX_AO];
     double eps[MAX_AO];
     int converged = 0;
+    int stable = 0;   /* consecutive iterations that stayed under SCF_TOL */
     int it = 0;
 
     for (it = 0; it < MAX_ITER; it++) {
-        for (int i = 0; i < nao; i++) {
-            int a = ao_atom[i];
-            int Za = sim->atoms[a].Z;
-            double P_AA = 0.0;
-            for (int k = 0; k < nao; k++) {
-                if (ao_atom[k] == a) P_AA += P[k][k];
-            }
-            double f_ii = H[i][i] + (P_AA - 0.5 * P[i][i]) * get_gamma_self(Za);
-            for (int b = 0; b < Nat; b++) {
-                if (b == a) continue;
-                int Zb = sim->atoms[b].Z;
-                double R = vec3_dist(sim->atoms[a].position, sim->atoms[b].position);
-                double g_ab = get_gamma_ab(Za, Zb, R);
-                double P_BB = 0.0;
-                for (int k = 0; k < nao; k++) {
-                    if (ao_atom[k] == b) P_BB += P[k][k];
-                }
-                f_ii += P_BB * g_ab;
-            }
-            F[i][i] = f_ii;
-
-            for (int j = i + 1; j < nao; j++) {
-                int b = ao_atom[j];
-                int Zb = sim->atoms[b].Z;
-                if (a == b) {
-                    F[i][j] = F[j][i] = -0.5 * P[i][j] * get_gamma_self(Za);
-                } else {
-                    double R = vec3_dist(sim->atoms[a].position, sim->atoms[b].position);
-                    double g_ab = get_gamma_ab(Za, Zb, R);
-                    F[i][j] = F[j][i] = H[i][j] - 0.5 * P[i][j] * g_ab;
-                }
-            }
-        }
+        build_fock(sim, Nat, nao, ao_atom, H, P, F);
 
         double Fp[MAX_AO][MAX_AO];
         for (int i = 0; i < nao; i++) {
@@ -300,9 +344,14 @@ int side_fix_qm_scf_rhf_calibrated(const Simulation *sim, SideFixScfResult *out)
             }
         }
 
+        /* Stability window, not a single test - see SCF_STABLE_WINDOW. */
         if (max_dp < SCF_TOL) {
-            converged = 1;
-            break;
+            if (++stable >= SCF_STABLE_WINDOW) {
+                converged = 1;
+                break;
+            }
+        } else {
+            stable = 0;
         }
     }
 
@@ -310,23 +359,46 @@ int side_fix_qm_scf_rhf_calibrated(const Simulation *sim, SideFixScfResult *out)
      * E_tot = sum_A E_A + sum_{A < B} E_AB
      */
     double E_tot = 0.0;
-    /* One-center terms */
+    /* One-center terms.
+     *
+     * ENERGY IDENTITY: for a closed-shell SCF the total energy must equal
+     *   E = 1/2 * sum_mn P_mn (H_mn + F_mn) + V_nn
+     * for ANY density P, not just a converged one. Both terms below are
+     * required for that to hold; each was verified to be missing by
+     * evaluating the identity against an independently rebuilt Fock matrix
+     * on the same P (see test_rhf_energy_identity).
+     *
+     * The second line - the SAME-ATOM off-diagonal exchange - was absent.
+     * It contributes -1/2 * gamma_AA * sum_{m<n on A} P_mn^2, because
+     * F_mn = -1/2 P_mn gamma_AA for m != n on one atom, so
+     *   1/2 sum_{m!=n} P_mn F_mn = -1/4 gamma_AA * 2 sum_{m<n} P_mn^2.
+     * For H2 it is identically zero (one AO per atom), which is why the
+     * defect only surfaced on water, where it is worth 4.87 eV. */
     for (int a = 0; a < Nat; a++) {
         int Za = sim->atoms[a].Z;
         double P_AA = 0.0;
         double sum_p_diag = 0.0;
+        double sum_off = 0.0;
         double e_a = 0.0;
+        int ao_on_a[MAX_AO];
+        int n_on_a = 0;
         for (int m = 0; m < nao; m++) {
             if (ao_atom[m] != a) continue;
+            ao_on_a[n_on_a++] = m;
             P_AA += P[m][m];
             sum_p_diag += P[m][m] * P[m][m];
             e_a += P[m][m] * get_u_core(Za, ao_l[m]);
         }
+        for (int x = 0; x < n_on_a; x++)
+            for (int y = x + 1; y < n_on_a; y++)
+                sum_off += P[ao_on_a[x]][ao_on_a[y]] * P[ao_on_a[x]][ao_on_a[y]];
         e_a += 0.5 * (P_AA * P_AA - 0.5 * sum_p_diag) * get_gamma_self(Za);
+        e_a -= 0.5 * sum_off * get_gamma_self(Za);
         E_tot += e_a;
     }
 
     /* Two-center terms */
+    double V_nn = 0.0;
     for (int a = 0; a < Nat; a++) {
         int Za = sim->atoms[a].Z;
         double P_AA = 0.0;
@@ -342,6 +414,9 @@ int side_fix_qm_scf_rhf_calibrated(const Simulation *sim, SideFixScfResult *out)
             double R = vec3_dist(sim->atoms[a].position, sim->atoms[b].position);
             double g_ab = get_gamma_ab(Za, Zb, R);
             double beta_avg = 0.5 * (get_beta0(Za) + get_beta0(Zb));
+            double z_a = (double)get_val_e(Za);
+            double z_b = (double)get_val_e(Zb);
+            V_nn += z_a * z_b * (COULOMB_MD / R);
 
             /* 1. Resonance (covalent bonding) energy */
             double e_res = 0.0;
@@ -355,23 +430,52 @@ int side_fix_qm_scf_rhf_calibrated(const Simulation *sim, SideFixScfResult *out)
                 }
             }
 
-            /* 2. Exchange correlation energy */
-            double e_ex = -0.25 * p_ab_sq * g_ab;
+            /* 2. Exchange correlation energy.
+             *
+             * COEFFICIENT IS -1/2, NOT -1/4. From the identity
+             *   1/2 sum_mn P_mn (H_mn + F_mn)
+             * the off-diagonal (m on A, n on B) contribution is
+             *   P_mn H_mn + P_mn F_mn = 2 P_mn H_mn - 1/2 P_mn^2 gamma_AB,
+             * since F_mn = H_mn - 1/2 P_mn gamma_AB. The resonance term
+             * below already carries the 2 P_mn H_mn, so the exchange term
+             * must carry -1/2. With -1/4 every total energy came out too
+             * high by exactly 1/4 * P_mn^2 * gamma_AB (measured: 0.722582
+             * eV at R = 2.50 A vs 0.72256 predicted). */
+            double e_ex = -0.5 * p_ab_sq * g_ab;
 
             /* 3. Electrostatic interaction between net charges */
             double e_elec = Qa * Qb * g_ab;
 
             /* 4. Core-core repulsion deficit: Z_A * Z_B * (14.4/R - g_ab) */
-            double e_core = (double)get_val_e(Za) * (double)get_val_e(Zb) * (COULOMB_MD / R - g_ab);
+            double e_core = z_a * z_b * (COULOMB_MD / R - g_ab);
 
             E_tot += e_res + e_ex + e_elec + e_core;
         }
     }
 
+    /* ENERGY-IDENTITY GATE.
+     *
+     * For a closed-shell SCF, E = 1/2 Tr[P(H+F)] + V_nn holds for ANY
+     * density P, not only at convergence. Rebuild F from the final P and
+     * evaluate the trace independently of the decomposition above. If the
+     * two disagree the decomposition is wrong (this is how the missing
+     * same-atom exchange term and the -1/4 coefficient were found), and a
+     * number that violates the identity must not be returned. */
+    double F_check[MAX_AO][MAX_AO];
+    build_fock(sim, Nat, nao, ao_atom, H, P, F_check);
+    double E_trace = 0.0;
+    for (int i = 0; i < nao; i++)
+        for (int j = 0; j < nao; j++)
+            E_trace += P[i][j] * (H[i][j] + F_check[i][j]);
+    E_trace = 0.5 * E_trace + V_nn;
+    if (!isfinite(E_trace) || fabs(E_trace - E_tot) > 1e-6) return -6;
+
     if (out) {
         out->converged = converged;
         out->n_iters = it + 1;
         out->e_total_eV = E_tot;
+        out->e_nuclear_eV = V_nn;
+        out->e_electronic_eV = E_tot - V_nn;
         out->homo_eV = (n_occ > 0) ? eps[n_occ - 1] : 0.0;
         out->lumo_eV = (n_occ < nao) ? eps[n_occ] : 0.0;
         out->gap_eV = out->lumo_eV - out->homo_eV;
@@ -390,5 +494,8 @@ double side_fix_h2_curve(double R_ang, int *converged) {
     sim_destroy(s);
 
     if (converged) *converged = (rc == 0);
-    return res.e_total_eV;
+    /* An unconverged solve has no energy. Returning the last iterate's
+     * number invites a caller to scan it as if it were physics, so return
+     * NAN and let the arithmetic fail loudly. */
+    return (rc == 0) ? res.e_total_eV : NAN;
 }

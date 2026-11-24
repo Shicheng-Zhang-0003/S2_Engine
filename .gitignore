@@ -47,3 +47,12 @@ build/*.log
 build-perf/
 carbonsim-perf
 s2tui-perf
+
+# side_fixes/ is an experimental staging area for candidate engine fixes.
+# Its objects and test binary are derived data rebuilt by
+# `make -C side_fixes`, exactly like build/test_* above: they are not
+# record artifacts, and a committed object is a machine-specific file
+# (absolute DWARF paths) that says nothing about the source it came from.
+# The .c/.h/Makefile sources ARE tracked.
+side_fixes/*.o
+side_fixes/test_side_fixes

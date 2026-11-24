@@ -103,6 +103,16 @@ static void test_pauli_exact(void) {
     check_rel("STO 1s-1s overlap matches analytical Roothaan closed form", S, want_S, 1e-10);
     check("Radial derivative dS/dR is negative (overlap decays with distance)", dS_dR < 0.0, "decay");
 
+    /* Unequal-exponent branch: 64-point Simpson, not the closed form (see
+     * header Q1). Reference from a converged 40-digit mpmath integral.
+     * The 5e-5 tolerance is the measured quadrature error (~1.5e-5), not a
+     * claim of exactness. */
+    double S_uneq = 0.0, dS_uneq = 0.0;
+    side_fix_sto_overlap_1s1s(1.0, 1.57, 1.0, &S_uneq, &dS_uneq);
+    check_rel("Unequal-zeta STO overlap matches converged integral (5e-5)",
+              S_uneq, 0.4594616743, 5e-5);
+    check("Unequal-zeta dS/dR is negative", dS_uneq < 0.0, "decay");
+
     /* Test 2: Analytical Pauli force matches central finite differences */
     Simulation *s = sim_create(4, 4);
     sim_add_atom(s, 1, vec3(0, 0, 0), 0.0);
@@ -137,19 +147,60 @@ static void test_pauli_exact(void) {
 static void test_rhf_calibrated(void) {
     printf("\n=== FIX 3: Calibrated Roothaan-Hartree-Fock Solver ===\n");
 
-    /* Test 1: H2 dissociation curve has an interior minimum at R ~ 0.74-0.78 A */
-    int conv = 0;
-    double E_060 = side_fix_h2_curve(0.60, &conv);
-    double E_076 = side_fix_h2_curve(0.76, &conv);
-    double E_130 = side_fix_h2_curve(1.30, &conv);
+    /* Test 1: H2 dissociation curve has a single interior minimum. Report
+     * the actual minimum, not the value the model was hoped to give. */
+    int c60 = 0, c76 = 0, c130 = 0;
+    double E_060 = side_fix_h2_curve(0.60, &c60);
+    double E_076 = side_fix_h2_curve(0.76, &c76);
+    double E_130 = side_fix_h2_curve(1.30, &c130);
 
-    char d[128];
-    snprintf(d, sizeof d, "E(0.60)=%.3f E(0.76)=%.3f E(1.30)=%.3f eV", E_060, E_076, E_130);
-    check("H2 RHF converges at multiple bond lengths", conv, d);
-    check("H2 potential curve has minimum near experimental 0.74 A (E(0.76) < E(0.60))", E_076 < E_060, d);
-    check("H2 potential curve minimum is NOT at 1.3 A (E(0.76) < E(1.30))", E_076 < E_130, d);
+    char d[192];
+    snprintf(d, sizeof d, "E(0.60)=%.3f E(0.76)=%.3f E(1.30)=%.3f eV (conv %d/%d/%d)",
+             E_060, E_076, E_130, c60, c76, c130);
+    check("H2 RHF converges at 0.60/0.76/1.30 A",
+          c60 && c76 && c130, d);
+    check("H2 curve descends from 0.60 to 0.76 A (E(0.76) < E(0.60))",
+          E_076 < E_060, d);
+    check("H2 minimum is not the engine's 1.30 A artifact (E(0.76) < E(1.30))",
+          E_076 < E_130, d);
 
-    /* Test 2: H2O produces a stably bound molecular ground state */
+    /* Locate the minimum on a fine scan and require a single interior
+     * minimum. An endpoint minimum, or a curve that is not monotone on each
+     * side of the minimum, means the SCF found different roots at
+     * neighbouring geometries - that is not a potential-energy curve. */
+    double Rmin = 0.0, Emin = 0.0;
+    double E_scan[22];
+    int kmin = -1, scan_conv = 1;
+    for (int k = 0; k <= 21; k++) {
+        double R = 0.55 + 0.05 * (double)k;
+        int c = 0;
+        double E = side_fix_h2_curve(R, &c);
+        E_scan[k] = E;
+        if (!c || !isfinite(E)) { scan_conv = 0; break; }
+        if (k == 0 || E < Emin) { Emin = E; Rmin = R; kmin = k; }
+    }
+    int single_min = scan_conv && (kmin > 0 && kmin < 21);
+    if (single_min) {
+        for (int k = 0; k < kmin; k++)
+            if (!(E_scan[k + 1] < E_scan[k])) single_min = 0;
+        for (int k = kmin; k < 21; k++)
+            if (!(E_scan[k + 1] > E_scan[k])) single_min = 0;
+    }
+    snprintf(d, sizeof d, "R_min=%.2f A E_min=%.3f eV (exp. R_e=0.7414 A, docs/demos.md)",
+             Rmin, Emin);
+    check("H2 minimum scan converges at every point", scan_conv, d);
+    check("H2 minimum is interior, not at a scan endpoint",
+          Rmin > 0.55 + 1e-9 && Rmin < 1.60 - 1e-9, d);
+    check("H2 curve has a single minimum (monotone on both sides)",
+          single_min, d);
+    /* The CNDO/2 model is not quantitative. Pin the honest residual: the
+     * minimum must land within 0.15 A of experiment, not exactly on it. */
+    check("H2 minimum is within 0.15 A of the experimental 0.7414 A",
+          fabs(Rmin - 0.7414) < 0.15, d);
+
+    /* Test 2: H2O produces a converged closed-shell state. The module is
+     * closed-shell only (header P5), so this is an orbital/gap diagnostic,
+     * not an atomization energy. */
     Simulation *w = sim_create(4, 4);
     sim_add_atom(w, 8, vec3(0, 0, 0), 0.0);
     sim_add_atom(w, 1, vec3(0.757, 0.586, 0.0), 0.0);
@@ -157,10 +208,18 @@ static void test_rhf_calibrated(void) {
 
     SideFixScfResult res;
     int rc = side_fix_qm_scf_rhf_calibrated(w, &res);
-    snprintf(d, sizeof d, "rc=%d E_tot=%.3f eV HOMO=%.3f eV gap=%.3f eV", rc, res.e_total_eV, res.homo_eV, res.gap_eV);
+    snprintf(d, sizeof d, "rc=%d E_tot=%.3f eV HOMO=%.3f eV LUMO=%.3f eV gap=%.3f eV",
+             rc, res.e_total_eV, res.homo_eV, res.lumo_eV, res.gap_eV);
     check("Water (H2O) RHF converges", rc == 0, d);
-    check("Water HOMO is negative (bound molecular state)", res.homo_eV < -5.0, d);
-    check("Water has a finite HOMO-LUMO gap", res.gap_eV > 2.0, d);
+    check("Water HOMO is negative (no positive-orbital unbound state)",
+          isfinite(res.homo_eV) && res.homo_eV < -5.0, d);
+    check("Water HOMO/LUMO are ordered and finite",
+          isfinite(res.homo_eV) && isfinite(res.lumo_eV)
+          && res.lumo_eV > res.homo_eV, d);
+    check("Water has a finite HOMO-LUMO gap",
+          isfinite(res.gap_eV) && res.gap_eV > 2.0, d);
+    check("Water total energy is finite and negative",
+          isfinite(res.e_total_eV) && res.e_total_eV < 0.0, d);
 
     sim_destroy(w);
 }
@@ -171,26 +230,52 @@ static void test_rhf_calibrated(void) {
 static void test_kcsa_stabilized(void) {
     printf("\n=== FIX 4: Stabilized KcsA Filter & Entropic Sampling ===\n");
 
-    /* Run K+ and Na+ with dielectric pore cavity screening (epsilon=4.0) */
+    /* epsilon_pore = 4.0 is a MODEL CHOICE (continuum electrostatics for a
+     * protein interior), not a value sourced in this repository. It is now
+     * passed explicitly: the module no longer substitutes 4.0 silently.
+     *
+     * 200 equilibration + 200 sampling steps at dt = 0.5 fs = 200 fs.
+     * NOTE (header K0): the null configuration does not collapse in this
+     * harness either, so these checks only describe the stabilized model;
+     * they do not prove that it fixed the original engine defect. */
     SideFixKcsaSeriesResult res_K, res_Na;
     double ddG_entropic = 0.0;
-    int rc = side_fix_kcsa_selectivity_entropic(300.0, 50, 100, 4.0,
+    int rc = side_fix_kcsa_selectivity_entropic(300.0, 200, 200, 4.0,
                                                 &ddG_entropic, &res_K, &res_Na);
 
-    char d[140];
+    char d[192];
     snprintf(d, sizeof d, "rc=%d K+ CN=%.2f <O-O>=%.2f A, Na+ CN=%.2f <O-O>=%.2f A",
              rc, res_K.cn_mean, res_K.oo_mean_A, res_Na.cn_mean, res_Na.oo_mean_A);
 
     check("Stabilized KcsA simulation completes without error", rc == 0, d);
-    check("K+ site does NOT collapse (CN_mean >= 7.0)", res_K.cn_mean >= 7.0, d);
-    check("Na+ site does NOT collapse (CN_mean >= 7.0)", res_Na.cn_mean >= 7.0, d);
+    check("K+ site stays coordinated at 200 fs (CN_mean >= 7.0)", res_K.cn_mean >= 7.0, d);
+    check("Na+ site stays coordinated at 200 fs (CN_mean >= 7.0)", res_Na.cn_mean >= 7.0, d);
     check("O-O distance remains crystallographic (> 3.8 A)", res_K.oo_mean_A > 3.8 && res_Na.oo_mean_A > 3.8, d);
 
     snprintf(d, sizeof d, "var(K)=%.4f var(Na)=%.4f ddG_entropic=%.4f eV",
              res_K.bind_var_eV2, res_Na.bind_var_eV2, ddG_entropic);
     check("Binding energy variance sigma^2 is positive and finite",
-          res_K.bind_var_eV2 > 0.0 && res_Na.bind_var_eV2 > 0.0, d);
-    check("Asthagiri-Dixit entropic fluctuation term evaluates successfully",
+          isfinite(res_K.bind_var_eV2) && isfinite(res_Na.bind_var_eV2)
+          && res_K.bind_var_eV2 > 0.0 && res_Na.bind_var_eV2 > 0.0, d);
+
+    /* The Asthagiri-Dixit term is arithmetic: Delta(Delta G) = 0.5 beta
+     * (var_Na - var_K). Verify the implementation against the formula, then
+     * attach its statistical uncertainty. The central value is NOT converged
+     * at accessible sampling (see the header, K3), so the test reports it as
+     * UNRESOLVED rather than asserting a selectivity. */
+    double kB_eV = BOLTZMANN_K * J_TO_EV;
+    double beta = 1.0 / (kB_eV * 300.0);
+    double want = 0.5 * beta * (res_Na.bind_var_eV2 - res_K.bind_var_eV2);
+    double ddg_sigma = 0.5 * beta * sqrt(res_K.bind_sem_var * res_K.bind_sem_var
+                                       + res_Na.bind_sem_var * res_Na.bind_sem_var);
+    snprintf(d, sizeof d, "ddG=%.4f +/- %.4f eV (naive 1 sigma; NOT a converged "
+             "value - see header K3), formula=%.4f",
+             ddG_entropic, ddg_sigma, want);
+
+    check_rel("Entropic term equals 0.5*beta*(var_Na - var_K)", ddG_entropic, want, 1e-12);
+    check("Entropic term carries a finite positive statistical uncertainty",
+          isfinite(ddg_sigma) && ddg_sigma > 0.0, d);
+    check("Entropic term is finite (value is reported, not hidden)",
           isfinite(ddG_entropic), d);
 }
 
@@ -233,11 +318,16 @@ static void test_cell_list_pbc(void) {
     int rc = side_fix_pbc_cell_list_build(cl, s, cutoff);
     check("Periodic cell list builds successfully", rc == 0, "rc=0");
 
-    PbcPair pairs[1024];
-    int cl_count = side_fix_pbc_cell_list_find_pairs(cl, s, cutoff, pairs, 1024);
+    /* 50 atoms give at most C(50,2) = 1225 pairs, so 2048 cannot truncate.
+     * The test asserts non-saturation explicitly: find_pairs() silently
+     * stops at max_pairs, and an exact match against brute force would be
+     * meaningless if both were capped at the same value. */
+    PbcPair pairs[2048];
+    int cl_count = side_fix_pbc_cell_list_find_pairs(cl, s, cutoff, pairs, 2048);
 
     char d[128];
     snprintf(d, sizeof d, "cell_list_count=%d brute_force_count=%d", cl_count, bf_count);
+    check("Pair buffer is not saturated (count < 2048)", cl_count < 2048, d);
     check("Periodic cell list pair count exactly matches brute force O(N^2)", cl_count == bf_count, d);
 
     side_fix_pbc_cell_list_destroy(cl);

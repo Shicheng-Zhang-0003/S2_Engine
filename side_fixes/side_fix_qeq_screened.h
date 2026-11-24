@@ -21,9 +21,12 @@ extern "C" {
  *  1. At R -> 0: J_ii(0) = J_i (exact atomic hardness self-coupling).
  *  2. For all R >= 0: J_ij(R) < (J_i + J_j)/2 <= max(J_i, J_j).
  *  3. The hardness matrix A is strictly positive-definite for all geometries.
- *  4. Eliminates the indefinite matrix bug where bare 1/r exceeded J at R < 2.2 A,
- *     which caused the unconstrained saddle-point solve to put positive charge
- *     on oxygen in O...H pairs.
+ *  4. Eliminates the indefinite matrix bug where bare 1/r exceeded J. For
+ *     the O...H pair the 2x2 hardness block loses positive definiteness
+ *     when 14.4/R > sqrt(J_O*J_H); with the table's J_O = 6.0785 eV and
+ *     J_H = 6.4220 eV that crossover is R = 2.30 A (the old header said
+ *     2.2 A). The unconstrained saddle-point solve then put positive
+ *     charge on oxygen at short O...H separations.
  *  5. Strictly conserves total charge sum(q_i) = total_q.
  */
 

@@ -47,7 +47,13 @@ int side_fix_kcsa_sample_stabilized(int ion_Z, Vec3 site, double temp_K,
                                     SideFixKcsaSeriesResult *out) {
     if (!out || n_sample < 2 || n_equil < 0) return -1;
     if (!(temp_K > 0.0) || !isfinite(temp_K)) return -1;
-    if (epsilon_pore < 1.0) epsilon_pore = 4.0; /* Default physiological channel dielectric */
+    /* eps_pore is a MODEL CHOICE, not a sourced constant. The previous
+     * code silently substituted 4.0 whenever the caller passed anything
+     * below 1.0, so epsilon = 1 (the unscreened case the collapse claim
+     * is about) could never be requested and the screening could not be
+     * tested against its own null hypothesis. Require the caller to state
+     * it. */
+    if (!(epsilon_pore >= 1.0) || !isfinite(epsilon_pore)) return -1;
 
     memset(out, 0, sizeof *out);
 
