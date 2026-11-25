@@ -51,6 +51,14 @@ jobs:
       - name: unit gates
         run: make test
 
+      - name: side-fix staging suite
+        # side_fixes/ is not part of the sealed record, but its candidate
+        # fixes are built from the engine's own objects and must not rot.
+        # Invoked directly (not via a root makefile target) because the
+        # record seal hashes the root makefile; adding a target there would
+        # invalidate kcsa.cvmds for a non-engine change.
+        run: make -C side_fixes test
+
       - name: record + spec verifier
         run: ./verify_scripts.sh
 
