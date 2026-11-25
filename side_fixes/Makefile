@@ -40,7 +40,7 @@ SIDE_OBJS = side_fix_qeq_screened.o side_fix_pauli_exact.o \
 
 TARGET = test_side_fixes
 
-.PHONY: all test clean engine-objects
+.PHONY: all test clean engine-objects probe-kcsa
 
 all: $(TARGET)
 
@@ -64,6 +64,12 @@ $(TARGET): $(SIDE_OBJS) $(ENGINE_OBJS)
 # Exits non-zero if any check fails, so this is usable as a gate.
 test: $(TARGET)
 	./$(TARGET)
+
+# Diagnostic only: runs the engine's own KcsA sampler with the side-fix
+# parameters compiled into a temp copy of src/qm_fluctuation.c. Does not
+# touch the sealed engine. See probes/run_kcsa_engine_probe.sh.
+probe-kcsa:
+	./probes/run_kcsa_engine_probe.sh
 
 clean:
 	rm -f $(SIDE_OBJS) $(TARGET)
