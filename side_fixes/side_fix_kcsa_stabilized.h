@@ -50,6 +50,12 @@ extern "C" {
  *     <O-O> rises to ~4.3 A). The earlier header claimed "CN >= 7.5 over
  *     picosecond trajectories"; that is not what the model does at 1 ps
  *     and is withdrawn. The suite exercises the 0.2 ps window.
+ *     CAVEAT: 3.9-4.1 A is BELOW the crystallographic O-O range of
+ *     4.5-5.5 A. "Held" here means the coordination number stays at 8,
+ *     not that the deposited geometry is preserved: the shell is
+ *     compressed by roughly 0.5-1.5 A in the O-O diagonals. The test's
+ *     floor is 3.8 A (the collapse regime is ~3.3 A), so passing it does
+ *     not establish a crystallographic site.
  *
  *  K3 The Asthagiri-Dixit fluctuation term is computed, but it is NOT
  *     converged at accessible sampling: the variance estimate drifts by
@@ -57,6 +63,26 @@ extern "C" {
  *     is dominated by slow filter breathing, not by a stationary
  *     ensemble). Treat Delta(Delta G_entropic) as UNRESOLVED and quote the
  *     accompanying variance/SEM, not the central value.
+ *     SIGN CONVENTION follows include/qm_fluctuation.h:
+ *     ddG = 0.5*beta*(var_K - var_Na), NEGATIVE = K+ favoured. The
+ *     earlier implementation returned the opposite sign
+ *     (0.5*beta*(var_Na - var_K)); a caller reading the engine's
+ *     convention would have read K+ preference as Na+ preference. Fixed
+ *     in this revision; the test now pins the engine sign.
+ *
+ *  K4 PLUG-IN TEST AGAINST THE ENGINE'S OWN SAMPLER (temporary, S2 site,
+ *     300 K, 200 fs, 200 equil + 200 sample): with the engine's default
+ *     dt = 1.0 fs and gamma = 0.001, neither epsilon = 4 nor tether = 8
+ *     alone holds the site (CN 5.0-6.4, gate refuses). The full set
+ *     (epsilon = 4, dt = 0.5, gamma = 0.02, tether = 8) holds
+ *     CN = 8.00/8.00, but <O-O> = 3.93-3.97 A, BELOW the
+ *     crystallographic 4.5-5.5 A. The stabilization is therefore a
+ *     four-parameter combination that includes numerical integration
+ *     choices, not a derived physical mechanism. On the same engine path
+ *     the entropic term changes sign by 500 fs (+0.64 eV, Na favoured)
+ *     after being -0.62 eV (K favoured) at 200 fs, and at 900 fs one
+ *     site falls below the CN >= 7 gate. No selectivity number is
+ *     claimed; K3's UNRESOLVED stands.
  */
 
 typedef struct {
@@ -75,7 +101,10 @@ int side_fix_kcsa_sample_stabilized(int ion_Z, Vec3 site, double temp_K,
                                     double epsilon_pore,
                                     SideFixKcsaSeriesResult *out);
 
-/* Compares K+ vs Na+ entropic selectivity Delta(0.5 * beta * sigma^2) */
+/* Compares K+ vs Na+ entropic selectivity in the engine's sign convention
+ * (include/qm_fluctuation.h): ddG = 0.5*beta*(var_K - var_Na); a NEGATIVE
+ * value means K+ is favoured. Returns 0 on success, -1 on bad input, -2 if
+ * either site collapsed, and -1 if the variance is non-finite. */
 int side_fix_kcsa_selectivity_entropic(double temp_K, int n_equil, int n_sample,
                                        double epsilon_pore,
                                        double *ddG_entropic_eV,

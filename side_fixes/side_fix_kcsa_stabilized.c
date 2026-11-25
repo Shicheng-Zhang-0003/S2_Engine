@@ -202,13 +202,23 @@ int side_fix_kcsa_selectivity_entropic(double temp_K, int n_equil, int n_sample,
         return -2; /* One of the sites collapsed */
     }
 
-    /* Asthagiri-Dixit entropic fluctuation formula:
-     * Delta(Delta G_fluct) = 0.5 * beta * (sigma_Na^2 - sigma_K^2)
-     * beta = 1 / (k_B * T)
-     */
+    /* Asthagiri-Dixit entropic fluctuation term, in the ENGINE's sign
+     * convention (include/qm_fluctuation.h):
+     *
+     *     ddG = 0.5 * beta * (sigma_K^2 - sigma_Na^2)
+     *     negative  =>  K+ is favoured.
+     *
+     * The earlier code returned 0.5*beta*(var_Na - var_K), the opposite
+     * sign, so a caller reading the engine's documented convention would
+     * have read the result backwards. qm_fluctuation_term_eV() is the
+     * engine's own implementation of the half-difference; use it rather
+     * than re-deriving the sign here. beta = 1/(k_B T). */
     double kB_eV = BOLTZMANN_K * J_TO_EV;
     double beta = 1.0 / (kB_eV * temp_K);
-    *ddG_entropic_eV = 0.5 * beta * (res_Na->bind_var_eV2 - res_K->bind_var_eV2);
+    double ddg = beta * qm_fluctuation_term_eV(res_K->bind_var_eV2,
+                                               res_Na->bind_var_eV2);
+    if (!isfinite(ddg)) return -1;
+    *ddG_entropic_eV = ddg;
 
     return 0;
 }

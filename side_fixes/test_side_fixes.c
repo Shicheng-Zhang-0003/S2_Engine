@@ -250,7 +250,7 @@ static void test_kcsa_stabilized(void) {
     check("Stabilized KcsA simulation completes without error", rc == 0, d);
     check("K+ site stays coordinated at 200 fs (CN_mean >= 7.0)", res_K.cn_mean >= 7.0, d);
     check("Na+ site stays coordinated at 200 fs (CN_mean >= 7.0)", res_Na.cn_mean >= 7.0, d);
-    check("O-O distance remains crystallographic (> 3.8 A)", res_K.oo_mean_A > 3.8 && res_Na.oo_mean_A > 3.8, d);
+    check("O-O distance stays above the collapse floor (> 3.8 A)", res_K.oo_mean_A > 3.8 && res_Na.oo_mean_A > 3.8, d);
 
     snprintf(d, sizeof d, "var(K)=%.4f var(Na)=%.4f ddG_entropic=%.4f eV",
              res_K.bind_var_eV2, res_Na.bind_var_eV2, ddG_entropic);
@@ -258,21 +258,26 @@ static void test_kcsa_stabilized(void) {
           isfinite(res_K.bind_var_eV2) && isfinite(res_Na.bind_var_eV2)
           && res_K.bind_var_eV2 > 0.0 && res_Na.bind_var_eV2 > 0.0, d);
 
-    /* The Asthagiri-Dixit term is arithmetic: Delta(Delta G) = 0.5 beta
-     * (var_Na - var_K). Verify the implementation against the formula, then
-     * attach its statistical uncertainty. The central value is NOT converged
-     * at accessible sampling (see the header, K3), so the test reports it as
+    /* The Asthagiri-Dixit term is arithmetic, in the engine's documented
+     * sign convention (include/qm_fluctuation.h):
+     *
+     *     ddG = 0.5 * beta * (var_K - var_Na),  negative = K+ favoured.
+     *
+     * Verify the implementation against that formula, then attach its
+     * statistical uncertainty. The central value is NOT converged at
+     * accessible sampling (see the header, K3), so the test reports it as
      * UNRESOLVED rather than asserting a selectivity. */
     double kB_eV = BOLTZMANN_K * J_TO_EV;
     double beta = 1.0 / (kB_eV * 300.0);
-    double want = 0.5 * beta * (res_Na.bind_var_eV2 - res_K.bind_var_eV2);
+    double want = 0.5 * beta * (res_K.bind_var_eV2 - res_Na.bind_var_eV2);
     double ddg_sigma = 0.5 * beta * sqrt(res_K.bind_sem_var * res_K.bind_sem_var
                                        + res_Na.bind_sem_var * res_Na.bind_sem_var);
     snprintf(d, sizeof d, "ddG=%.4f +/- %.4f eV (naive 1 sigma; NOT a converged "
              "value - see header K3), formula=%.4f",
              ddG_entropic, ddg_sigma, want);
 
-    check_rel("Entropic term equals 0.5*beta*(var_Na - var_K)", ddG_entropic, want, 1e-12);
+    check_rel("Entropic term equals 0.5*beta*(var_K - var_Na), engine sign",
+              ddG_entropic, want, 1e-12);
     check("Entropic term carries a finite positive statistical uncertainty",
           isfinite(ddg_sigma) && ddg_sigma > 0.0, d);
     check("Entropic term is finite (value is reported, not hidden)",
